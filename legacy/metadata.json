@@ -1,6 +1,0 @@
-{
-  "name": "FieldOps IT - Inventarisasi & Integrasi Tiket Lapangan",
-  "description": "Aplikasi manajemen inventori teknisi IT lapangan dengan pelacakan stok real-time, laporan mingguan, role pengguna, dan integrasi API auto-deduct tiket eksternal.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

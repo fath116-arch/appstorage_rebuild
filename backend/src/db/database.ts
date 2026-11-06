@@ -88,6 +88,47 @@ export async function initDatabase(): Promise<{ isMariaDb: boolean }> {
 }
 
 /**
+ * Helper memecah pernyataan SQL dengan aman tanpa merusak semicolon di dalam kutipan string
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const prevChar = i > 0 ? sql[i - 1] : '';
+
+    if (char === "'" && !inDoubleQuote && !inBacktick && prevChar !== '\\') {
+      inSingleQuote = !inSingleQuote;
+    } else if (char === '"' && !inSingleQuote && !inBacktick && prevChar !== '\\') {
+      inDoubleQuote = !inDoubleQuote;
+    } else if (char === '`' && !inSingleQuote && !inDoubleQuote && prevChar !== '\\') {
+      inBacktick = !inBacktick;
+    }
+
+    if (char === ';' && !inSingleQuote && !inDoubleQuote && !inBacktick) {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) {
+        statements.push(trimmed);
+      }
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  const remainder = current.trim();
+  if (remainder.length > 0) {
+    statements.push(remainder);
+  }
+
+  return statements;
+}
+
+/**
  * Menjalankan migrasi SQL berurutan (File 1: Auth, File 2: Inventory, File 3: Audit)
  */
 async function runMigrations(dbPool: mysql.Pool) {
@@ -105,10 +146,7 @@ async function runMigrations(dbPool: mysql.Pool) {
     const filePath = path.join(migrationsDir, file);
     if (fs.existsSync(filePath)) {
       const sql = fs.readFileSync(filePath, 'utf-8');
-      const statements = sql
-        .split(';')
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
+      const statements = splitSqlStatements(sql);
 
       for (const statement of statements) {
         try {

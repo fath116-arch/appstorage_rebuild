@@ -12,14 +12,30 @@ import { SettingService } from '../services/settingService';
 import { ActivityLogService } from '../services/activityLogService';
 import { TrashService } from '../services/trashService';
 import { executeQuery } from '../db/database';
+import { createRateLimiter } from '../middleware/rateLimitMiddleware';
 
 const router = express.Router();
+
+// Rate limiter untuk proteksi DoS pada komputasi berat PBKDF2 (10 percobaan per 5 menit)
+const loginRateLimiter = createRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  maxRequests: 10,
+  keyPrefix: 'auth_login',
+  message: 'Terlalu banyak percobaan masuk dari IP ini. Demi keamanan sistem inventaris, silakan tunggu 5 menit sebelum mencoba kembali.'
+});
+
+const resetPasswordRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 5,
+  keyPrefix: 'auth_reset_pwd',
+  message: 'Terlalu banyak permintaan reset kata sandi. Silakan tunggu 15 menit.'
+});
 
 /**
  * POST /api/auth/login
  * Memverifikasi username dan password di backend, mengeluarkan cookie httpOnly v2 (access, refresh, device)
  */
-router.post('/login', async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/login', loginRateLimiter, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const { username, password } = req.body;
 
@@ -432,7 +448,7 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
  * POST /api/auth/reset-password
  * Reset kata sandi pengguna secara mandiri (Lupa Kata Sandi)
  */
-router.post('/reset-password', async (req: express.Request, res: express.Response) => {
+router.post('/reset-password', resetPasswordRateLimiter, async (req: express.Request, res: express.Response) => {
   try {
     const { username, email, newPassword } = req.body;
 
