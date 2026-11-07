@@ -353,4 +353,18 @@ router.put(
   }
 );
 
+// ============================================================================
+// LABELS (Tahap 7: Label Batch & Cetak A4 Presisi)
+// ============================================================================
+
+router.get('/labels', requireAuth, async (req, res) => {
+  try {
+    const jenisId = req.query.jenis_id ? parseInt(String(req.query.jenis_id), 10) : undefined;
+    const labels = await CatalogService.getLabelData({ jenis_id: jenisId });
+    return res.json({ success: true, labels });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 export default router;

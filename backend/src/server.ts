@@ -18,6 +18,7 @@ import whatsappRoutes from './routes/whatsapp';
 import catalogRoutes from './routes/catalog';
 import boxRoutes from './routes/box';
 import stockRoutes from './routes/stock';
+import requestRoutes from './routes/request';
 import { BackupService } from './services/backupService';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +73,7 @@ async function startServer() {
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/boxes', boxRoutes);
   app.use('/api/stock', stockRoutes);
+  app.use('/api/requests', requestRoutes);
 
   // Endpoint Backup Khusus Data Barang (Bebas Akun)
   app.get('/api/backup/inventory/download', async (_req, res) => {

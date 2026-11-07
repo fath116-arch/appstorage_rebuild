@@ -67,10 +67,28 @@ export const CatalogV2Manager: React.FC = () => {
   const [isCorrectIdRuleOpen, setIsCorrectIdRuleOpen] = useState(false);
   const [selectedTypeForIdRule, setSelectedTypeForIdRule] = useState<Tipe | null>(null);
 
-  // Tahap 3 Stock Modals
+  // Tahap 3 & 4 Stock Modals
   const [isStockInputOpen, setIsStockInputOpen] = useState(false);
   const [isBoxManagerOpen, setIsBoxManagerOpen] = useState(false);
   const [selectedBoxForContent, setSelectedBoxForContent] = useState<string | null>(null);
+
+  // Tahap 4: Modal Detail Item Fisik & Stok Tipe
+  const [selectedTypeForItems, setSelectedTypeForItems] = useState<Tipe | null>(null);
+  const [typeItemsData, setTypeItemsData] = useState<{ items: any[]; stokJumlah: any[] }>({ items: [], stokJumlah: [] });
+  const [loadingTypeItems, setLoadingTypeItems] = useState<boolean>(false);
+
+  const handleOpenTypeItems = async (tipe: Tipe) => {
+    setSelectedTypeForItems(tipe);
+    setLoadingTypeItems(true);
+    try {
+      const res = await catalogApi.getItemsByTipe(tipe.id);
+      setTypeItemsData(res);
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoadingTypeItems(false);
+    }
+  };
 
   // Form Buat Produk
   const [newProdJenisId, setNewProdJenisId] = useState<number | ''>('');
@@ -668,6 +686,9 @@ export const CatalogV2Manager: React.FC = () => {
                             >
                               {prod.kategori === 'fast_moving' ? 'Fast Moving' : 'Recycle'}
                             </span>
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                              Total Stok: {prod.total_stok ?? 0} Unit
+                            </span>
                           </div>
                           {prod.catatan && (
                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -706,7 +727,7 @@ export const CatalogV2Manager: React.FC = () => {
                             Daftar Varian Tipe Produk: {prod.nama}
                           </h4>
                           <span className="text-[11px] text-slate-400">
-                            Nama tipe dibuat otomatis dari spesifikasi atribut yang 'masuk_nama'
+                            Klik angka stok untuk melihat daftar ID item fisik & sebaran box
                           </span>
                         </div>
 
@@ -731,7 +752,7 @@ export const CatalogV2Manager: React.FC = () => {
                               >
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-bold text-slate-900 dark:text-white text-sm">
                                         {t.nama_tipe}
                                       </span>
@@ -747,26 +768,37 @@ export const CatalogV2Manager: React.FC = () => {
                                         {t.id_dikunci ? 'Terkunci' : 'Terbuka'}
                                       </span>
                                     </div>
-                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono block mt-0.5">
                                       Mode: {t.mode_stok === 'per_id' ? 'Item Ber-ID' : 'Stok Jumlah (Bulk)'} · Sumber: {t.sumber_id}
                                     </span>
                                   </div>
 
-                                  {canManageCatalog && (
+                                  <div className="flex items-center gap-1.5 shrink-0">
                                     <button
-                                      onClick={() => {
-                                        setSelectedTypeForIdRule(t);
-                                        setCorrectSumberId(t.sumber_id);
-                                        setCorrectPrefixId(t.prefix_id || '');
-                                        setCorrectPolaId(t.pola_id || '');
-                                        setCorrectAlasan('');
-                                        setIsCorrectIdRuleOpen(true);
-                                      }}
-                                      className="px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                                      onClick={() => handleOpenTypeItems(t)}
+                                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors flex items-center gap-1 cursor-pointer"
+                                      title="Klik untuk melihat daftar ID item fisik dan lokasi box"
                                     >
-                                      Aturan ID
+                                      <BoxIcon className="w-3.5 h-3.5" />
+                                      <span>{t.stok_total ?? 0} Unit</span>
                                     </button>
-                                  )}
+
+                                    {canManageCatalog && (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedTypeForIdRule(t);
+                                          setCorrectSumberId(t.sumber_id);
+                                          setCorrectPrefixId(t.prefix_id || '');
+                                          setCorrectPolaId(t.pola_id || '');
+                                          setCorrectAlasan('');
+                                          setIsCorrectIdRuleOpen(true);
+                                        }}
+                                        className="px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                                      >
+                                        Aturan ID
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
 
                                 {/* Nilai Atribut Chip */}
@@ -780,6 +812,43 @@ export const CatalogV2Manager: React.FC = () => {
                                         {na.atribut_nama}: <strong className="text-slate-900 dark:text-white">{na.nilai_tampil}</strong>
                                       </span>
                                     ))}
+                                  </div>
+                                )}
+
+                                {/* Sebaran Box */}
+                                {t.sebaran_box && t.sebaran_box.length > 0 && (
+                                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] space-y-1">
+                                    <span className="font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                      <BoxIcon className="w-3 h-3 text-emerald-500" /> Sebaran Box:
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {t.sebaran_box.map((sb, idx) => (
+                                        <span key={idx} className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px]">
+                                          {sb.box_kode}: <strong>{sb.jumlah} unit</strong>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Riwayat Mutasi Terakhir */}
+                                {t.riwayat_terakhir && t.riwayat_terakhir.length > 0 && (
+                                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] space-y-1">
+                                    <span className="font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                      <RefreshCw className="w-3 h-3 text-blue-500" /> Riwayat Mutasi Terakhir:
+                                    </span>
+                                    <div className="space-y-1">
+                                      {t.riwayat_terakhir.map((h, idx) => (
+                                        <div key={idx} className="flex items-center justify-between text-[10px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded">
+                                          <span>
+                                            <strong className="text-slate-800 dark:text-slate-200">{h.id_aktivitas}</strong> ({h.aksi}) — {h.nama_pelaku || 'Sistem'}
+                                          </span>
+                                          <span className="font-mono text-emerald-600 dark:text-emerald-400 font-medium">
+                                            {h.kode_id ? h.kode_id : `+${h.jumlah || 1} unit`}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
 
@@ -1650,6 +1719,112 @@ export const CatalogV2Manager: React.FC = () => {
         onClose={() => setSelectedBoxForContent(null)}
         onRefreshParent={() => loadData()}
       />
+
+      {/* Modal Detail Item Fisik per Tipe (Klik Angka Stok) */}
+      {selectedTypeForItems && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-6 shadow-xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                  <BoxIcon className="w-5 h-5 text-emerald-500" />
+                  <span>Daftar Item Fisik & Stok Tipe</span>
+                </h3>
+                <span className="text-xs text-slate-500">
+                  Tipe: <strong>{selectedTypeForItems.nama_tipe}</strong> ({selectedTypeForItems.produk_nama})
+                </span>
+              </div>
+              <button onClick={() => setSelectedTypeForItems(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingTypeItems ? (
+              <div className="py-12 text-center text-slate-500">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
+                <span>Memuat item fisik...</span>
+              </div>
+            ) : (
+              <div className="overflow-y-auto space-y-4 pr-1 flex-1 text-xs">
+                {/* Mode Stok Jumlah (Bulk non-SN) */}
+                {typeItemsData.stokJumlah && typeItemsData.stokJumlah.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-slate-700 dark:text-slate-300">Stok Jumlah per Box:</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {typeItemsData.stokJumlah.map((sj: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white">{sj.box_kode}</span>
+                            {sj.box_keterangan && <span className="text-[11px] text-slate-500 block">{sj.box_keterangan}</span>}
+                          </div>
+                          <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold rounded-md">
+                            {sj.jumlah} unit
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Item Fisik Ber-ID */}
+                {typeItemsData.items && typeItemsData.items.length > 0 ? (
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-slate-700 dark:text-slate-300">
+                      Rincian Item Fisik Ber-ID ({typeItemsData.items.length} Unit Aktif):
+                    </h4>
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                          <tr>
+                            <th className="p-2.5">KODE ID (SN / MANUAL)</th>
+                            <th className="p-2.5">LOKASI BOX</th>
+                            <th className="p-2.5">STATUS</th>
+                            <th className="p-2.5">TANGGAL MASUK</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+                          {typeItemsData.items.map((it: any) => (
+                            <tr key={it.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                              <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100">{it.kode_id}</td>
+                              <td className="p-2.5">
+                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                  {it.box_kode}
+                                </span>
+                              </td>
+                              <td className="p-2.5">
+                                <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                                  {it.status}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-slate-500">{new Date(it.dibuat_pada).toLocaleString('id-ID')}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  (!typeItemsData.stokJumlah || typeItemsData.stokJumlah.length === 0) && (
+                    <div className="py-8 text-center text-slate-500">
+                      <span>Belum ada barang fisik ber-ID yang aktif untuk tipe ini.</span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setSelectedTypeForItems(null)}
+                className="px-4 py-2 font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

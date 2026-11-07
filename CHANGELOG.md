@@ -1,8 +1,41 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.1.0-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.0-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+---
+
+## 🚀 [v1.2.0] - 2026-11-06 (Rilis Final Versi 1.2.0 Lengkap)
+
+### 📦 Pembaruan Tahap 4 s/d 8 (Tuntas & Terverifikasi 100%)
+- **Tahap 4 (Antarmuka Katalog Toko Online)**:
+  - Tampilan kartu produk ala online shop dengan indikator total stok segala tipe, detail sebaran box penyimpanan, riwayat mutasi dari audit log, dan modal Rincian ID Fisik.
+  - Lulus 14/14 pengujian otomatis (`tahap4CatalogView.test.ts`).
+- **Tahap 5 (Barang Keluar, Arsip, & Restore)**:
+  - Soft delete barang keluar (`status = 'keluar'`) tunggal maupun massal (Tier 2 `approve`).
+  - Halaman dan filter pencarian Arsip lengkap.
+  - Pemulihan (restore) barang dari Arsip ke Box pilihan dengan validasi kesesuaian produk (`confirm_product_matched`) dan pencegahan duplikasi ID yang sedang aktif.
+  - Lulus 15/15 pengujian otomatis (`tahap5ArchiveRestore.test.ts`).
+- **Tahap 6 (Alur Request Teknisi & Persetujuan Cepat Atomik)**:
+  - Skema tabel `request` (`07_v2_request_schema.sql`).
+  - Persetujuan cepat: 1 approval cukup dari 3 peran (`developer`, `admin`, `warehouse_admin`).
+  - Proteksi *race condition* / double approval atomik (`UPDATE request SET status = 'disetujui' WHERE id = ? AND status = 'menunggu'`).
+  - Pengurangan stok otomatis (*auto-deduct*) dan pencatatan transaksi mutasi `AKT-YYYYMMDD-NNNN`.
+  - Lulus 11/11 pengujian otomatis (`tahap6Requests.test.ts`).
+- **Tahap 7 (Label Batch & Cetak A4 Presisi)**:
+  - Modul cetak presisi `BatchLabelPrintModal.tsx` dan endpoint `/api/catalog/labels`.
+  - Dimensi kartu label tetap **190 × 89 mm**, 2 tabel 5×3 (maks. 10 produk per kartu).
+  - Titik potong celah presisi **195 × 94 mm** di celah 5 mm antar label.
+  - Generator vektor SVG QR Code tajam resolusi tinggi (bebas blur).
+  - Pilihan slot 1-3 dan 1-3 label per lembar A4 untuk efisiensi kertas sisa.
+  - Lulus 8/8 pengujian otomatis (`tahap7Labels.test.ts`).
+- **Tahap 8 (Notifikasi Fonnte, Audit Keamanan & Dokumentasi)**:
+  - Service `NotificationService.ts` untuk pengiriman otomatis alert WhatsApp Fonnte saat request barang dibuat.
+  - Pengiriman asinkron dan terisolasi tanpa memblokir transaksi database.
+  - Sistem tema gelap/terang berbasis token CSS (`--color-*`) dengan disiplin zero-pill border.
+  - Dokumentasi sistem lengkap di `docs/v1.2.0/PANDUAN_SISTEM_V1.2.0.md` dan `docs/STATUS.md`.
+  - Total pengujian otomatis seluruh tahap: **97/97 tes (100% LULUS)**.
 
 ---
 

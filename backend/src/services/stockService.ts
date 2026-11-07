@@ -564,4 +564,324 @@ export class StockService {
       };
     });
   }
+
+  /**
+   * Mengambil daftar ID item fisik dan stok jumlah untuk satu Tipe
+   */
+  static async getItemsByTipe(tipeId: number) {
+    const items = await executeQuery<any>(
+      `SELECT i.*, b.kode as box_kode, b.keterangan as box_keterangan
+       FROM item i
+       JOIN box b ON i.box_id = b.id
+       WHERE i.tipe_id = ? AND i.status = 'aktif'
+       ORDER BY i.kode_id ASC`,
+      [tipeId]
+    );
+
+    const stokJumlah = await executeQuery<any>(
+      `SELECT sj.*, b.kode as box_kode, b.keterangan as box_keterangan
+       FROM stok_jumlah sj
+       JOIN box b ON sj.box_id = b.id
+       WHERE sj.tipe_id = ? AND sj.jumlah > 0
+       ORDER BY b.kode ASC`,
+      [tipeId]
+    );
+
+    return { items, stokJumlah };
+  }
+
+  // ============================================================================
+  // TAHAP 5: BARANG KELUAR, ARSIP, & RESTORE
+  // ============================================================================
+
+  /**
+   * Barang Keluar Tunggal (Item Ber-ID atau Stok Jumlah)
+   * Soft delete status = 'keluar'
+   */
+  static async barangKeluarSingle(input: {
+    kodeId?: string;
+    itemId?: string;
+    tipeId?: number;
+    boxId?: string;
+    jumlah?: number;
+    userId: string;
+    catatan?: string;
+    confirmationToken?: string;
+  }) {
+    if (input.kodeId || input.itemId) {
+      // Keluar Item Ber-ID
+      const cleanKode = input.kodeId ? input.kodeId.trim() : '';
+      const dupCheck = await this.checkDuplicateKodeId(cleanKode || input.itemId || '');
+      if (!dupCheck.exists) {
+        throw new Error(`Item dengan ID "${cleanKode || input.itemId}" tidak ditemukan di sistem.`);
+      }
+
+      const item = dupCheck.item;
+      if (item.status === 'keluar') {
+        throw new Error(`Item "${cleanKode}" sudah berstatus KELUAR di Arsip.`);
+      }
+
+      return await runTransaction(async (conn) => {
+        await conn.query('UPDATE item SET status = "keluar" WHERE id = ?', [item.id]);
+
+        const namaSnapshot = `${item.nama_produk} - ${item.nama_tipe}`;
+
+        const txLog = await ActivityLogService.recordActivity({
+          aksi: 'barang_keluar',
+          pelaku_id: input.userId,
+          box_asal: item.kode_box,
+          catatan: input.catatan || `Barang keluar item ber-ID (${item.kode_id})`,
+          details: [
+            {
+              tipe_id: item.tipe_id,
+              item_id: item.id,
+              kode_id: item.kode_id,
+              nama_snapshot: namaSnapshot,
+              jumlah: 1,
+              status_sebelum: 'aktif',
+              status_sesudah: 'keluar'
+            }
+          ]
+        }, conn);
+
+        return {
+          success: true,
+          message: `Item "${item.kode_id}" (${namaSnapshot}) berhasil dikeluarkan ke Arsip.`,
+          activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        };
+      });
+    } else if (input.tipeId && input.boxId && input.jumlah && input.jumlah > 0) {
+      // Keluar Stok Jumlah
+      const tipe = await CatalogService.getTipeById(input.tipeId);
+      if (!tipe) throw new Error(`Tipe #${input.tipeId} tidak ditemukan.`);
+
+      const box = await this.getBoxById(input.boxId);
+      if (!box) throw new Error(`Box ID "${input.boxId}" tidak ditemukan.`);
+
+      return await runTransaction(async (conn) => {
+        const sjRows = await conn.query(
+          'SELECT jumlah FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?',
+          [input.tipeId, input.boxId]
+        );
+
+        const currentQty = sjRows && sjRows.length > 0 ? sjRows[0].jumlah : 0;
+        if (currentQty < input.jumlah!) {
+          throw new Error(`Stok jumlah di ${box.kode} tidak mencukupi (Tersedia: ${currentQty}, Diminta: ${input.jumlah}).`);
+        }
+
+        await conn.query(
+          'UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?',
+          [input.jumlah, input.tipeId, input.boxId]
+        );
+
+        const namaSnapshot = `${tipe.produk_nama} - ${tipe.nama_tipe}`;
+
+        const txLog = await ActivityLogService.recordActivity({
+          aksi: 'barang_keluar_jumlah',
+          pelaku_id: input.userId,
+          box_asal: box.kode,
+          catatan: input.catatan || `Pengurangan stok jumlah -${input.jumlah} unit di ${box.kode}`,
+          details: [
+            {
+              tipe_id: input.tipeId,
+              item_id: null,
+              kode_id: null,
+              nama_snapshot: namaSnapshot,
+              jumlah: input.jumlah,
+              status_sebelum: 'aktif',
+              status_sesudah: 'keluar'
+            }
+          ]
+        }, conn);
+
+        return {
+          success: true,
+          message: `Stok jumlah -${input.jumlah} unit (${namaSnapshot}) di ${box.kode} berhasil dikeluarkan.`,
+          activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        };
+      });
+    }
+
+    throw new Error('Parameter barang keluar tidak lengkap.');
+  }
+
+  /**
+   * Barang Keluar Massal (Konfirmasi Tier 2 `approve`)
+   */
+  static async barangKeluarBulk(input: {
+    items: Array<{ kodeId?: string; itemId?: string; tipeId?: number; boxId?: string; jumlah?: number }>;
+    userId: string;
+    catatan?: string;
+    confirmationToken?: string;
+  }) {
+    if (!input.items || input.items.length === 0) {
+      throw new Error('Daftar barang keluar massal tidak boleh kosong.');
+    }
+
+    // Verifikasi Token Konfirmasi Server Tier 2
+    const validation = await ConfirmationService.consumeConfirmationToken(
+      input.confirmationToken,
+      input.userId,
+      'bulk_stock_out',
+      'bulk'
+    );
+    if (!validation.valid) {
+      throw new Error(`Konfirmasi Tingkat 2 diperlukan: ${validation.message}`);
+    }
+
+    return await runTransaction(async (conn) => {
+      const detailsPayload: any[] = [];
+      let totalOutCount = 0;
+
+      for (const itemInput of input.items) {
+        if (itemInput.kodeId || itemInput.itemId) {
+          const cleanKode = itemInput.kodeId ? itemInput.kodeId.trim() : '';
+          const dupCheck = await this.checkDuplicateKodeId(cleanKode || itemInput.itemId || '');
+          if (dupCheck.exists && dupCheck.item.status === 'aktif') {
+            const item = dupCheck.item;
+            await conn.query('UPDATE item SET status = "keluar" WHERE id = ?', [item.id]);
+
+            detailsPayload.push({
+              tipe_id: item.tipe_id,
+              item_id: item.id,
+              kode_id: item.kode_id,
+              nama_snapshot: `${item.nama_produk} - ${item.nama_tipe}`,
+              jumlah: 1,
+              status_sebelum: 'aktif',
+              status_sesudah: 'keluar'
+            });
+            totalOutCount++;
+          }
+        }
+      }
+
+      const txLog = await ActivityLogService.recordActivity({
+        aksi: 'barang_keluar_massal',
+        pelaku_id: input.userId,
+        catatan: input.catatan || `Barang keluar massal ${totalOutCount} unit`,
+        details: detailsPayload
+      }, conn);
+
+      return {
+        success: true,
+        message: `Berhasil mengeluarkan batch ${totalOutCount} unit barang ke Arsip.`,
+        totalCount: totalOutCount,
+        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+      };
+    });
+  }
+
+  /**
+   * Menampilkan Daftar Arsip Barang Keluar
+   */
+  static async listArsip(filters?: { search?: string }) {
+    let sql = `
+      SELECT i.*, b.kode as kode_box, t.nama_tipe, p.nama as nama_produk, j.nama as jenis_nama
+      FROM item i
+      JOIN box b ON i.box_id = b.id
+      JOIN tipe t ON i.tipe_id = t.id
+      JOIN produk p ON t.produk_id = p.id
+      JOIN jenis j ON p.jenis_id = j.id
+      WHERE i.status = 'keluar'
+    `;
+    const params: any[] = [];
+
+    if (filters?.search) {
+      sql += ' AND (UPPER(i.kode_id) LIKE UPPER(?) OR UPPER(p.nama) LIKE UPPER(?) OR UPPER(t.nama_tipe) LIKE UPPER(?))';
+      params.push(`%${filters.search.trim()}%`, `%${filters.search.trim()}%`, `%${filters.search.trim()}%`);
+    }
+
+    sql += ' ORDER BY i.dibuat_pada DESC';
+
+    const items = await executeQuery<any>(sql, params);
+    return items;
+  }
+
+  /**
+   * Restore Item dari Arsip ke Stok Aktif di Box Pilihan
+   * (Wajib konfirmasi produk sama & verifikasi duplikasi)
+   */
+  static async restoreItemFromArchive(input: {
+    kodeId: string;
+    targetBoxId: string;
+    userId: string;
+    confirmProductMatched: boolean;
+    catatan?: string;
+  }) {
+    const cleanKode = input.kodeId.trim();
+    if (!cleanKode) {
+      throw new Error('Kode ID / Serial Number tidak boleh kosong.');
+    }
+
+    // Cek di seluruh sistem
+    const checkRes = await this.checkDuplicateKodeId(cleanKode);
+
+    // 1. Bila ID sudah berstatus AKTIF -> cegah duplikasi!
+    if (checkRes.exists && checkRes.item.status === 'aktif') {
+      return {
+        success: false,
+        isAlreadyActive: true,
+        message: `ID "${cleanKode}" saat ini sudah AKTIF di Box ${checkRes.item.kode_box} (${checkRes.item.nama_produk} - ${checkRes.item.nama_tipe}). Tidak dapat diduplikasi.`
+      };
+    }
+
+    // 2. Bila ID tidak ada di Arsip maupun sistem -> tawarkan input stok baru
+    if (!checkRes.exists) {
+      return {
+        success: false,
+        isNotInArchive: true,
+        message: `ID "${cleanKode}" tidak ditemukan di Arsip maupun stok aktif. Apakah Anda ingin menginputnya sebagai stok baru?`
+      };
+    }
+
+    const item = checkRes.item;
+    const targetBox = await this.getBoxById(input.targetBoxId);
+    if (!targetBox) {
+      throw new Error(`Box tujuan ID "${input.targetBoxId}" tidak ditemukan.`);
+    }
+
+    // 3. Konfirmasi produk sama
+    if (!input.confirmProductMatched) {
+      return {
+        success: false,
+        requiresMatchConfirmation: true,
+        itemData: item,
+        message: `Mohon konfirmasi bahwa produk yang dikembalikan adalah "${item.nama_produk} - ${item.nama_tipe}".`
+      };
+    }
+
+    // 4. Restore ke status 'aktif'
+    return await runTransaction(async (conn) => {
+      await conn.query(
+        'UPDATE item SET status = "aktif", box_id = ? WHERE id = ?',
+        [input.targetBoxId, item.id]
+      );
+
+      const namaSnapshot = `${item.nama_produk} - ${item.nama_tipe}`;
+
+      const txLog = await ActivityLogService.recordActivity({
+        aksi: 'restore_item',
+        pelaku_id: input.userId,
+        box_tujuan: targetBox.kode,
+        catatan: input.catatan || `Restore barang dari Arsip (${cleanKode}) ke ${targetBox.kode}`,
+        details: [
+          {
+            tipe_id: item.tipe_id,
+            item_id: item.id,
+            kode_id: cleanKode,
+            nama_snapshot: namaSnapshot,
+            jumlah: 1,
+            status_sebelum: 'keluar',
+            status_sesudah: 'aktif'
+          }
+        ]
+      }, conn);
+
+      return {
+        success: true,
+        message: `Berhasil mengembalikan barang "${cleanKode}" (${namaSnapshot}) ke stok aktif di ${targetBox.kode}.`,
+        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+      };
+    });
+  }
 }

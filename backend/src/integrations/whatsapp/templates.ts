@@ -36,3 +36,29 @@ export function formatLowStockAlertMessage(
 export function formatTestConnectionMessage(targetPhone: string): string {
   return `✅ [UJI KONEKSI WHATSAPP FIELD-OPS IT]\nSistem backend server berhasil terhubung dengan Gateway WhatsApp.\n\n⏰ Waktu Uji: ${new Date().toLocaleString('id-ID')}\nTarget: ${targetPhone}\nStatus: ONLINE & SIAP TERIMA ALERT STOK.`;
 }
+
+export function formatNewRequestMessage(input: {
+  requestId: string;
+  pemohonName: string;
+  produkNama: string;
+  tipeNama: string;
+  jumlah: number;
+  alasan: string;
+}): string {
+  const timeFormatted = new Date().toLocaleString('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
+  return `📦 [PERMOHONAN BARANG BARU - FIELDOPS IT]
+ID Request: ${input.requestId}
+Pemohon: ${input.pemohonName}
+Barang: ${input.produkNama} - ${input.tipeNama}
+Jumlah: ${input.jumlah} unit
+Alasan: ${input.alasan}
+Waktu: ${timeFormatted}
+
+Status: MENUNGGU PERSETUJUAN
+Mohon Developer / Admin / Admin Gudang segera memproses melalui sistem.`;
+}
+

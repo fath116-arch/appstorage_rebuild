@@ -19,6 +19,16 @@ router.get('/check-id/:kode_id', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/types/:id/items', requireAuth, async (req, res) => {
+  try {
+    const tipeId = parseInt(String(req.params.id), 10);
+    const data = await StockService.getItemsByTipe(tipeId);
+    return res.json({ success: true, ...data });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.post(
   '/single',
   requireAuth,
@@ -99,4 +109,96 @@ router.post(
   }
 );
 
+// ============================================================================
+// TAHAP 5: BARANG KELUAR, ARSIP, & RESTORE
+// ============================================================================
+
+router.post(
+  '/out',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const { kode_id, item_id, tipe_id, box_id, jumlah, catatan, confirmation_token } = req.body;
+      const result = await StockService.barangKeluarSingle({
+        kodeId: kode_id ? String(kode_id) : undefined,
+        itemId: item_id ? String(item_id) : undefined,
+        tipeId: tipe_id ? Number(tipe_id) : undefined,
+        boxId: box_id ? String(box_id) : undefined,
+        jumlah: jumlah ? Number(jumlah) : undefined,
+        userId: req.user!.id,
+        catatan: catatan ? String(catatan) : undefined,
+        confirmationToken: confirmation_token ? String(confirmation_token) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/out/bulk',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const { items, catatan, confirmation_token } = req.body;
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ success: false, message: 'Array items wajib diisi.' });
+      }
+
+      const result = await StockService.barangKeluarBulk({
+        items,
+        userId: req.user!.id,
+        catatan: catatan ? String(catatan) : undefined,
+        confirmationToken: confirmation_token ? String(confirmation_token) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.get(
+  '/archive',
+  requireAuth,
+  async (req: express.Request, res: express.Response) => {
+    try {
+      const search = req.query.search ? String(req.query.search) : undefined;
+      const data = await StockService.listArsip({ search });
+      return res.json({ success: true, items: data });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/restore',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const { kode_id, target_box_id, confirm_product_matched, catatan } = req.body;
+      if (!kode_id || !target_box_id) {
+        return res.status(400).json({ success: false, message: 'kode_id dan target_box_id wajib diisi.' });
+      }
+
+      const result = await StockService.restoreItemFromArchive({
+        kodeId: String(kode_id),
+        targetBoxId: String(target_box_id),
+        userId: req.user!.id,
+        confirmProductMatched: Boolean(confirm_product_matched),
+        catatan: catatan ? String(catatan) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
 export default router;
+

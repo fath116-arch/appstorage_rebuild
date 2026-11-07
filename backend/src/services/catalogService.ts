@@ -49,6 +49,7 @@ export interface Produk {
   aktif: boolean | number;
   dibuat_oleh?: string | null;
   dibuat_pada: string;
+  total_stok?: number;
   tipes?: Tipe[];
   total_tipe?: number;
 }
@@ -75,6 +76,19 @@ export interface Tipe {
   id_dikunci: boolean | number;
   aktif: boolean | number;
   dibuat_pada: string;
+  stok_total?: number;
+  sebaran_box?: Array<{ box_id: string; box_kode: string; box_keterangan?: string; jumlah: number }>;
+  riwayat_terakhir?: Array<{
+    id_aktivitas: string;
+    aksi: string;
+    waktu: string;
+    catatan?: string;
+    nama_pelaku?: string;
+    jumlah?: number;
+    kode_id?: string;
+    status_sebelum?: string;
+    status_sesudah?: string;
+  }>;
   nilai_atribut?: Array<{
     atribut_id: number;
     atribut_nama: string;
@@ -351,7 +365,7 @@ export class CatalogService {
 
   static async listProduk(filters?: { jenis_id?: number; kategori?: string; search?: string }): Promise<Produk[]> {
     let sql = `
-      SELECT p.*, j.nama as jenis_nama, COUNT(t.id) as total_tipe
+      SELECT p.*, j.nama as jenis_nama, COUNT(DISTINCT t.id) as total_tipe
       FROM produk p
       JOIN jenis j ON p.jenis_id = j.id
       LEFT JOIN tipe t ON p.id = t.produk_id AND t.aktif = 1
@@ -377,6 +391,34 @@ export class CatalogService {
     sql += ' GROUP BY p.id ORDER BY p.nama ASC';
 
     const prods = await executeQuery<any>(sql, params);
+
+    for (const p of prods) {
+      const pId = Number(p.id);
+      const tipes = await executeQuery<any>('SELECT id FROM tipe WHERE produk_id = ? AND aktif = 1', [pId]);
+      let totalItemCount = 0;
+      let totalSjCount = 0;
+
+      if (tipes && tipes.length > 0) {
+        for (const t of tipes) {
+          const tId = Number(t.id);
+          const itemStok = await executeQuery<any>(
+            `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif'`,
+            [tId]
+          );
+          totalItemCount += Number(itemStok[0]?.total || 0);
+
+          const sjStok = await executeQuery<any>(
+            `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
+            [tId]
+          );
+          totalSjCount += Number(sjStok[0]?.total || 0);
+        }
+      }
+
+      p.total_stok = totalItemCount + totalSjCount;
+      p.total_tipe = Number(p.total_tipe || (tipes ? tipes.length : 0));
+    }
+
     return prods;
   }
 
@@ -514,6 +556,65 @@ export class CatalogService {
 
     for (const t of tipes) {
       t.nilai_atribut = await this.getNilaiAtributTipe(t.id);
+
+      // Hitung total stok (item fisik + stok jumlah)
+      const itemStok = await executeQuery<any>(
+        `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif'`,
+        [t.id]
+      );
+      const countItem = itemStok[0]?.total || 0;
+
+      const sjStok = await executeQuery<any>(
+        `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
+        [t.id]
+      );
+      const countSj = sjStok[0]?.total || 0;
+
+      t.stok_total = Number(countItem) + Number(countSj);
+
+      // Sebaran box per tipe
+      const itemBoxes = await executeQuery<any>(
+        `SELECT b.id as box_id, b.kode as box_kode, b.keterangan as box_keterangan, COUNT(i.id) as jumlah
+         FROM item i
+         JOIN box b ON i.box_id = b.id
+         WHERE i.tipe_id = ? AND i.status = 'aktif'
+         GROUP BY b.id, b.kode, b.keterangan`,
+        [t.id]
+      );
+
+      const sjBoxes = await executeQuery<any>(
+        `SELECT b.id as box_id, b.kode as box_kode, b.keterangan as box_keterangan, sj.jumlah
+         FROM stok_jumlah sj
+         JOIN box b ON sj.box_id = b.id
+         WHERE sj.tipe_id = ? AND sj.jumlah > 0`,
+        [t.id]
+      );
+
+      const boxMap: { [boxId: string]: { box_id: string; box_kode: string; box_keterangan?: string; jumlah: number } } = {};
+      for (const ib of itemBoxes) {
+        boxMap[ib.box_id] = { box_id: ib.box_id, box_kode: ib.box_kode, box_keterangan: ib.box_keterangan, jumlah: Number(ib.jumlah) };
+      }
+      for (const sb of sjBoxes) {
+        if (boxMap[sb.box_id]) {
+          boxMap[sb.box_id].jumlah += Number(sb.jumlah);
+        } else {
+          boxMap[sb.box_id] = { box_id: sb.box_id, box_kode: sb.box_kode, box_keterangan: sb.box_keterangan, jumlah: Number(sb.jumlah) };
+        }
+      }
+      t.sebaran_box = Object.values(boxMap);
+
+      // Riwayat transaksi terakhir (dibaca langsung dari log transaksi)
+      const historyLogs = await executeQuery<any>(
+        `SELECT tr.id_aktivitas, tr.aksi, tr.waktu, tr.catatan, u.name as nama_pelaku, td.jumlah, td.kode_id, td.status_sebelum, td.status_sesudah
+         FROM transaksi_detail td
+         JOIN transaksi tr ON td.transaksi_id = tr.id
+         LEFT JOIN users u ON tr.pelaku_id = u.id
+         WHERE td.tipe_id = ?
+         ORDER BY tr.waktu DESC
+         LIMIT 5`,
+        [t.id]
+      );
+      t.riwayat_terakhir = historyLogs;
     }
 
     return tipes;
@@ -696,4 +797,40 @@ export class CatalogService {
     const updated = await this.getTipeById(tipeId);
     return updated!;
   }
+
+  /**
+   * Data Batch Labeling & Cetak Presisi A4 (Tahap 7)
+   */
+  static async getLabelData(filters?: { jenis_id?: number }) {
+    const jenisList = await this.listJenis();
+    const result: Array<{
+      id: string;
+      nama: string;
+      p: Array<[string, string]>;
+    }> = [];
+
+    for (const j of jenisList) {
+      if (filters?.jenis_id && j.id !== filters.jenis_id) continue;
+      const prods = await this.listProduk({ jenis_id: j.id });
+      const pItems: Array<[string, string]> = [];
+
+      for (const p of prods) {
+        const tipes = await this.listTipeByProduk(p.id);
+        for (const t of tipes) {
+          pItems.push([p.nama, t.nama_tipe]);
+        }
+      }
+
+      if (pItems.length > 0) {
+        result.push({
+          id: `jenis-${j.id}`,
+          nama: j.nama,
+          p: pItems
+        });
+      }
+    }
+
+    return result;
+  }
 }
+

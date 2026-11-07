@@ -59,6 +59,19 @@ export interface Tipe {
   id_dikunci: boolean | number;
   aktif: boolean | number;
   dibuat_pada: string;
+  stok_total?: number;
+  sebaran_box?: Array<{ box_id: string; box_kode: string; box_keterangan?: string; jumlah: number }>;
+  riwayat_terakhir?: Array<{
+    id_aktivitas: string;
+    aksi: string;
+    waktu: string;
+    catatan?: string;
+    nama_pelaku?: string;
+    jumlah?: number;
+    kode_id?: string;
+    status_sebelum?: string;
+    status_sesudah?: string;
+  }>;
   nilai_atribut?: NilaiAtributView[];
 }
 
@@ -72,6 +85,7 @@ export interface Produk {
   aktif: boolean | number;
   dibuat_oleh?: string | null;
   dibuat_pada: string;
+  total_stok?: number;
   tipes?: Tipe[];
   total_tipe?: number;
 }
@@ -274,5 +288,12 @@ export const catalogApi = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Gagal memperbarui aturan ID tipe.');
     return data.type;
+  },
+
+  async getItemsByTipe(tipeId: number): Promise<{ items: any[]; stokJumlah: any[] }> {
+    const res = await fetch(`/api/stock/types/${tipeId}/items`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Gagal memuat item fisik tipe.');
+    return { items: data.items || [], stokJumlah: data.stokJumlah || [] };
   }
 };
