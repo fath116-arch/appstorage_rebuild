@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { FonnteProvider } from '../integrations/whatsapp/fonnte';
 import { formatLowStockAlertMessage, formatTestConnectionMessage } from '../integrations/whatsapp/templates';
+import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -40,8 +41,8 @@ const waLogs: WaLog[] = [
   }
 ];
 
-// GET /api/whatsapp/config
-router.get('/config', (_req: Request, res: Response) => {
+// GET /api/whatsapp/config (All roles allowed to view)
+router.get('/config', requireAuth, (_req: Request, res: Response) => {
   res.json({
     success: true,
     config: {
@@ -51,8 +52,8 @@ router.get('/config', (_req: Request, res: Response) => {
   });
 });
 
-// POST /api/whatsapp/config
-router.post('/config', (req: Request, res: Response) => {
+// POST /api/whatsapp/config (Ubah Pengaturan: developer, admin, warehouse_admin; technician 403)
+router.post('/config', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), (req: AuthenticatedRequest, res: Response) => {
   const { gatewayType, apiUrl, apiToken, targetPhones, autoAlertEnabled } = req.body;
   if (gatewayType) waConfig.gatewayType = gatewayType;
   if (apiUrl) waConfig.apiUrl = apiUrl;
@@ -70,8 +71,8 @@ router.post('/config', (req: Request, res: Response) => {
   });
 });
 
-// POST /api/whatsapp/send
-router.post('/send', async (req: Request, res: Response) => {
+// POST /api/whatsapp/send (Kirim Alert: developer, admin, warehouse_admin; technician 403)
+router.post('/send', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { targetPhone, items, customMessage, triggerSource } = req.body;
     const target = targetPhone || waConfig.targetPhones || '081290008888';
@@ -123,8 +124,8 @@ router.post('/send', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/whatsapp/test
-router.post('/test', async (req: Request, res: Response) => {
+// POST /api/whatsapp/test (Kirim Pesan Uji: developer, admin, warehouse_admin; technician 403)
+router.post('/test', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { targetPhone } = req.body;
   const target = targetPhone || waConfig.targetPhones || '081290008888';
   const testMsg = formatTestConnectionMessage(target);
@@ -160,8 +161,8 @@ router.post('/test', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/whatsapp/logs
-router.get('/logs', (_req: Request, res: Response) => {
+// GET /api/whatsapp/logs (Riwayat WhatsApp Alert: Semua Role)
+router.get('/logs', requireAuth, (_req: Request, res: Response) => {
   res.json({
     success: true,
     logs: waLogs

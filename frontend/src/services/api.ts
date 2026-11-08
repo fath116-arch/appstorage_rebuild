@@ -227,6 +227,14 @@ export const api = {
     return data.items || [];
   },
 
+  async scanItem(code: string): Promise<{ success: boolean; found: boolean; message: string; item?: InventoryItem }> {
+    const res = await fetch(`/api/inventory/scan/${encodeURIComponent(code)}`, {
+      headers: getHeaders(),
+      credentials: 'include'
+    });
+    return res.json();
+  },
+
   async getCategories(): Promise<Category[]> {
     const res = await fetch('/api/inventory/categories', { headers: getHeaders(), credentials: 'include' });
     const data = await res.json();

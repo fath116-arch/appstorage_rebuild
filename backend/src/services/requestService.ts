@@ -51,6 +51,16 @@ export class RequestService {
       throw new Error(`Tipe #${input.tipeId} tidak ditemukan di katalog.`);
     }
 
+    // Paket 4: Validasi bahwa item yang dipilih bukan dalam kondisi Rusak
+    if (input.kodeId) {
+      const itemCheck = await StockService.checkDuplicateKodeId(input.kodeId.trim());
+      if (itemCheck.exists && itemCheck.item) {
+        if (itemCheck.item.kondisi === 'Rusak') {
+          throw new Error(`Item "${input.kodeId.trim()}" dalam kondisi Rusak dan tidak dapat dipilih untuk permohonan teknisi.`);
+        }
+      }
+    }
+
     const qty = input.jumlah && input.jumlah > 0 ? input.jumlah : 1;
     const requestId = `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -211,6 +221,12 @@ export class RequestService {
       let usedBoxId = req.box_id || input.targetBoxId;
 
       if (req.kode_id) {
+        // Cek kondisi item jika kode_id spesifik diminta
+        const itemCheck = await StockService.checkDuplicateKodeId(req.kode_id);
+        if (itemCheck.exists && itemCheck.item && itemCheck.item.kondisi === 'Rusak') {
+          throw new Error(`Item "${req.kode_id}" dalam kondisi Rusak dan tidak dapat disetujui untuk permohonan.`);
+        }
+
         // Otomatis keluarkan item ber-ID
         autoDeductResult = await StockService.barangKeluarSingle({
           kodeId: req.kode_id,
@@ -220,9 +236,9 @@ export class RequestService {
       } else {
         // Bila box_id belum ditentukan, cari box yang memiliki stok untuk tipe ini
         if (!usedBoxId) {
-          const tipeItems = await StockService.getItemsByTipe(req.tipe_id);
+          const tipeItems = await StockService.getItemsByTipe(req.tipe_id, { excludeRusak: true });
           if (tipeItems.items && tipeItems.items.length > 0) {
-            // Pilih box dari item fisik aktif pertama
+            // Pilih box dari item fisik aktif pertama (non-rusak)
             usedBoxId = tipeItems.items[0].box_id;
             autoDeductResult = await StockService.barangKeluarSingle({
               itemId: tipeItems.items[0].id,

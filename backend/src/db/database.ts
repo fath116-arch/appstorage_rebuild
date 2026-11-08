@@ -141,7 +141,8 @@ async function runMigrations(dbPool: mysql.Pool) {
     '04_v2_foundation_schema.sql',
     '05_v2_catalog_schema.sql',
     '06_v2_stock_schema.sql',
-    '07_v2_request_schema.sql'
+    '07_v2_request_schema.sql',
+    '08_v125_paket4_schema.sql'
   ];
 
   for (const file of files) {
@@ -373,6 +374,10 @@ function runMemoryQuery(sql: string, params: any[]): any {
     }
     if (upper.includes('WHERE SKU = ?')) {
       const match = list.find(it => it.sku.toLowerCase() === String(params[0]).toLowerCase());
+      return match ? [match] : [];
+    }
+    if (upper.includes('WHERE BARCODE = ?')) {
+      const match = list.find(it => it.barcode && String(it.barcode).toLowerCase() === String(params[0]).toLowerCase());
       return match ? [match] : [];
     }
     return list;
@@ -1071,27 +1076,51 @@ function runMemoryQuery(sql: string, params: any[]): any {
   // PRODUK
   if (upper.startsWith('INSERT INTO PRODUK (')) {
     const nextId = memoryStore.produk.size + 1;
-    const p = {
-      id: nextId,
-      jenis_id: parseInt(String(params[0]), 10),
-      nama: params[1],
-      kategori: params[2] || 'fast_moving',
-      catatan: params[3] || null,
-      aktif: 1,
-      dibuat_oleh: params[4] || null,
-      dibuat_pada: new Date().toISOString()
-    };
+    let p: any;
+    if (upper.includes('KATEGORI_BARANG') || params.length >= 7) {
+      p = {
+        id: nextId,
+        jenis_id: parseInt(String(params[0]), 10),
+        nama: params[1],
+        kategori: params[2] || 'fast_moving',
+        kategori_barang: params[3] || 'Barang Habis Pakai',
+        tipe_stok: params[4] || 'unit',
+        catatan: params[5] || null,
+        aktif: 1,
+        dibuat_oleh: params[6] || null,
+        dibuat_pada: new Date().toISOString()
+      };
+    } else {
+      p = {
+        id: nextId,
+        jenis_id: parseInt(String(params[0]), 10),
+        nama: params[1],
+        kategori: params[2] || 'fast_moving',
+        kategori_barang: 'Barang Habis Pakai',
+        tipe_stok: 'unit',
+        catatan: params[3] || null,
+        aktif: 1,
+        dibuat_oleh: params[4] || null,
+        dibuat_pada: new Date().toISOString()
+      };
+    }
     memoryStore.produk.set(nextId, p);
     return { insertId: nextId, id: nextId, affectedRows: 1 };
   }
 
   if (upper.startsWith('UPDATE PRODUK SET NAMA =')) {
-    const id = parseInt(String(params[3]), 10);
+    const id = parseInt(String(params[params.length - 1]), 10);
     const p = memoryStore.produk.get(id);
     if (p) {
       p.nama = params[0];
       p.kategori = params[1];
-      p.catatan = params[2] || null;
+      if (params.length >= 6) {
+        p.kategori_barang = params[2] || 'Barang Habis Pakai';
+        p.tipe_stok = params[3] || 'unit';
+        p.catatan = params[4] || null;
+      } else {
+        p.catatan = params[2] || null;
+      }
       return { affectedRows: 1 };
     }
     return { affectedRows: 0 };
@@ -1112,7 +1141,7 @@ function runMemoryQuery(sql: string, params: any[]): any {
     const p = memoryStore.produk.get(id);
     if (!p) return [];
     const j = memoryStore.jenis.get(p.jenis_id);
-    return [{ ...p, jenis_nama: j ? j.nama : '' }];
+    return [{ ...p, jenis_nama: j ? j.nama : '', kategori_barang: p.kategori_barang || 'Barang Habis Pakai', tipe_stok: p.tipe_stok || 'unit' }];
   }
 
   if (upper.includes('SELECT ID FROM PRODUK WHERE JENIS_ID = ? AND AKTIF = 1')) {
@@ -1120,6 +1149,14 @@ function runMemoryQuery(sql: string, params: any[]): any {
     const prods = Array.from(memoryStore.produk.values())
       .filter(p => p.jenis_id === jenisId && (p.aktif === 1 || p.aktif === true));
     return prods.map(p => ({ id: p.id }));
+  }
+
+  if (upper.includes('SELECT DISTINCT TIPE_STOK FROM PRODUK')) {
+    const set = new Set<string>();
+    for (const p of memoryStore.produk.values()) {
+      if (p.tipe_stok) set.add(p.tipe_stok.toLowerCase().trim());
+    }
+    return Array.from(set).map(tipe_stok => ({ tipe_stok }));
   }
 
   if (upper.startsWith('SELECT P.*') && upper.includes('FROM PRODUK P')) {
@@ -1135,6 +1172,11 @@ function runMemoryQuery(sql: string, params: any[]): any {
       const kat = String(params[paramIdx++]);
       list = list.filter(p => p.kategori === kat);
     }
+    if (upper.includes('P.KATEGORI_BARANG = ?')) {
+      const katBarang = String(params[paramIdx++]);
+      paramIdx++; // skip duplicate bound param
+      list = list.filter(p => (p.kategori_barang || 'Barang Habis Pakai') === katBarang);
+    }
     if (upper.includes('AND (LOWER(P.NAMA) LIKE ? OR LOWER(J.NAMA) LIKE ?)')) {
       const query = String(params[paramIdx]).replace(/%/g, '').toLowerCase();
       list = list.filter(p => {
@@ -1148,7 +1190,13 @@ function runMemoryQuery(sql: string, params: any[]): any {
       const j = memoryStore.jenis.get(p.jenis_id);
       const totalTipe = Array.from(memoryStore.tipe.values())
         .filter(t => t.produk_id === p.id && (t.aktif === 1 || t.aktif === true)).length;
-      return { ...p, jenis_nama: j ? j.nama : '', total_tipe: totalTipe };
+      return {
+        ...p,
+        jenis_nama: j ? j.nama : '',
+        kategori_barang: p.kategori_barang || 'Barang Habis Pakai',
+        tipe_stok: p.tipe_stok || 'unit',
+        total_tipe: totalTipe
+      };
     });
     mapped.sort((a, b) => a.nama.localeCompare(b.nama));
     return mapped;
@@ -1315,24 +1363,52 @@ function runMemoryQuery(sql: string, params: any[]): any {
 
   // ITEM
   if (upper.startsWith('INSERT INTO ITEM (')) {
+    const isNewSchema = upper.includes('KONDISI');
     const it = {
       id: params[0],
       kode_id: params[1],
       tipe_id: parseInt(String(params[2]), 10),
       box_id: params[3],
-      status: params[4] || 'aktif',
+      status: upper.includes("'AKTIF'") || upper.includes('"AKTIF"') ? 'aktif' : (params[4] || 'aktif'),
+      kondisi: isNewSchema ? (params[4] || 'Baik') : 'Baik',
+      catatan_kondisi: isNewSchema ? (params[5] || null) : null,
       dibuat_pada: new Date().toISOString()
     };
     memoryStore.item_v2.set(it.id, it);
     return { affectedRows: 1 };
   }
 
-  if (upper.startsWith('UPDATE ITEM SET STATUS')) {
-    if (upper.includes('STATUS = "KELUAR" WHERE ID = ?') || upper.includes("STATUS = 'KELUAR' WHERE ID = ?")) {
+  if (upper.startsWith('UPDATE ITEM SET KONDISI')) {
+    const target = params[2];
+    const it = memoryStore.item_v2.get(target) || Array.from(memoryStore.item_v2.values()).find(i => i.id === target || i.kode_id === target);
+    if (it) {
+      it.kondisi = params[0];
+      it.catatan_kondisi = params[1] || null;
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper.startsWith('UPDATE ITEM SET STATUS') || upper.startsWith('UPDATE ITEM SET')) {
+    if (upper.includes('STATUS = "KELUAR"') || upper.includes("STATUS = 'KELUAR'")) {
       const itemId = params[0];
       const it = memoryStore.item_v2.get(itemId);
       if (it) {
         it.status = 'keluar';
+        return { affectedRows: 1 };
+      }
+      return { affectedRows: 0 };
+    } else if (upper.includes('STATUS = "AKTIF", BOX_ID = ?, KONDISI = ?, CATATAN_KONDISI = ? WHERE ID = ?') || upper.includes("STATUS = 'AKTIF', BOX_ID = ?, KONDISI = ?, CATATAN_KONDISI = ? WHERE ID = ?")) {
+      const boxId = params[0];
+      const kondisi = params[1];
+      const catatan = params[2];
+      const itemId = params[3];
+      const it = memoryStore.item_v2.get(itemId);
+      if (it) {
+        it.status = 'aktif';
+        it.box_id = boxId;
+        it.kondisi = kondisi;
+        it.catatan_kondisi = catatan;
         return { affectedRows: 1 };
       }
       return { affectedRows: 0 };
@@ -1438,7 +1514,10 @@ function runMemoryQuery(sql: string, params: any[]): any {
 
     if (upper.includes('WHERE I.TIPE_ID = ? AND I.STATUS = \'AKTIF\'') || upper.includes('WHERE TIPE_ID = ? AND STATUS = \'AKTIF\'')) {
       const tipeId = parseInt(String(params[0]), 10);
-      const list = Array.from(memoryStore.item_v2.values()).filter(i => i.tipe_id === tipeId && i.status === 'aktif');
+      let list = Array.from(memoryStore.item_v2.values()).filter(i => i.tipe_id === tipeId && i.status === 'aktif');
+      if (upper.includes("KONDISI != 'RUSAK'")) {
+        list = list.filter(i => i.kondisi !== 'Rusak');
+      }
       const enriched = list.map(i => {
         const b = memoryStore.box.get(i.box_id);
         return {
@@ -1453,7 +1532,10 @@ function runMemoryQuery(sql: string, params: any[]): any {
 
   if (upper.includes('SELECT B.ID AS BOX_ID, B.KODE AS BOX_KODE') && upper.includes('FROM ITEM')) {
     const tipeId = parseInt(String(params[0]), 10);
-    const list = Array.from(memoryStore.item_v2.values()).filter(i => i.tipe_id === tipeId && i.status === 'aktif');
+    let list = Array.from(memoryStore.item_v2.values()).filter(i => i.tipe_id === tipeId && i.status === 'aktif');
+    if (upper.includes("KONDISI != 'RUSAK'")) {
+      list = list.filter(i => i.kondisi !== 'Rusak');
+    }
     const boxMap: { [bId: string]: { box_id: string; box_kode: string; box_keterangan: string; jumlah: number } } = {};
     for (const it of list) {
       const b = memoryStore.box.get(it.box_id);
@@ -1469,14 +1551,34 @@ function runMemoryQuery(sql: string, params: any[]): any {
 
   if (upper.includes('FROM ITEM') && (upper.includes('COUNT(') || upper.includes('COUNT ('))) {
     const tipeId = parseInt(String(params[0]), 10);
-    const count = Array.from(memoryStore.item_v2.values()).filter(i => i.tipe_id === tipeId && i.status === 'aktif').length;
-    return [{ total: count }];
+    const items = Array.from(memoryStore.item_v2.values()).filter(i => i.tipe_id === tipeId && i.status === 'aktif');
+    const total = items.length;
+    let rusak = 0;
+    let baru = 0;
+    let baik = 0;
+    let perlu_perbaikan = 0;
+    for (const it of items) {
+      const k = it.kondisi || 'Baik';
+      if (k === 'Rusak') rusak++;
+      else if (k === 'Baru') baru++;
+      else if (k === 'Perlu Perbaikan') perlu_perbaikan++;
+      else baik++;
+    }
+    return [{ total, rusak, baru, baik, perlu_perbaikan }];
   }
 
   if (upper.startsWith('SELECT') && upper.includes('FROM ITEM')) {
     if (params.length > 0) {
-      const it = memoryStore.item_v2.get(params[0]);
+      const target = String(params[0]).toLowerCase();
+      const target2 = params[1] ? String(params[1]).toLowerCase() : target;
+      const it = memoryStore.item_v2.get(params[0]) || Array.from(memoryStore.item_v2.values()).find(i =>
+        i.id.toLowerCase() === target ||
+        i.kode_id.toLowerCase() === target ||
+        i.id.toLowerCase() === target2 ||
+        i.kode_id.toLowerCase() === target2
+      );
       if (it) return [{ ...it }];
+      return [];
     }
     return Array.from(memoryStore.item_v2.values());
   }

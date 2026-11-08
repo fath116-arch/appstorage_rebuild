@@ -1,39 +1,99 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * Excel Exporter Engine using ExcelJS
+ * FieldOps IT Inventory - Generates valid .xlsx spreadsheet files
  */
 
+import ExcelJS from 'exceljs';
 import { InventoryItem, Transaction } from '../types/inventory';
-import { escapeHtml, sanitizeFormulaInput } from './security';
-import { APP_VERSION } from '../constants/version';
+import { sanitizeFormulaInput } from './security';
+
+export { sanitizeFormulaInput };
 
 /**
- * Format currency to IDR string for Excel presentation
+ * Generate Excel workbook buffer for testing or server-side usage
  */
-function formatIDR(value: number): string {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    maximumFractionDigits: 0
-  }).format(value);
+export async function generateInventoryExcelBuffer(items: any[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'FieldOps IT';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Katalog Inventori');
+
+  // Title rows
+  const titleRow = worksheet.addRow(['LAPORAN KATALOG INVENTORI LAPANGAN IT']);
+  titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: '0F172A' } };
+
+  const subTitleRow = worksheet.addRow([
+    `Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Master Items: ${items.length}`
+  ]);
+  subTitleRow.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: '64748B' } };
+
+  worksheet.addRow([]); // Blank spacer
+
+  // Table Headers
+  const headers = [
+    'No',
+    'Kode SKU',
+    'Barcode',
+    'Nama Barang Suku Cadang',
+    'Kategori / Rak',
+    'Jumlah Stok',
+    'Satuan',
+    'Batas Min Alert',
+    'Lokasi Penyimpanan',
+    'Status Stok'
+  ];
+
+  const headerRow = worksheet.addRow(headers);
+  headerRow.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+  headerRow.height = 24;
+
+  headerRow.eachCell(cell => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: '0F172A' }
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  items.forEach((item: any, idx: number) => {
+    const qty = item.quantity || 0;
+    const minAlert = item.min_stock_alert ?? item.minStockAlert ?? 0;
+    const isLow = qty <= minAlert && qty > 0;
+    const isOut = qty === 0;
+    const statusText = isOut ? 'HABIS' : isLow ? 'STOK TIPIS' : 'AMAN';
+
+    worksheet.addRow([
+      idx + 1,
+      sanitizeFormulaInput(item.sku || ''),
+      sanitizeFormulaInput(item.barcode || ''),
+      sanitizeFormulaInput(item.name || ''),
+      sanitizeFormulaInput(item.category_name || item.categoryName || ''),
+      qty,
+      sanitizeFormulaInput(item.unit || 'pcs'),
+      minAlert,
+      sanitizeFormulaInput(item.location || '-'),
+      statusText
+    ]);
+  });
+
+  const arrayBuffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 /**
- * Safely format cell text escaping HTML and neutralizing formula injection
+ * Helper to trigger download of a generated ExcelJS workbook as a valid .xlsx Blob
  */
-function safeCell(value: unknown): string {
-  return escapeHtml(sanitizeFormulaInput(value));
-}
-
-/**
- * Helper to download an HTML/XML Excel document with .xlsx extension
- */
-function downloadExcelFile(htmlContent: string, filename: string) {
-  const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+async function downloadWorkbook(workbook: ExcelJS.Workbook, filename: string) {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+  link.href = url;
+  link.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -41,123 +101,206 @@ function downloadExcelFile(htmlContent: string, filename: string) {
 }
 
 /**
- * Export Inventory Items Catalog to Excel (.xlsx) with sanitized cells & formulas
+ * Export Inventory Items Catalog to valid Excel (.xlsx) file
  */
-export function exportInventoryToExcel(items: InventoryItem[], filename = 'fieldops-inventory-catalog.xlsx') {
+export async function exportInventoryToExcel(items: InventoryItem[], filename = 'fieldops-inventory-catalog.xlsx') {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'FieldOps IT';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Katalog Inventori IT');
+
+  // Title rows
+  const titleRow = worksheet.addRow(['LAPORAN KATALOG INVENTORI LAPANGAN IT']);
+  titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: '0F172A' } };
+
+  const subTitleRow = worksheet.addRow([
+    `Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Master Items: ${items.length}`
+  ]);
+  subTitleRow.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: '64748B' } };
+
+  worksheet.addRow([]); // Blank spacer
+
+  // Table Headers
+  const headers = [
+    'No',
+    'Kode SKU',
+    'Barcode',
+    'Nama Barang Suku Cadang',
+    'Kategori / Rak',
+    'Jumlah Stok',
+    'Satuan',
+    'Batas Min Alert',
+    'Harga Satuan (IDR)',
+    'Total Nilai Aset (IDR)',
+    'Lokasi Penyimpanan',
+    'Status Stok',
+    'Spesifikasi Teknis',
+    'Terakhir Diperbarui'
+  ];
+
+  const headerRow = worksheet.addRow(headers);
+  headerRow.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+  headerRow.height = 24;
+
+  headerRow.eachCell(cell => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: '0F172A' }
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
   const getItemCost = (i: any) => i.unit_cost ?? i.unitCost ?? 0;
   const getItemMinAlert = (i: any) => i.min_stock_alert ?? i.minStockAlert ?? 0;
 
-  const totalValue = items.reduce((acc, item) => acc + (item.quantity * getItemCost(item)), 0);
-  const totalItemsCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  let totalValue = 0;
+  let totalItemsCount = 0;
 
-  const rowsHtml = items.map((item: any, idx) => {
+  items.forEach((item: any, idx: number) => {
     const cost = getItemCost(item);
     const minAlert = getItemMinAlert(item);
-    const isLow = item.quantity <= minAlert && item.quantity > 0;
-    const isOut = item.quantity === 0;
+    const qty = item.quantity || 0;
+    const itemTotal = qty * cost;
+
+    totalValue += itemTotal;
+    totalItemsCount += qty;
+
+    const isLow = qty <= minAlert && qty > 0;
+    const isOut = qty === 0;
     const statusText = isOut ? 'HABIS' : isLow ? 'STOK TIPIS' : 'AMAN';
-    const statusBg = isOut ? '#FEE2E2' : isLow ? '#FEF3C7' : '#D1FAE5';
-    const statusColor = isOut ? '#991B1B' : isLow ? '#92400E' : '#065F46';
-    const lastUpd = item.lastUpdated ? new Date(item.lastUpdated).toLocaleString('id-ID') : new Date().toLocaleString('id-ID');
+    const lastUpd = item.lastUpdated
+      ? new Date(item.lastUpdated).toLocaleString('id-ID')
+      : new Date().toLocaleString('id-ID');
 
-    return `
-      <tr style="height: 24px;">
-        <td style="text-align: center; border: 1px solid #E2E8F0;">${idx + 1}</td>
-        <td style="font-family: monospace; font-weight: bold; border: 1px solid #E2E8F0;">${safeCell(item.sku)}</td>
-        <td style="font-family: monospace; border: 1px solid #E2E8F0;">${safeCell(item.barcode)}</td>
-        <td style="font-weight: 500; border: 1px solid #E2E8F0;">${safeCell(item.name)}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(item.categoryName)}</td>
-        <td style="text-align: right; font-weight: bold; border: 1px solid #E2E8F0;">${item.quantity.toLocaleString('id-ID')}</td>
-        <td style="text-align: center; border: 1px solid #E2E8F0;">${safeCell(item.unit)}</td>
-        <td style="text-align: right; border: 1px solid #E2E8F0;">${minAlert}</td>
-        <td style="text-align: right; border: 1px solid #E2E8F0;">${formatIDR(cost)}</td>
-        <td style="text-align: right; font-weight: bold; border: 1px solid #E2E8F0;">${formatIDR(item.quantity * cost)}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(item.location)}</td>
-        <td style="text-align: center; background-color: ${statusBg}; color: ${statusColor}; font-weight: bold; border: 1px solid #E2E8F0;">${statusText}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(item.specs || '-')}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(lastUpd)}</td>
-      </tr>
-    `;
-  }).join('');
+    const row = worksheet.addRow([
+      idx + 1,
+      sanitizeFormulaInput(item.sku || ''),
+      sanitizeFormulaInput(item.barcode || ''),
+      sanitizeFormulaInput(item.name || ''),
+      sanitizeFormulaInput(item.categoryName || ''),
+      qty,
+      sanitizeFormulaInput(item.unit || 'pcs'),
+      minAlert,
+      cost,
+      itemTotal,
+      sanitizeFormulaInput(item.location || '-'),
+      statusText,
+      sanitizeFormulaInput(item.specs || '-'),
+      lastUpd
+    ]);
 
-  const template = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
-        <!--[if gte mso 9]>
-        <xml>
-          <x:ExcelWorkbook>
-            <x:ExcelWorksheets>
-              <x:ExcelWorksheet>
-                <x:Name>Katalog Inventori IT</x:Name>
-                <x:WorksheetOptions>
-                  <x:DisplayGridlines/>
-                </x:WorksheetOptions>
-              </x:ExcelWorksheet>
-            </x:ExcelWorksheets>
-          </x:ExcelWorkbook>
-        </xml>
-        <![endif]-->
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; }
-          .title-hdr { font-size: 16pt; font-weight: bold; color: #0F172A; margin-bottom: 4px; }
-          .sub-hdr { font-size: 10pt; color: #64748B; margin-bottom: 12px; }
-          th { background-color: #0F172A; color: #FFFFFF; font-weight: bold; padding: 8px; border: 1px solid #334155; }
-          td { padding: 6px; vertical-align: middle; }
-          .summary-row { background-color: #F8FAFC; font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        <div class="title-hdr">LAPORAN KATALOG INVENTORI LAPANGAN IT (FieldOps v${APP_VERSION})</div>
-        <div class="sub-hdr">Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Item: ${items.length} Barang</div>
-        <table border="1" style="border-collapse: collapse; width: 100%;">
-          <thead>
-            <tr>
-              <th style="width: 40px;">No</th>
-              <th>Kode SKU</th>
-              <th>Barcode Barcode</th>
-              <th>Nama Barang Suku Cadang</th>
-              <th>Kategori / Rak</th>
-              <th>Jumlah Stok</th>
-              <th>Satuan</th>
-              <th>Batas Min Alert</th>
-              <th>Harga Satuan (IDR)</th>
-              <th>Total Nilai Aset (IDR)</th>
-              <th>Lokasi Penyimpanan</th>
-              <th>Status Stok</th>
-              <th>Spesifikasi Teknis</th>
-              <th>Terakhir Diperbarui</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-            <tr class="summary-row" style="height: 28px; background-color: #E2E8F0;">
-              <td colspan="5" style="text-align: right; font-weight: bold; border: 1px solid #CBD5E1;">TOTAL KESELURUHAN:</td>
-              <td style="text-align: right; font-weight: bold; border: 1px solid #CBD5E1;">${totalItemsCount.toLocaleString('id-ID')}</td>
-              <td style="border: 1px solid #CBD5E1;">unit</td>
-              <td colspan="2" style="border: 1px solid #CBD5E1;"></td>
-              <td style="text-align: right; font-weight: bold; color: #0F172A; border: 1px solid #CBD5E1;">${formatIDR(totalValue)}</td>
-              <td colspan="4" style="border: 1px solid #CBD5E1;"></td>
-            </tr>
-          </tbody>
-        </table>
-      </body>
-    </html>
-  `;
+    row.height = 20;
 
-  downloadExcelFile(template, filename);
+    // Alignment & Formatting
+    row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+    row.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
+
+    row.getCell(9).numFmt = '""#,##0';
+    row.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
+
+    row.getCell(10).numFmt = '""#,##0';
+    row.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
+
+    // Status Cell Styling
+    const statusCell = row.getCell(12);
+    statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    if (isOut) {
+      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+      statusCell.font = { color: { argb: '991B1B' }, bold: true };
+    } else if (isLow) {
+      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
+      statusCell.font = { color: { argb: '92400E' }, bold: true };
+    } else {
+      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D1FAE5' } };
+      statusCell.font = { color: { argb: '065F46' }, bold: true };
+    }
+  });
+
+  // Summary Row
+  const summaryRow = worksheet.addRow([
+    'TOTAL KESELURUHAN:',
+    '', '', '', '',
+    totalItemsCount,
+    'unit',
+    '', '',
+    totalValue,
+    '', '', '', ''
+  ]);
+  summaryRow.font = { name: 'Segoe UI', size: 10, bold: true };
+  summaryRow.height = 24;
+
+  summaryRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+  summaryRow.getCell(10).numFmt = '""#,##0';
+  summaryRow.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
+
+  // Adjust Column Widths
+  worksheet.columns.forEach((col, index) => {
+    if (index === 0) col.width = 6;
+    else if (index === 3) col.width = 35;
+    else if (index === 12) col.width = 30;
+    else col.width = 18;
+  });
+
+  await downloadWorkbook(workbook, filename);
 }
 
 /**
- * Export Weekly Report & Transactions to Excel (.xlsx) with sanitized cells
+ * Export Weekly Report & Transactions to valid Excel (.xlsx) file
  */
-export function exportWeeklyReportToExcel(transactions: Transaction[], filename = 'fieldops-laporan-transaksi.xlsx') {
-  const rowsHtml = transactions.map((tx: any, idx) => {
+export async function exportWeeklyReportToExcel(transactions: Transaction[], filename = 'fieldops-laporan-transaksi.xlsx') {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'FieldOps IT';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Laporan Mutasi Barang');
+
+  // Title rows
+  const titleRow = worksheet.addRow(['LAPORAN MUTASI BARANG IT LAPANGAN']);
+  titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: '0F172A' } };
+
+  const subTitleRow = worksheet.addRow([
+    `Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Record Mutasi: ${transactions.length} Entri`
+  ]);
+  subTitleRow.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: '64748B' } };
+
+  worksheet.addRow([]); // Blank spacer
+
+  const headers = [
+    'No',
+    'Waktu Transaksi',
+    'Jenis Transaksi',
+    'Kode SKU',
+    'Nama Barang / Suku Cadang',
+    'Jumlah Mutasi',
+    'Satuan',
+    'No. Referensi / Tiket',
+    'Teknisi / Petugas',
+    'Tujuan / Unit Lokasi',
+    'Catatan Lapangan',
+    'Sumber Entri'
+  ];
+
+  const headerRow = worksheet.addRow(headers);
+  headerRow.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+  headerRow.height = 24;
+
+  headerRow.eachCell(cell => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: '1E293B' }
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  transactions.forEach((tx: any, idx: number) => {
     const isOut = tx.type === 'OUT';
     const typeLabel = isOut ? 'BARANG KELUAR' : 'BARANG MASUK';
-    const typeBg = isOut ? '#FEE2E2' : '#D1FAE5';
-    const typeColor = isOut ? '#991B1B' : '#065F46';
-    const txDate = tx.created_at || tx.date || Date.now();
+    const txDate = tx.created_at || tx.date || new Date().toISOString();
     const sku = tx.item_sku || tx.itemSku || '-';
     const name = tx.item_name || tx.itemName || '-';
     const unit = tx.item_unit || tx.unit || 'pcs';
@@ -165,77 +308,44 @@ export function exportWeeklyReportToExcel(transactions: Transaction[], filename 
     const by = tx.performed_by || tx.performedBy || '-';
     const dest = tx.recipient_destination || tx.recipientOrDestination || '-';
 
-    return `
-      <tr style="height: 24px;">
-        <td style="text-align: center; border: 1px solid #E2E8F0;">${idx + 1}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(new Date(txDate).toLocaleString('id-ID'))}</td>
-        <td style="text-align: center; background-color: ${typeBg}; color: ${typeColor}; font-weight: bold; border: 1px solid #E2E8F0;">${typeLabel}</td>
-        <td style="font-family: monospace; font-weight: bold; border: 1px solid #E2E8F0;">${safeCell(sku)}</td>
-        <td style="font-weight: 500; border: 1px solid #E2E8F0;">${safeCell(name)}</td>
-        <td style="text-align: right; font-weight: bold; border: 1px solid #E2E8F0;">${isOut ? '-' : '+'}${tx.quantity}</td>
-        <td style="text-align: center; border: 1px solid #E2E8F0;">${safeCell(unit)}</td>
-        <td style="font-family: monospace; border: 1px solid #E2E8F0;">${safeCell(ref)}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(by)}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(dest)}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(tx.notes || '-')}</td>
-        <td style="border: 1px solid #E2E8F0;">${safeCell(tx.apiSource || 'Manual')}</td>
-      </tr>
-    `;
-  }).join('');
+    const row = worksheet.addRow([
+      idx + 1,
+      new Date(txDate).toLocaleString('id-ID'),
+      typeLabel,
+      sanitizeFormulaInput(sku),
+      sanitizeFormulaInput(name),
+      isOut ? -Math.abs(tx.quantity) : Math.abs(tx.quantity),
+      sanitizeFormulaInput(unit),
+      sanitizeFormulaInput(ref),
+      sanitizeFormulaInput(by),
+      sanitizeFormulaInput(dest),
+      sanitizeFormulaInput(tx.notes || '-'),
+      sanitizeFormulaInput(tx.apiSource || 'Manual')
+    ]);
 
-  const template = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
-        <!--[if gte mso 9]>
-        <xml>
-          <x:ExcelWorkbook>
-            <x:ExcelWorksheets>
-              <x:ExcelWorksheet>
-                <x:Name>Laporan Mutasi Barang</x:Name>
-                <x:WorksheetOptions>
-                  <x:DisplayGridlines/>
-                </x:WorksheetOptions>
-              </x:ExcelWorksheet>
-            </x:ExcelWorksheets>
-          </x:ExcelWorkbook>
-        </xml>
-        <![endif]-->
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; }
-          .title-hdr { font-size: 16pt; font-weight: bold; color: #0F172A; margin-bottom: 4px; }
-          .sub-hdr { font-size: 10pt; color: #64748B; margin-bottom: 12px; }
-          th { background-color: #1E293B; color: #FFFFFF; font-weight: bold; padding: 8px; border: 1px solid #334155; }
-          td { padding: 6px; vertical-align: middle; }
-        </style>
-      </head>
-      <body>
-        <div class="title-hdr">LAPORAN MUTASI BARANG IT LAPANGAN (FieldOps v${APP_VERSION})</div>
-        <div class="sub-hdr">Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Transaksi: ${transactions.length} Entri</div>
-        <table border="1" style="border-collapse: collapse; width: 100%;">
-          <thead>
-            <tr>
-              <th style="width: 40px;">No</th>
-              <th>Waktu Transaksi</th>
-              <th>Jenis Transaksi</th>
-              <th>Kode SKU</th>
-              <th>Nama Barang / Suku Cadang</th>
-              <th>Jumlah</th>
-              <th>Satuan</th>
-              <th>No. Referensi / Tiket</th>
-              <th>Teknisi / Petugas</th>
-              <th>Tujuan / Unit Lokasi</th>
-              <th>Catatan Lapangan</th>
-              <th>Sumber Entri</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-      </body>
-    </html>
-  `;
+    row.height = 20;
 
-  downloadExcelFile(template, filename);
+    row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+    row.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    const typeCell = row.getCell(3);
+    typeCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    if (isOut) {
+      typeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+      typeCell.font = { color: { argb: '991B1B' }, bold: true };
+    } else {
+      typeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D1FAE5' } };
+      typeCell.font = { color: { argb: '065F46' }, bold: true };
+    }
+  });
+
+  worksheet.columns.forEach((col, index) => {
+    if (index === 0) col.width = 6;
+    else if (index === 4) col.width = 35;
+    else if (index === 10) col.width = 30;
+    else col.width = 20;
+  });
+
+  await downloadWorkbook(workbook, filename);
 }

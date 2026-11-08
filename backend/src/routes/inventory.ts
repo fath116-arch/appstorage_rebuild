@@ -54,6 +54,32 @@ router.get('/items/:id', async (req, res) => {
   }
 });
 
+// GET /api/inventory/scan/:code (Scan Barcode / QR / SKU / ID)
+router.get('/scan/:code', async (req, res) => {
+  try {
+    const rawCode = decodeURIComponent(String(req.params.code || '')).trim();
+    if (!rawCode) {
+      return res.status(400).json({ success: false, found: false, message: 'Kode barcode / SKU tidak boleh kosong.' });
+    }
+    const item = await InventoryService.getItemByCode(rawCode);
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        found: false,
+        message: `Kode "${rawCode}" tidak valid atau barang tidak ditemukan dalam database inventori.`
+      });
+    }
+    res.json({
+      success: true,
+      found: true,
+      message: `Barang "${item.name}" [${item.sku}] berhasil ditemukan.`,
+      item
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, found: false, message: err.message });
+  }
+});
+
 // POST /api/inventory/items
 router.post('/items', requireAuth, requireRole(['admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
   try {

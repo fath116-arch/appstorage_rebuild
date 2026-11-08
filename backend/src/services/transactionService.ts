@@ -72,9 +72,10 @@ export class TransactionService {
       const txId = `tx-in-${Date.now()}`;
       await conn.query(
         `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-         VALUES (?, 'IN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           txId,
+          'IN',
           item.id,
           qty,
           previousQty,
@@ -163,9 +164,10 @@ export class TransactionService {
       const txId = `tx-out-${Date.now()}`;
       await conn.query(
         `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-         VALUES (?, 'OUT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           txId,
+          'OUT',
           item.id,
           qty,
           previousQty,
@@ -268,9 +270,10 @@ export class TransactionService {
 
         await conn.query(
           `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-           VALUES (?, 'OUT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             txId,
+            'OUT',
             it.id,
             qty,
             prev,

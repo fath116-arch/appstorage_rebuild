@@ -28,7 +28,8 @@ import {
   Sun,
   Moon,
   Monitor,
-  MessageSquare
+  MessageSquare,
+  Printer
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { exportInventoryToExcel } from '../utils/excelExporter';
@@ -43,6 +44,7 @@ interface NavbarProps {
   onOpenWhatsApp?: () => void;
   onOpenSecurityReport?: () => void;
   onOpenRestore?: () => void;
+  onOpenLabelPrint?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ 
@@ -53,7 +55,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenMobileAccess,
   onOpenWhatsApp,
   onOpenSecurityReport,
-  onOpenRestore
+  onOpenRestore,
+  onOpenLabelPrint
 }) => {
   const { 
     activeTab, 
@@ -66,9 +69,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { user, logout } = useAuth();
   const { themeMode, setThemeMode } = useTheme();
 
+  const isDevOrAdmin = user?.role === 'developer' || user?.role === 'admin';
+
   // Dropdown states
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
   // Expanded sub-dropdown sections in master menu
   const [expandedSections, setExpandedSections] = useState<{ [key: string]: boolean }>({
@@ -91,6 +97,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const closeAllDropdowns = () => {
     setAppMenuOpen(false);
     setUserDropdownOpen(false);
+    setToolsMenuOpen(false);
   };
 
   const handleExportExcelQuick = () => {
@@ -110,7 +117,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Top Header */}
-      <header className="sticky top-0 z-30 glass border-b border-slate-200/60 dark:border-slate-800/80 shadow-xs transition-colors duration-200">
+      <header className="no-print sticky top-0 z-30 glass border-b border-slate-200/60 dark:border-slate-800/80 shadow-xs transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
             
@@ -316,13 +323,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                         {expandedSections.alat && (
                           <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1 animate-in fade-in duration-150">
-                            <button
-                              onClick={() => { closeAllDropdowns(); onOpenSecurityReport?.(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-slate-700/60 font-medium"
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                              <span>Laporan Keamanan Audit</span>
-                            </button>
+                            {isDevOrAdmin && (
+                              <button
+                                onClick={() => { closeAllDropdowns(); onOpenSecurityReport?.(); }}
+                                className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-slate-700/60 font-medium"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                                <span>Laporan Keamanan Audit</span>
+                              </button>
+                            )}
 
                             <button
                               onClick={() => { closeAllDropdowns(); onOpenWhatsApp?.(); }}
@@ -341,6 +350,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                             </button>
 
                             <button
+                              onClick={() => { closeAllDropdowns(); onOpenLabelPrint?.(); }}
+                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700/60 font-medium"
+                            >
+                              <Printer className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>Cetak Label Batch A4</span>
+                            </button>
+
+                            <button
                               onClick={() => { closeAllDropdowns(); onOpenMobileAccess(); }}
                               className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-teal-800 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-slate-700/60 font-medium"
                             >
@@ -356,7 +373,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               <span>Download Source Code (.ZIP)</span>
                             </button>
 
-                            {onOpenRestore && (
+                            {isDevOrAdmin && onOpenRestore && (
                               <button
                                 onClick={() => { closeAllDropdowns(); onOpenRestore(); }}
                                 className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60 font-medium"
@@ -572,48 +589,94 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Kantor Pusat ISP</span>
               </div>
 
-              {/* Quick Excel Export */}
-              <button
-                onClick={handleExportExcelQuick}
-                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                title="Ekspor Seluruh Katalog Inventori ke Excel (.xlsx)"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden lg:inline">Ekspor Excel</span>
-              </button>
-
               {/* PWA In-App Install Prompt */}
               <PWAInstallButton />
 
-              {/* Mobile & Cloudflare Remote Setup Button */}
-              <button
-                onClick={onOpenMobileAccess}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                title="Panduan Akses Smartphone &amp; Cloudflare Tunnel Remote"
-              >
-                <Smartphone className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                <span className="hidden sm:inline">Akses HP</span>
-              </button>
+              {/* Dedicated Tools Dropdown Menu for All Roles */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    const next = !toolsMenuOpen;
+                    closeAllDropdowns();
+                    setToolsMenuOpen(next);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg transition-colors shrink-0 shadow-2xs"
+                  title="Menu Peralatan &amp; Tools System"
+                >
+                  <Wrench className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                  <span>Tools</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${toolsMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-              {/* WhatsApp Notification Gateway Button */}
-              <button
-                onClick={onOpenWhatsApp}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                title="Konfigurasi &amp; Kirim Notifikasi WhatsApp Stok Menipis/Habis"
-              >
-                <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden sm:inline">WA Alert</span>
-              </button>
+                {toolsMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={closeAllDropdowns} />
+                    <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-700">
+                        Menu Tools &amp; Utilitas
+                      </div>
 
-              {/* Security Audit Report Modal Button */}
-              <button
-                onClick={onOpenSecurityReport}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                title={`Buka Laporan Audit Keamanan System (v${VERSION})`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                <span className="hidden sm:inline">Audit</span>
-              </button>
+                      {/* Database: Developer & Admin ONLY */}
+                      {isDevOrAdmin && (
+                        <button
+                          onClick={() => { closeAllDropdowns(); onOpenRestore?.(); }}
+                          className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                        >
+                          <Database className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          <span>Database &amp; Restore</span>
+                        </button>
+                      )}
+
+                      {/* Audit: Developer & Admin ONLY */}
+                      {isDevOrAdmin && (
+                        <button
+                          onClick={() => { closeAllDropdowns(); onOpenSecurityReport?.(); }}
+                          className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                          <span>Laporan Keamanan Audit</span>
+                        </button>
+                      )}
+
+                      {/* WA Alert: All roles */}
+                      <button
+                        onClick={() => { closeAllDropdowns(); onOpenWhatsApp?.(); }}
+                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Notifikasi WA Alert</span>
+                      </button>
+
+                      {/* Akses HP: All roles */}
+                      <button
+                        onClick={() => { closeAllDropdowns(); onOpenMobileAccess?.(); }}
+                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                      >
+                        <Smartphone className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                        <span>Akses HP &amp; Cloudflare</span>
+                      </button>
+
+                      {/* Ekspor Excel: All roles */}
+                      <button
+                        onClick={() => { closeAllDropdowns(); handleExportExcelQuick(); }}
+                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Ekspor Katalog Excel (.xlsx)</span>
+                      </button>
+
+                      {/* Cetak Label Quick Access: All roles */}
+                      <button
+                        onClick={() => { closeAllDropdowns(); onOpenLabelPrint?.(); }}
+                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>Cetak Label Batch A4</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
 
               {/* User Profile & Role Quick Badge */}
               {user && (

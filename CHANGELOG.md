@@ -6,6 +6,25 @@ Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara 
 
 ---
 
+## 🚀 [v1.2.5] - Paket 5: Kamera dan Laporan Cetak - 2026-11-08
+- **Input Stok via Kamera di Menu Keluar/Masuk (`StockInOutModal.tsx`)**: Integrasi pemindai kamera barcode/QR (memanfaatkan kembali aliran kamera `navigator.mediaDevices.getUserMedia` dan video targeting overlay) pada modal Barang Masuk (IN) dan Barang Keluar (OUT).
+- **Penanganan Scan Presisi**: Pemindaian otomatis mendeteksi kode SKU, Barcode, atau ID fisik. Kode valid memvalidasi ketersediaan stok fisik dan mengisi form secara instan; kode tidak valid atau barang tidak ditemukan ditolak dengan notifikasi kesalahan yang jelas.
+- **Validasi Transaksi Keluar**: Transaksi keluar (OUT) menolak pemrosesan jika barang kosong (0 unit) atau kuantitas melebihi stok yang tersedia.
+- **Template Cetak Laporan Formal Presisi (`PrintReportModal.tsx`)**: Template cetak dokumen A4 resmi berstandar korporat dengan Kop Surat resmi PT. Solusi Informatika Lapangan, logo institusi, judul audit, periode laporan, tanggal & waktu cetak, nama pencetak (*printed by*), tabel data mutasi dengan header berulang di tiap halaman (`thead { display: table-header-group; }`), serta lembar tanda tangan pengesahan (Admin Logistik, Teknisi Lapangan, Supervisor IT).
+- **Isolasi Cetak Kertas**: Konfigurasi `@page { size: A4 portrait; margin: 12mm 15mm 15mm 15mm; }` dan aturan `@media print` yang secara ketat menyembunyikan navbar, footer, sidebar, filter toolbar, dan tombol interaktif (`.no-print { display: none !important; }`).
+- **Pengujian Otomatis**: Lulus 15/15 pengujian di `backend/src/tests/v125Paket5CameraPrint.test.ts`.
+
+---
+
+## 🚀 [v1.2.5] - Paket 4: Katalog dan Produk (Storage Box, Tipe Stok, Kategori Barang, Kondisi Item) - 2026-11-07
+- **Daftar Storage Box**: Submenu/tab view terintegrasi di Katalog untuk melihat daftar semua box dan rincian isinya (produk, tipe, jumlah, kondisi). Satu box mendukung penyimpanan campuran berbagai suku cadang.
+- **Tipe Satuan Stok**: Input manual dengan tag saran interaktif (*clickable suggestions*) dari nilai yang pernah digunakan (misal: `unit`, `roll`, `meter`, `pcs`, `box`, `set`) untuk konsistensi penulisan data.
+- **Kategori Barang**: Pembeda jenis produk `Alat` (toolkit / equipment) vs `Barang Habis Pakai` di form produk dan filter toolbar katalog.
+- **Kondisi Item**: Pelacakan kondisi item fisik (`Baru`, `Baik`, `Perlu Perbaikan`, `Rusak`) beserta catatan kondisi. Item berkondisi `Rusak` tidak dihitung sebagai stok tersedia dan dicegah secara atomik saat permohonan (*request*) teknisi.
+- **Pengujian Otomatis**: Lulus 13/13 pengujian di `backend/src/tests/v125Paket4Catalog.test.ts`.
+
+---
+
 ## 🚀 [v1.2.0] - 2026-11-06 (Rilis Final Versi 1.2.0 Lengkap)
 
 ### 📦 Pembaruan Tahap 4 s/d 8 (Tuntas & Terverifikasi 100%)

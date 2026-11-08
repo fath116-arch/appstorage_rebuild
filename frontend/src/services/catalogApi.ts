@@ -60,6 +60,14 @@ export interface Tipe {
   aktif: boolean | number;
   dibuat_pada: string;
   stok_total?: number;
+  stok_tersedia?: number;
+  stok_rusak?: number;
+  stok_per_kondisi?: {
+    baru: number;
+    baik: number;
+    perlu_perbaikan: number;
+    rusak: number;
+  };
   sebaran_box?: Array<{ box_id: string; box_kode: string; box_keterangan?: string; jumlah: number }>;
   riwayat_terakhir?: Array<{
     id_aktivitas: string;
@@ -81,11 +89,14 @@ export interface Produk {
   jenis_nama?: string;
   nama: string;
   kategori: 'fast_moving' | 'recycle';
+  kategori_barang?: 'Alat' | 'Barang Habis Pakai';
+  tipe_stok?: string;
   catatan?: string | null;
   aktif: boolean | number;
   dibuat_oleh?: string | null;
   dibuat_pada: string;
   total_stok?: number;
+  stok_rusak?: number;
   tipes?: Tipe[];
   total_tipe?: number;
 }
@@ -189,10 +200,11 @@ export const catalogApi = {
   },
 
   // PRODUK
-  async listProduk(filters?: { jenis_id?: number; kategori?: string; search?: string }): Promise<Produk[]> {
+  async listProduk(filters?: { jenis_id?: number; kategori?: string; kategori_barang?: string; search?: string }): Promise<Produk[]> {
     const params = new URLSearchParams();
     if (filters?.jenis_id) params.append('jenis_id', String(filters.jenis_id));
     if (filters?.kategori && filters.kategori !== 'ALL') params.append('kategori', filters.kategori);
+    if (filters?.kategori_barang && filters.kategori_barang !== 'ALL') params.append('kategori_barang', filters.kategori_barang);
     if (filters?.search) params.append('search', filters.search);
 
     const res = await fetch(`/api/catalog/products?${params.toString()}`, { credentials: 'include' });
@@ -212,6 +224,8 @@ export const catalogApi = {
     jenis_id: number;
     nama: string;
     kategori: 'fast_moving' | 'recycle';
+    kategori_barang?: 'Alat' | 'Barang Habis Pakai';
+    tipe_stok?: string;
     catatan?: string;
   }): Promise<Produk> {
     const res = await fetch('/api/catalog/products', {
@@ -223,6 +237,39 @@ export const catalogApi = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Gagal membuat produk baru.');
     return data.product;
+  },
+
+  async getTipeStokSuggestions(): Promise<string[]> {
+    const res = await fetch('/api/catalog/tipe-stok-suggestions', { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) return ['unit', 'roll', 'meter', 'pcs', 'box', 'set'];
+    return data.suggestions || ['unit', 'roll', 'meter', 'pcs', 'box', 'set'];
+  },
+
+  async updateItemCondition(itemId: string, kondisi: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak', catatan_kondisi?: string): Promise<any> {
+    const res = await fetch(`/api/stock/items/${encodeURIComponent(itemId)}/condition`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ kondisi, catatan_kondisi })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui kondisi item.');
+    return data;
+  },
+
+  async listBoxes(): Promise<any[]> {
+    const res = await fetch('/api/stock/boxes', { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Gagal memuat daftar storage box.');
+    return data.boxes || [];
+  },
+
+  async getBoxContents(boxId: string): Promise<any> {
+    const res = await fetch(`/api/stock/boxes/${encodeURIComponent(boxId)}/contents`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Gagal memuat isi storage box.');
+    return data;
   },
 
   async deleteProduk(id: number, confirmationToken?: string): Promise<{ success: boolean; message: string }> {

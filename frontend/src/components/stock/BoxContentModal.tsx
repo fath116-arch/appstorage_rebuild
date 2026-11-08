@@ -46,6 +46,11 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
     jumlahAvailable?: number;
   } | null>(null);
 
+  // State Ubah Kondisi Item
+  const [editingConditionItem, setEditingConditionItem] = useState<any | null>(null);
+  const [newKondisi, setNewKondisi] = useState<'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak'>('Baik');
+  const [catatanKondisiInput, setCatatanKondisiInput] = useState<string>('');
+
   const [targetBoxId, setTargetBoxId] = useState<string>('');
   const [moveQuantity, setMoveQuantity] = useState<number>(1);
   const [moveCatatan, setMoveCatatan] = useState<string>('');
@@ -95,6 +100,40 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
       showToast(res.message, 'success');
       setMovingItem(null);
       setMoveCatatan('');
+      await loadContents();
+      if (onRefreshParent) onRefreshParent();
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (editingConditionItem) {
+      setNewKondisi(editingConditionItem.kondisi || 'Baik');
+      setCatatanKondisiInput(editingConditionItem.catatan_kondisi || '');
+    }
+  }, [editingConditionItem]);
+
+  const handleExecuteUpdateCondition = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingConditionItem) return;
+
+    try {
+      const res = await fetch(`/api/stock/items/${encodeURIComponent(editingConditionItem.id)}/condition`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          kondisi: newKondisi,
+          catatan_kondisi: catatanKondisiInput.trim() || undefined
+        })
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.message || 'Gagal mengubah kondisi item.');
+
+      showToast(resData.message, 'success');
+      setEditingConditionItem(null);
+      setCatatanKondisiInput('');
       await loadContents();
       if (onRefreshParent) onRefreshParent();
     } catch (err: any) {
@@ -180,26 +219,46 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                           {/* Items List */}
                           {contentObj.items.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 pt-1">
-                              {contentObj.items.map(it => (
-                                <div
-                                  key={it.id}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-mono"
-                                >
-                                  <span className="font-bold text-slate-900 dark:text-white">{it.kode_id}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setMovingItem({
-                                      itemId: it.id,
-                                      kodeId: it.kode_id,
-                                      namaSnapshot: `${it.nama_produk} - ${it.nama_tipe}`
-                                    })}
-                                    className="p-0.5 text-slate-400 hover:text-emerald-500 transition-colors"
-                                    title="Pindahkan item ini ke box lain"
+                              {contentObj.items.map(it => {
+                                const kondisi = it.kondisi || 'Baik';
+                                const badgeColor =
+                                  kondisi === 'Baru'
+                                    ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-300 border-sky-300 dark:border-sky-700'
+                                    : kondisi === 'Perlu Perbaikan'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                    : kondisi === 'Rusak'
+                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border-rose-300 dark:border-rose-700'
+                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700';
+
+                                return (
+                                  <div
+                                    key={it.id}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-mono"
                                   >
-                                    <ArrowRightLeft className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              ))}
+                                    <span className="font-bold text-slate-900 dark:text-white">{it.kode_id}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingConditionItem(it)}
+                                      className={`text-[9px] px-1.5 py-0.5 rounded font-sans font-semibold border ${badgeColor} hover:opacity-80 transition-opacity`}
+                                      title={it.catatan_kondisi ? `Kondisi: ${kondisi} (${it.catatan_kondisi}) - Klik untuk ubah` : `Kondisi: ${kondisi} - Klik untuk ubah`}
+                                    >
+                                      {kondisi}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setMovingItem({
+                                        itemId: it.id,
+                                        kodeId: it.kode_id,
+                                        namaSnapshot: `${it.nama_produk} - ${it.nama_tipe}`
+                                      })}
+                                      className="p-0.5 text-slate-400 hover:text-emerald-500 transition-colors"
+                                      title="Pindahkan item ini ke box lain"
+                                    >
+                                      <ArrowRightLeft className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 
@@ -306,6 +365,68 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                     className="px-4 py-1.5 font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md"
                   >
                     Eksekusi Pindah Box
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Modal Sub-Dialog Ubah Kondisi Item (Paket 4) */}
+            {editingConditionItem && (
+              <form onSubmit={handleExecuteUpdateCondition} className="p-4 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                    <Tag className="w-4 h-4 text-emerald-500" />
+                    Ubah Kondisi Item: <span className="font-mono">{editingConditionItem.kode_id}</span>
+                  </span>
+                  <button type="button" onClick={() => setEditingConditionItem(null)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Kondisi Fisik *
+                    </label>
+                    <select
+                      value={newKondisi}
+                      onChange={e => setNewKondisi(e.target.value as any)}
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-bold"
+                    >
+                      <option value="Baru">Baru</option>
+                      <option value="Baik">Baik</option>
+                      <option value="Perlu Perbaikan">Perlu Perbaikan</option>
+                      <option value="Rusak">Rusak (Tidak Tersedia untuk Request)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Catatan Kondisi (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: Port 2 kendor, bodi lecet..."
+                      value={catatanKondisiInput}
+                      onChange={e => setCatatanKondisiInput(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 text-[11px]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingConditionItem(null)}
+                    className="px-3 py-1.5 text-slate-600 bg-white dark:bg-slate-800 rounded-md"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 font-bold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-md shadow-xs"
+                  >
+                    Simpan Kondisi
                   </button>
                 </div>
               </form>

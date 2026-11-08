@@ -2,26 +2,30 @@
 
 Perbarui di akhir setiap tahap. Agent membaca file ini bersama `IMPLEMENTATION_GUIDE.md` dan `SECURITY_GUIDE.md` sebelum bekerja.
 
-## Tahap
-- [x] Tahap 0 — Prasyarat dan perbaikan
-- [x] Tahap 1 — Fondasi (sesi, role, log, konfirmasi, sampah)
-- [x] Tahap 2 — Jenis, Atribut, Produk, Tipe
-- [x] Tahap 3 — Box, Item, Stok, Input
-- [x] Audit keamanan (baca saja, tabel selisih) — dikerjakan sebelum Tahap 4
-- [x] Tahap 4 — Tampilan katalog, filter, pencarian
-- [x] Tahap 5 — Arsip dan Restore
-- [x] Tahap 6 — Request dan persetujuan
-- [x] Tahap 7 — Label dan cetak batch
-- [x] Tahap 8 — Notifikasi, tema, audit, dokumentasi
+## Tahap & Paket v1.2.5
+- [x] Tahap 0 s/d Tahap 8 (Rilis v1.2.0 Complete - 102/102 Tests PASS)
+- [x] Paket 1 — Hak Akses RBAC (Setting API, Katalog, WA Alert) — Terverifikasi 23/23 Tests PASS
+- [x] Paket 2 — Perbaikan Bug Transaksi Keluar/Masuk & Ekspor Excel — Terverifikasi 19/19 Tests PASS
+- [x] Paket 3 — Konsolidasi Menu Tools Navbar — Terverifikasi 24/24 Tests PASS
+- [x] Paket 4 — Katalog, Tipe Stok, Kategori Barang, & Kondisi Item — Terverifikasi 13/13 Tests PASS
+- [x] Paket 5 — Input Stok via Kamera & Template Cetak Laporan A4 — Terverifikasi 15/15 Tests PASS
+- [ ] Paket 6 — WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m
+- [ ] Paket 7 — Branding Logo Baru & Kotak Logo Top Navigation
 
 ## Sedang dikerjakan
-- Versi 1.2.0 Lengkap & Terverifikasi (Tahap 0 s/d Tahap 8 100% Selesai; Total 102/102 test suite PASS)
+- Paket 5 Selesai & Terverifikasi (Total 94/94 test suite Paket 1-5 PASS 100%). Siap melanjutkan ke Paket 6.
 
 ## Keputusan penting
-- 5G dan fitur serupa dimodelkan sebagai atribut `pilihan` yang membedakan Tipe (tidak ada tipe isian ya/tidak).
-- Label: ukuran tetap 190 x 89 mm, dua tabel 5 x 3 per label (maks. 10 produk), titik potong di tengah celah antar label.
-- Notifikasi WhatsApp Fonnte dijalankan secara asinkron (fire and forget) sehingga kendala gateway tidak menggagalkan transaksi database.
-- Audit Keamanan: Kode pada Tahap 0–8 telah 100% memenuhi dan sesuai dengan `SECURITY_GUIDE.md` Bagian 1 hingga 3. Tidak ada perubahan destruktif pada mekanisme keamanan yang sudah berjalan.
+- Definisi Hak Akses RBAC dipusatkan di `backend/src/utils/permissions.ts` agar mudah diaudit.
+- Setting API (`/api/tickets/keys`, `/api/auth/settings`, `/api/auth/users`, `/api/auth/trash`) secara ketat dibatasi hanya untuk `developer` dan `admin` (ditolak HTTP 403 untuk `warehouse_admin` dan `technician`).
+- Katalog & Storage Box read (termasuk kueri rincian isi box) diizinkan untuk seluruh role (termasuk `technician`).
+- Katalog write & mutasi stok diizinkan untuk `developer`, `admin`, dan `warehouse_admin` (ditolak HTTP 403 untuk `technician`).
+- Pengaturan WA Alert (`POST /api/whatsapp/config`, `send`, `test`) dibatasi untuk `developer`, `admin`, `warehouse_admin` (ditolak HTTP 403 untuk `technician`), sedangkan riwayat log dapat dibaca semua role.
+- Kueri `INSERT INTO transactions` pada `transactionService.ts`, `stockService.ts`, dan `ticketIntegration.ts` diseragamkan menggunakan 12 positional parameter bindings (`?`) agar tidak terjadi pergeseran array indeks pada adapter database in-memory maupun MariaDB.
+- Ekspor berkas Excel diperbarui menggunakan `ExcelJS` yang menghasilkan berkas binary `.xlsx` asli (MIME type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) dengan proteksi otomatis CWE-1236 Formula Injection.
+- Pemindai kamera barcode/QR diintegrasikan ke `StockInOutModal.tsx` dengan memanfaatkan kembali pola `navigator.mediaDevices.getUserMedia` dan video targeting overlay tanpa membuat komponen scanner baru dari nol.
+- Scan kode valid dan tidak valid ditangani secara presisi; pencarian memetakan SKU, Barcode, ID fisik, serta tabel v2 item. Transaksi IN/OUT divalidasi ketat terhadap stok fisik dan status barang.
+- Template cetak laporan menggunakan modul `PrintReportModal.tsx` dengan Kop resmi instansi PT. Solusi Informatika Lapangan, tabel terstruktur dengan thead berulang (`table-header-group`), lembar tanda tangan pengesahan, dan isolasi `@media print` murni A4 yang menyembunyikan navbar dan tombol aksi.
 
 ## Hasil audit keamanan (disetujui)
 | Aturan | Menurut panduan | Kondisi kode | Status | Saran / keputusan |

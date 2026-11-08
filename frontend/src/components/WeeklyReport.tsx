@@ -20,12 +20,16 @@ import {
 } from 'lucide-react';
 import { exportWeeklyReportToExcel } from '../utils/excelExporter';
 import { sanitizeFormulaInput } from '../utils/security';
+import { PrintReportModal } from './reports/PrintReportModal';
 
 import { useAuth } from '../context/AuthContext';
 
 export const WeeklyReport: React.FC = () => {
   const { user } = useAuth();
   const { items, transactions, categories } = useInventory();
+
+  // Print Modal State
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   // Preset week periods
   const [selectedWeek, setSelectedWeek] = useState<'current' | 'previous' | 'all'>('current');
@@ -161,7 +165,7 @@ export const WeeklyReport: React.FC = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    setIsPrintModalOpen(true);
   };
 
   return (
@@ -453,6 +457,29 @@ export const WeeklyReport: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Formal A4 Print Report Modal */}
+      <PrintReportModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        periodLabel={dateRange.label}
+        itemsData={itemWeeklyStats.map(i => ({
+          sku: i.sku,
+          name: i.name,
+          categoryName: i.categoryName,
+          location: i.location,
+          startStock: i.startStock,
+          totalIn: i.totalIn,
+          totalOut: i.totalOut,
+          endStock: i.endStock,
+          unit: i.unit,
+          status: (i.endStock === 0 ? 'HABIS' : i.endStock <= i.minStockAlert ? 'MENIPIS' : 'AMAN') as any
+        }))}
+        totalInflow={totalInflow}
+        totalOutflow={totalOutflow}
+        criticalCount={criticalItems.length}
+        outOfStockCount={outOfStockItems.length}
+      />
     </div>
   );
 };

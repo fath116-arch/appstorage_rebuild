@@ -189,6 +189,11 @@ svg.recharts-surface *,
 }
 
 /* Print Overrides: Always render clean light theme when printing or exporting PDF */
+@page {
+  size: A4 portrait;
+  margin: 12mm 15mm 15mm 15mm;
+}
+
 @media print {
   :root, .dark, [data-theme="dark"] {
     color-scheme: light !important;
@@ -201,11 +206,34 @@ svg.recharts-surface *,
   body {
     background: #ffffff !important;
     color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
-  .no-print {
+  header, nav, footer, .no-print {
     display: none !important;
   }
   .print-only {
     display: block !important;
+  }
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  thead {
+    display: table-header-group !important;
+  }
+  tfoot {
+    display: table-footer-group !important;
+  }
+  tr {
+    page-break-inside: avoid !important;
+  }
+  .report-print-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 }

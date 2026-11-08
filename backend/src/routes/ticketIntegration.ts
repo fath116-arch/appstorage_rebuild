@@ -110,15 +110,19 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
         const txId = `tx-tck-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         await conn.query(
           `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-           VALUES (?, 'OUT', ?, ?, ?, ?, 'EXTERNAL_TICKET', ?, ?, 'api-system', ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             txId,
+            'OUT',
             pair.item.id,
             pair.requestedQty,
             prev,
             next,
+            'EXTERNAL_TICKET',
             ticketId,
             technicianName || 'Teknisi Lapangan Tiket',
+            'api-system',
+            systemName || 'Sistem Tiket',
             `${systemName || 'Sistem Tiket'}: ${ticketTitle}`
           ]
         );
@@ -162,8 +166,8 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
   }
 });
 
-// GET /api/tickets/keys (Manajemen API Key)
-router.get('/keys', requireAuth, requireRole(['admin', 'warehouse_admin']), async (_req, res) => {
+// GET /api/tickets/keys (Manajemen API Key - Setting API)
+router.get('/keys', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
   try {
     const keys = await executeQuery('SELECT id, name, system_name, is_active, created_at, last_used_at FROM api_keys ORDER BY created_at DESC');
     res.json({ success: true, keys });
@@ -172,8 +176,8 @@ router.get('/keys', requireAuth, requireRole(['admin', 'warehouse_admin']), asyn
   }
 });
 
-// POST /api/tickets/keys (Generate API Key Baru)
-router.post('/keys', requireAuth, requireRole(['admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
+// POST /api/tickets/keys (Generate API Key Baru - Setting API)
+router.post('/keys', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const { name, systemName } = req.body;
     if (!name || !systemName) {

@@ -164,12 +164,22 @@ router.post(
 // PRODUK
 // ============================================================================
 
+router.get('/tipe-stok-suggestions', requireAuth, async (_req, res) => {
+  try {
+    const suggestions = await CatalogService.getTipeStokSuggestions();
+    return res.json({ success: true, suggestions });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get('/products', requireAuth, async (req, res) => {
   try {
-    const { jenis_id, kategori, search } = req.query;
+    const { jenis_id, kategori, kategori_barang, search } = req.query;
     const prods = await CatalogService.listProduk({
       jenis_id: jenis_id ? parseInt(String(jenis_id), 10) : undefined,
       kategori: kategori as string,
+      kategori_barang: kategori_barang as string,
       search: search as string
     });
     return res.json({ success: true, products: prods });
@@ -195,7 +205,7 @@ router.post(
   requireRole(['developer', 'admin', 'warehouse_admin']),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
-      const { jenis_id, nama, kategori, catatan } = req.body;
+      const { jenis_id, nama, kategori, kategori_barang, tipe_stok, catatan } = req.body;
       if (!jenis_id || !nama) {
         return res.status(400).json({ success: false, message: 'Jenis dan nama produk wajib diisi.' });
       }
@@ -205,6 +215,8 @@ router.post(
           jenis_id: parseInt(String(jenis_id), 10),
           nama,
           kategori: kategori === 'recycle' ? 'recycle' : 'fast_moving',
+          kategori_barang: kategori_barang === 'Alat' ? 'Alat' : 'Barang Habis Pakai',
+          tipe_stok: tipe_stok ? String(tipe_stok) : 'unit',
           catatan
         },
         req.user!.id
@@ -224,13 +236,15 @@ router.put(
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const id = parseInt(String(req.params.id), 10);
-      const { nama, kategori, catatan } = req.body;
+      const { nama, kategori, kategori_barang, tipe_stok, catatan } = req.body;
 
       const updated = await CatalogService.updateProduk(
         id,
         {
           nama,
           kategori: kategori === 'recycle' ? 'recycle' : 'fast_moving',
+          kategori_barang: kategori_barang === 'Alat' ? 'Alat' : 'Barang Habis Pakai',
+          tipe_stok: tipe_stok ? String(tipe_stok) : 'unit',
           catatan
         },
         req.user!.id

@@ -181,7 +181,7 @@ router.post(
   requireRole(['developer', 'admin', 'warehouse_admin']),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
-      const { kode_id, target_box_id, confirm_product_matched, catatan } = req.body;
+      const { kode_id, target_box_id, confirm_product_matched, catatan, kondisi, catatan_kondisi } = req.body;
       if (!kode_id || !target_box_id) {
         return res.status(400).json({ success: false, message: 'kode_id dan target_box_id wajib diisi.' });
       }
@@ -191,7 +191,33 @@ router.post(
         targetBoxId: String(target_box_id),
         userId: req.user!.id,
         confirmProductMatched: Boolean(confirm_product_matched),
-        catatan: catatan ? String(catatan) : undefined
+        catatan: catatan ? String(catatan) : undefined,
+        kondisi: kondisi ? String(kondisi) as any : undefined,
+        catatanKondisi: catatan_kondisi ? String(catatan_kondisi) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.put(
+  '/items/:id/condition',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const itemId = String(req.params.id);
+      const { kondisi, catatan_kondisi } = req.body;
+      if (!kondisi || !['Baru', 'Baik', 'Perlu Perbaikan', 'Rusak'].includes(kondisi)) {
+        return res.status(400).json({ success: false, message: 'Pilihan kondisi item wajib "Baru", "Baik", "Perlu Perbaikan", atau "Rusak".' });
+      }
+
+      const result = await StockService.updateKondisiItem({
+        itemId,
+        kondisi,
+        catatanKondisi: catatan_kondisi ? String(catatan_kondisi) : undefined,
+        userId: req.user!.id
       });
       return res.json(result);
     } catch (err: any) {

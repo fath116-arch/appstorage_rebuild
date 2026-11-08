@@ -28,6 +28,8 @@ export interface BoxContentsResponse {
           dibuat_pada: string;
           nama_tipe: string;
           nama_produk: string;
+          kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+          catatan_kondisi?: string | null;
         }>;
         stokJumlah: number;
       };

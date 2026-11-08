@@ -24,6 +24,8 @@ export interface ItemFisik {
   tipe_id: number;
   box_id: string;
   status: 'aktif' | 'keluar';
+  kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+  catatan_kondisi?: string | null;
   dibuat_pada: string;
   nama_tipe?: string;
   nama_produk?: string;
@@ -297,6 +299,8 @@ export class StockService {
     box_id: string;
     kode_id: string;
     user_id: string;
+    kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+    catatan_kondisi?: string;
     catatan?: string;
   }) {
     const cleanKode = input.kode_id.trim();
@@ -329,13 +333,16 @@ export class StockService {
       }
     }
 
+    const kondisiItem = input.kondisi || 'Baik';
+    const catatanKondisi = input.catatan_kondisi ? input.catatan_kondisi.trim() : null;
+
     return await runTransaction(async (conn) => {
       const itemId = `item-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
       // Insert ke tabel item
       await conn.query(
-        `INSERT INTO item (id, kode_id, tipe_id, box_id, status) VALUES (?, ?, ?, ?, 'aktif')`,
-        [itemId, cleanKode, input.tipe_id, input.box_id]
+        `INSERT INTO item (id, kode_id, tipe_id, box_id, status, kondisi, catatan_kondisi) VALUES (?, ?, ?, ?, 'aktif', ?, ?)`,
+        [itemId, cleanKode, input.tipe_id, input.box_id, kondisiItem, catatanKondisi]
       );
 
       // Kunci aturan ID tipe jika belum dikunci (id_dikunci = 1)
@@ -361,6 +368,14 @@ export class StockService {
           }
         ]
       }, conn);
+
+      // Sync into unified transactions table (type = 'IN')
+      const txId = `tx-in-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      await conn.query(
+        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [txId, 'IN', itemId, 1, 0, 1, 'SINGLE_SCAN', cleanKode, box.kode, input.user_id, input.user_id, input.catatan || `Input stok item (${cleanKode})`]
+      );
 
       return {
         success: true,
@@ -483,6 +498,14 @@ export class StockService {
         details: detailsPayload
       }, conn);
 
+      // Sync into unified transactions table (type = 'IN')
+      const txId = `tx-in-bulk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      await conn.query(
+        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [txId, 'IN', insertedItemIds[0] || String(input.tipe_id), finalKodeIds.length, 0, finalKodeIds.length, 'BULK_SCAN', `BULK-${finalKodeIds.length}`, box.kode, input.user_id, input.user_id, input.catatan || `Input stok massal ${finalKodeIds.length} unit`]
+      );
+
       return {
         success: true,
         message: `Berhasil menambahkan batch ${finalKodeIds.length} unit item ke ${box.kode}.`,
@@ -557,6 +580,14 @@ export class StockService {
         ]
       }, conn);
 
+      // Sync into unified transactions table (type = 'IN')
+      const txId = `tx-in-qty-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      await conn.query(
+        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [txId, 'IN', String(input.tipe_id), input.jumlah, 0, input.jumlah, 'QUANTITY_INPUT', `QTY-${input.jumlah}`, box.kode, input.user_id, input.user_id, input.catatan || `Input stok jumlah +${input.jumlah} unit`]
+      );
+
       return {
         success: true,
         message: `Berhasil menambahkan +${input.jumlah} unit ke ${box.kode}.`,
@@ -568,15 +599,19 @@ export class StockService {
   /**
    * Mengambil daftar ID item fisik dan stok jumlah untuk satu Tipe
    */
-  static async getItemsByTipe(tipeId: number) {
-    const items = await executeQuery<any>(
-      `SELECT i.*, b.kode as box_kode, b.keterangan as box_keterangan
+  static async getItemsByTipe(tipeId: number, options?: { excludeRusak?: boolean }) {
+    let itemQuery = `SELECT i.*, b.kode as box_kode, b.keterangan as box_keterangan
        FROM item i
        JOIN box b ON i.box_id = b.id
-       WHERE i.tipe_id = ? AND i.status = 'aktif'
-       ORDER BY i.kode_id ASC`,
-      [tipeId]
-    );
+       WHERE i.tipe_id = ? AND i.status = 'aktif'`;
+
+    if (options?.excludeRusak) {
+      itemQuery += ` AND (i.kondisi IS NULL OR i.kondisi != 'Rusak')`;
+    }
+
+    itemQuery += ` ORDER BY i.kode_id ASC`;
+
+    const items = await executeQuery<any>(itemQuery, [tipeId]);
 
     const stokJumlah = await executeQuery<any>(
       `SELECT sj.*, b.kode as box_kode, b.keterangan as box_keterangan
@@ -644,6 +679,14 @@ export class StockService {
           ]
         }, conn);
 
+        // Sync into unified transactions table (type = 'OUT')
+        const txId = `tx-out-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+        await conn.query(
+          `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [txId, 'OUT', item.id, 1, 1, 0, 'STOCK_OUT', item.kode_id, item.kode_box || 'Gudang', input.userId, input.userId, input.catatan || `Barang keluar item (${item.kode_id})`]
+        );
+
         return {
           success: true,
           message: `Item "${item.kode_id}" (${namaSnapshot}) berhasil dikeluarkan ke Arsip.`,
@@ -676,27 +719,36 @@ export class StockService {
 
         const namaSnapshot = `${tipe.produk_nama} - ${tipe.nama_tipe}`;
 
+        const outQty = input.jumlah!;
         const txLog = await ActivityLogService.recordActivity({
           aksi: 'barang_keluar_jumlah',
           pelaku_id: input.userId,
           box_asal: box.kode,
-          catatan: input.catatan || `Pengurangan stok jumlah -${input.jumlah} unit di ${box.kode}`,
+          catatan: input.catatan || `Pengurangan stok jumlah -${outQty} unit di ${box.kode}`,
           details: [
             {
               tipe_id: input.tipeId,
               item_id: null,
               kode_id: null,
               nama_snapshot: namaSnapshot,
-              jumlah: input.jumlah,
+              jumlah: outQty,
               status_sebelum: 'aktif',
               status_sesudah: 'keluar'
             }
           ]
         }, conn);
 
+        // Sync into unified transactions table (type = 'OUT')
+        const txId = `tx-out-qty-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+        await conn.query(
+          `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [txId, 'OUT', String(input.tipeId), outQty, currentQty, currentQty - outQty, 'STOCK_OUT', `QTY-OUT-${outQty}`, box.kode, input.userId, input.userId, input.catatan || `Pengurangan stok jumlah -${outQty} unit`]
+        );
+
         return {
           success: true,
-          message: `Stok jumlah -${input.jumlah} unit (${namaSnapshot}) di ${box.kode} berhasil dikeluarkan.`,
+          message: `Stok jumlah -${outQty} unit (${namaSnapshot}) di ${box.kode} berhasil dikeluarkan.`,
           activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
         };
       });
@@ -762,6 +814,14 @@ export class StockService {
         details: detailsPayload
       }, conn);
 
+      // Sync into unified transactions table (type = 'OUT')
+      const txId = `tx-out-bulk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      await conn.query(
+        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [txId, 'OUT', 'bulk-items', totalOutCount, totalOutCount, 0, 'BULK_DISPATCH', `BULK-OUT-${totalOutCount}`, 'Arsip', input.userId, input.userId, input.catatan || `Barang keluar massal ${totalOutCount} unit`]
+      );
+
       return {
         success: true,
         message: `Berhasil mengeluarkan batch ${totalOutCount} unit barang ke Arsip.`,
@@ -807,6 +867,8 @@ export class StockService {
     userId: string;
     confirmProductMatched: boolean;
     catatan?: string;
+    kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+    catatanKondisi?: string;
   }) {
     const cleanKode = input.kodeId.trim();
     if (!cleanKode) {
@@ -850,11 +912,14 @@ export class StockService {
       };
     }
 
+    const targetKondisi = input.kondisi || item.kondisi || 'Baik';
+    const targetCatatanKondisi = input.catatanKondisi !== undefined ? (input.catatanKondisi ? input.catatanKondisi.trim() : null) : (item.catatan_kondisi || null);
+
     // 4. Restore ke status 'aktif'
     return await runTransaction(async (conn) => {
       await conn.query(
-        'UPDATE item SET status = "aktif", box_id = ? WHERE id = ?',
-        [input.targetBoxId, item.id]
+        'UPDATE item SET status = "aktif", box_id = ?, kondisi = ?, catatan_kondisi = ? WHERE id = ?',
+        [input.targetBoxId, targetKondisi, targetCatatanKondisi, item.id]
       );
 
       const namaSnapshot = `${item.nama_produk} - ${item.nama_tipe}`;
@@ -863,7 +928,7 @@ export class StockService {
         aksi: 'restore_item',
         pelaku_id: input.userId,
         box_tujuan: targetBox.kode,
-        catatan: input.catatan || `Restore barang dari Arsip (${cleanKode}) ke ${targetBox.kode}`,
+        catatan: input.catatan || `Restore barang dari Arsip (${cleanKode}) ke ${targetBox.kode} [Kondisi: ${targetKondisi}]`,
         details: [
           {
             tipe_id: item.tipe_id,
@@ -879,9 +944,46 @@ export class StockService {
 
       return {
         success: true,
-        message: `Berhasil mengembalikan barang "${cleanKode}" (${namaSnapshot}) ke stok aktif di ${targetBox.kode}.`,
+        message: `Berhasil mengembalikan barang "${cleanKode}" (${namaSnapshot}) ke stok aktif di ${targetBox.kode} [Kondisi: ${targetKondisi}].`,
         activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
       };
     });
+  }
+
+  /**
+   * Mengubah Kondisi Item Fisik Ber-ID (Baru, Baik, Perlu Perbaikan, Rusak) & Catatan Kondisi
+   */
+  static async updateKondisiItem(input: {
+    itemId: string;
+    kondisi: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+    catatanKondisi?: string;
+    userId: string;
+  }) {
+    const rows = await executeQuery<any>('SELECT * FROM item WHERE id = ? OR kode_id = ?', [input.itemId, input.itemId]);
+    if (!rows || rows.length === 0) {
+      throw new Error(`Item "${input.itemId}" tidak ditemukan.`);
+    }
+
+    const item = rows[0];
+    const kondisiLama = item.kondisi || 'Baik';
+    const kondisiBaru = input.kondisi;
+    const catatan = input.catatanKondisi ? input.catatanKondisi.trim() : null;
+
+    await executeQuery(
+      'UPDATE item SET kondisi = ?, catatan_kondisi = ? WHERE id = ?',
+      [kondisiBaru, catatan, item.id]
+    );
+
+    await ActivityLogService.recordActivity({
+      aksi: 'ubah_kondisi_item',
+      pelaku_id: input.userId,
+      catatan: `Mengubah kondisi item "${item.kode_id}": dari ${kondisiLama} ke ${kondisiBaru}${catatan ? ` (${catatan})` : ''}`
+    });
+
+    return {
+      success: true,
+      message: `Kondisi item "${item.kode_id}" berhasil diperbarui dari ${kondisiLama} ke ${kondisiBaru}.`,
+      item: { ...item, kondisi: kondisiBaru, catatan_kondisi: catatan }
+    };
   }
 }

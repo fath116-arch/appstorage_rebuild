@@ -40,15 +40,17 @@ export const CatalogV2Manager: React.FC = () => {
   const { showToast } = useInventory();
 
   // State utama
-  const [activeSubTab, setActiveSubTab] = useState<'products' | 'jenis_attrs'>('products');
+  const [activeSubTab, setActiveSubTab] = useState<'products' | 'jenis_attrs' | 'storage_boxes'>('products');
   const [jenisList, setJenisList] = useState<Jenis[]>([]);
   const [products, setProducts] = useState<Produk[]>([]);
+  const [boxesList, setBoxesList] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Filter & Pencarian Produk
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJenisId, setSelectedJenisId] = useState<string>('ALL');
   const [selectedKategori, setSelectedKategori] = useState<string>('ALL');
+  const [selectedKategoriBarang, setSelectedKategoriBarang] = useState<string>('ALL');
   const [expandedProductIds, setExpandedProductIds] = useState<{ [id: number]: boolean }>({});
 
   // Filter Atribut Dinamis
@@ -76,9 +78,11 @@ export const CatalogV2Manager: React.FC = () => {
   const [selectedTypeForItems, setSelectedTypeForItems] = useState<Tipe | null>(null);
   const [typeItemsData, setTypeItemsData] = useState<{ items: any[]; stokJumlah: any[] }>({ items: [], stokJumlah: [] });
   const [loadingTypeItems, setLoadingTypeItems] = useState<boolean>(false);
+  const [itemConditionFilter, setItemConditionFilter] = useState<string>('ALL');
 
   const handleOpenTypeItems = async (tipe: Tipe) => {
     setSelectedTypeForItems(tipe);
+    setItemConditionFilter('ALL');
     setLoadingTypeItems(true);
     try {
       const res = await catalogApi.getItemsByTipe(tipe.id);
@@ -90,10 +94,13 @@ export const CatalogV2Manager: React.FC = () => {
     }
   };
 
-  // Form Buat Produk
+  // Form Buat Produk (Paket 4: kategori_barang & tipe_stok with suggestions)
   const [newProdJenisId, setNewProdJenisId] = useState<number | ''>('');
   const [newProdNama, setNewProdNama] = useState('');
   const [newProdKategori, setNewProdKategori] = useState<'fast_moving' | 'recycle'>('fast_moving');
+  const [newProdKategoriBarang, setNewProdKategoriBarang] = useState<'Alat' | 'Barang Habis Pakai'>('Barang Habis Pakai');
+  const [newProdTipeStok, setNewProdTipeStok] = useState<string>('unit');
+  const [tipeStokSuggestions, setTipeStokSuggestions] = useState<string[]>(['unit', 'roll', 'meter', 'pcs', 'box', 'set']);
   const [newProdCatatan, setNewProdCatatan] = useState('');
 
   // Form Buat Tipe
@@ -137,12 +144,18 @@ export const CatalogV2Manager: React.FC = () => {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [jList, pList] = await Promise.all([
+      const [jList, pList, bList, suggestions] = await Promise.all([
         catalogApi.listJenis(),
-        catalogApi.listProduk()
+        catalogApi.listProduk(),
+        catalogApi.listBoxes().catch(() => []),
+        catalogApi.getTipeStokSuggestions().catch(() => ['unit', 'roll', 'meter', 'pcs', 'box', 'set'])
       ]);
       setJenisList(jList);
       setProducts(pList);
+      setBoxesList(bList || []);
+      if (suggestions && suggestions.length > 0) {
+        setTipeStokSuggestions(suggestions);
+      }
     } catch (err: any) {
       showToast(err.message, 'error');
     } finally {
@@ -202,6 +215,10 @@ export const CatalogV2Manager: React.FC = () => {
       }
 
       if (selectedKategori !== 'ALL' && p.kategori !== selectedKategori) {
+        return false;
+      }
+
+      if (selectedKategoriBarang !== 'ALL' && (p.kategori_barang || 'Barang Habis Pakai') !== selectedKategoriBarang) {
         return false;
       }
 
@@ -284,6 +301,8 @@ export const CatalogV2Manager: React.FC = () => {
         jenis_id: Number(newProdJenisId),
         nama: newProdNama.trim(),
         kategori: newProdKategori,
+        kategori_barang: newProdKategoriBarang,
+        tipe_stok: newProdTipeStok.trim().toLowerCase() || 'unit',
         catatan: newProdCatatan.trim() || undefined
       });
 
@@ -291,6 +310,8 @@ export const CatalogV2Manager: React.FC = () => {
       setIsAddProductOpen(false);
       setNewProdNama('');
       setNewProdCatatan('');
+      setNewProdKategoriBarang('Barang Habis Pakai');
+      setNewProdTipeStok('unit');
       await loadData();
     } catch (err: any) {
       showToast(err.message, 'error');
@@ -475,14 +496,6 @@ export const CatalogV2Manager: React.FC = () => {
             )}
 
             <button
-              onClick={() => setIsBoxManagerOpen(true)}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <BoxIcon className="w-4 h-4 text-emerald-500" />
-              <span>Storage Box</span>
-            </button>
-
-            <button
               onClick={() => setActiveSubTab('products')}
               className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
                 activeSubTab === 'products'
@@ -492,6 +505,18 @@ export const CatalogV2Manager: React.FC = () => {
             >
               <Tag className="w-4 h-4" />
               <span>Daftar Produk & Varian</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab('storage_boxes')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
+                activeSubTab === 'storage_boxes'
+                  ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <BoxIcon className="w-4 h-4 text-emerald-500" />
+              <span>Daftar Storage Box ({boxesList.length})</span>
             </button>
 
             <button
@@ -530,7 +555,7 @@ export const CatalogV2Manager: React.FC = () => {
               </div>
 
               {/* Filter Jenis */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <select
                   value={selectedJenisId}
                   onChange={e => {
@@ -548,15 +573,26 @@ export const CatalogV2Manager: React.FC = () => {
                   ))}
                 </select>
 
-                {/* Filter Kategori */}
+                {/* Filter Kategori Perputaran */}
                 <select
                   value={selectedKategori}
                   onChange={e => setSelectedKategori(e.target.value)}
                   className="px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value="ALL">Semua Kategori</option>
+                  <option value="ALL">Semua Perputaran</option>
                   <option value="fast_moving">Fast Moving</option>
                   <option value="recycle">Recycle</option>
+                </select>
+
+                {/* Filter Kategori Barang (Paket 4: Alat / Barang Habis Pakai) */}
+                <select
+                  value={selectedKategoriBarang}
+                  onChange={e => setSelectedKategoriBarang(e.target.value)}
+                  className="px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
+                >
+                  <option value="ALL">Semua Jenis Barang</option>
+                  <option value="Alat">Alat (Tools)</option>
+                  <option value="Barang Habis Pakai">Barang Habis Pakai</option>
                 </select>
 
                 {canManageCatalog && (
@@ -686,9 +722,23 @@ export const CatalogV2Manager: React.FC = () => {
                             >
                               {prod.kategori === 'fast_moving' ? 'Fast Moving' : 'Recycle'}
                             </span>
-                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                              Total Stok: {prod.total_stok ?? 0} Unit
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                prod.kategori_barang === 'Alat'
+                                  ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                  : 'bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
+                              }`}
+                            >
+                              {prod.kategori_barang || 'Barang Habis Pakai'}
                             </span>
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                              Stok Tersedia: {prod.total_stok ?? 0} {prod.tipe_stok || 'Unit'}
+                            </span>
+                            {prod.stok_rusak !== undefined && prod.stok_rusak > 0 && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800" title="Item rusak tidak dihitung dalam stok tersedia">
+                                Rusak: {prod.stok_rusak}
+                              </span>
+                            )}
                           </div>
                           {prod.catatan && (
                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1005,6 +1055,98 @@ export const CatalogV2Manager: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
+      {/* SUBTAB 3: DAFTAR STORAGE BOX (Paket 4) */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'storage_boxes' && (
+        <div className="space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <BoxIcon className="w-4 h-4 text-emerald-500" />
+                <span>Pusat Penyimpanan Storage Box</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Setiap box dapat menampung campuran berbagai produk dan tipe varian suku cadang fisik ber-ID maupun stok jumlah.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {canManageCatalog && (
+                <button
+                  onClick={() => setIsBoxManagerOpen(true)}
+                  className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah Box Baru</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
+              <span>Memuat data storage box...</span>
+            </div>
+          ) : boxesList.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
+              <BoxIcon className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Belum ada Storage Box</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Buat kode box pertama Anda (misal: BOX-01, RAK-A) untuk mulai menempatkan barang.
+              </p>
+              {canManageCatalog && (
+                <button
+                  onClick={() => setIsBoxManagerOpen(true)}
+                  className="mt-3 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Buat Box Pertama</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {boxesList.map((box: any) => (
+                <div
+                  key={box.id}
+                  className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-emerald-500/50 transition-all flex flex-col justify-between space-y-3 group"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                        <BoxIcon className="w-5 h-5" />
+                      </div>
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        {box.total_item ?? 0} item
+                      </span>
+                    </div>
+
+                    <h4 className="font-bold text-slate-900 dark:text-white text-base mt-2.5 font-mono">
+                      {box.kode}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                      {box.keterangan || 'Tanpa keterangan lokasi'}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <button
+                      onClick={() => setSelectedBoxForContent(box.id)}
+                      className="w-full py-2 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <span>Buka Isi Box</span>
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* MODAL: BUAT PRODUK BARU */}
       {/* ========================================================================= */}
       {isAddProductOpen && (
@@ -1109,6 +1251,54 @@ export const CatalogV2Manager: React.FC = () => {
                     />
                     <span className="text-slate-800 dark:text-slate-200">Recycle (Bekas Tarikan / Servis)</span>
                   </label>
+                </div>
+              </div>
+
+              {/* Paket 4: Kategori Barang & Tipe Stok dengan Suggestions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Kategori Barang *
+                  </label>
+                  <select
+                    value={newProdKategoriBarang}
+                    onChange={e => setNewProdKategoriBarang(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-semibold"
+                  >
+                    <option value="Barang Habis Pakai">Barang Habis Pakai</option>
+                    <option value="Alat">Alat (Toolkit / Equipment)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Tipe Satuan Stok *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: unit, roll, pcs"
+                    value={newProdTipeStok}
+                    onChange={e => setNewProdTipeStok(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-mono"
+                  />
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                    <span className="text-[10px] text-slate-400">Saran penulisan:</span>
+                    {tipeStokSuggestions.map(sug => (
+                      <button
+                        type="button"
+                        key={sug}
+                        onClick={() => setNewProdTipeStok(sug)}
+                        className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                          newProdTipeStok.toLowerCase() === sug.toLowerCase()
+                            ? 'bg-emerald-600 text-white font-bold'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                        }`}
+                      >
+                        {sug}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -1769,36 +1959,108 @@ export const CatalogV2Manager: React.FC = () => {
                 {/* Item Fisik Ber-ID */}
                 {typeItemsData.items && typeItemsData.items.length > 0 ? (
                   <div className="space-y-2">
-                    <h4 className="font-bold text-slate-700 dark:text-slate-300">
-                      Rincian Item Fisik Ber-ID ({typeItemsData.items.length} Unit Aktif):
-                    </h4>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <h4 className="font-bold text-slate-700 dark:text-slate-300">
+                        Rincian Item Fisik Ber-ID ({typeItemsData.items.length} Unit Aktif):
+                      </h4>
+                      {/* Filter Kondisi */}
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-slate-500">Filter Kondisi:</span>
+                        <select
+                          value={itemConditionFilter}
+                          onChange={e => setItemConditionFilter(e.target.value)}
+                          className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 text-xs font-medium"
+                        >
+                          <option value="ALL">Semua Kondisi</option>
+                          <option value="Baru">Baru</option>
+                          <option value="Baik">Baik</option>
+                          <option value="Perlu Perbaikan">Perlu Perbaikan</option>
+                          <option value="Rusak">Rusak</option>
+                        </select>
+                      </div>
+                    </div>
+
                     <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                       <table className="w-full text-left">
                         <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-700 text-[11px]">
                           <tr>
                             <th className="p-2.5">KODE ID (SN / MANUAL)</th>
                             <th className="p-2.5">LOKASI BOX</th>
+                            <th className="p-2.5">KONDISI</th>
                             <th className="p-2.5">STATUS</th>
-                            <th className="p-2.5">TANGGAL MASUK</th>
+                            <th className="p-2.5">AKSI</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-                          {typeItemsData.items.map((it: any) => (
-                            <tr key={it.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                              <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100">{it.kode_id}</td>
-                              <td className="p-2.5">
-                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                                  {it.box_kode}
-                                </span>
-                              </td>
-                              <td className="p-2.5">
-                                <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                                  {it.status}
-                                </span>
-                              </td>
-                              <td className="p-2.5 text-slate-500">{new Date(it.dibuat_pada).toLocaleString('id-ID')}</td>
-                            </tr>
-                          ))}
+                          {typeItemsData.items
+                            .filter(it => itemConditionFilter === 'ALL' || (it.kondisi || 'Baik') === itemConditionFilter)
+                            .map((it: any) => {
+                              const kondisi = it.kondisi || 'Baik';
+                              const badgeClass =
+                                kondisi === 'Baru'
+                                  ? 'bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-800'
+                                  : kondisi === 'Perlu Perbaikan'
+                                  ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                  : kondisi === 'Rusak'
+                                  ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                                  : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
+
+                              return (
+                                <tr key={it.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                  <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100">
+                                    {it.kode_id}
+                                    {it.catatan_kondisi && (
+                                      <span className="block font-sans text-[10px] text-slate-500 font-normal">
+                                        {it.catatan_kondisi}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-2.5">
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                      {it.box_kode}
+                                    </span>
+                                  </td>
+                                  <td className="p-2.5">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold border ${badgeClass}`}>
+                                      {kondisi}
+                                    </span>
+                                  </td>
+                                  <td className="p-2.5">
+                                    <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                                      {it.status}
+                                    </span>
+                                  </td>
+                                  <td className="p-2.5">
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        const promptKondisi = window.prompt(
+                                          `Ubah kondisi untuk item "${it.kode_id}"\nPilihan: Baru, Baik, Perlu Perbaikan, Rusak`,
+                                          kondisi
+                                        );
+                                        if (promptKondisi && ['Baru', 'Baik', 'Perlu Perbaikan', 'Rusak'].includes(promptKondisi)) {
+                                          const catatan = window.prompt('Catatan kondisi (opsional):', it.catatan_kondisi || '') || undefined;
+                                          try {
+                                            await catalogApi.updateItemCondition(it.id, promptKondisi as any, catatan);
+                                            showToast(`Kondisi item "${it.kode_id}" berhasil diubah ke ${promptKondisi}.`, 'success');
+                                            if (selectedTypeForItems) {
+                                              const updated = await catalogApi.getItemsByTipe(selectedTypeForItems.id);
+                                              setTypeItemsData(updated);
+                                            }
+                                            await loadData();
+                                          } catch (err: any) {
+                                            showToast(err.message, 'error');
+                                          }
+                                        }
+                                      }}
+                                      className="font-sans text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-semibold"
+                                    >
+                                      Ubah Kondisi
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>

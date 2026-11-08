@@ -7,7 +7,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDatabase } from './db/database';
-import { authenticate } from './middleware/authMiddleware';
+import { authenticate, requireAuth, requireRole } from './middleware/authMiddleware';
 import authRoutes from './routes/auth';
 import inventoryRoutes from './routes/inventory';
 import transactionRoutes from './routes/transactions';
@@ -75,8 +75,8 @@ async function startServer() {
   app.use('/api/stock', stockRoutes);
   app.use('/api/requests', requestRoutes);
 
-  // Endpoint Backup Khusus Data Barang (Bebas Akun)
-  app.get('/api/backup/inventory/download', async (_req, res) => {
+  // Endpoint Backup Khusus Data Barang (Bebas Akun) - Khusus Developer & Admin
+  app.get('/api/backup/inventory/download', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
     try {
       const result = await BackupService.createInventoryBackup('user-download');
       res.download(result.filePath, result.filename);

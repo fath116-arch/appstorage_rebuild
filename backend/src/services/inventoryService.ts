@@ -14,6 +14,10 @@ export class InventoryService {
     return InventoryRepository.findItemById(id);
   }
 
+  static async getItemByCode(code: string): Promise<ItemRecord | null> {
+    return InventoryRepository.findItemByCode(code);
+  }
+
   static async getAllCategories(): Promise<CategoryRecord[]> {
     return InventoryRepository.findAllCategories();
   }

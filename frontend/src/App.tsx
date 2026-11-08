@@ -31,6 +31,7 @@ const MobileAccessModal = lazy(() => import('./components/MobileAccessModal').th
 const WhatsAppConfigModal = lazy(() => import('./components/WhatsAppConfigModal').then(m => ({ default: m.WhatsAppConfigModal })));
 const SecurityReportModal = lazy(() => import('./components/SecurityReportModal').then(m => ({ default: m.SecurityReportModal })));
 const DataRestoreModal = lazy(() => import('./components/DataRestoreModal').then(m => ({ default: m.DataRestoreModal })));
+const BatchLabelPrintModal = lazy(() => import('./components/BatchLabelPrintModal').then(m => ({ default: m.BatchLabelPrintModal })));
 
 const TabLoadingFallback: React.FC = () => (
   <div className="bg-white rounded-xl border border-slate-200 p-12 text-center flex flex-col items-center justify-center space-y-3">
@@ -62,6 +63,7 @@ const AppContent: React.FC = () => {
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
   const [isSecurityReportOpen, setIsSecurityReportOpen] = useState(false);
   const [isRestoreOpen, setIsRestoreOpen] = useState(false);
+  const [isLabelPrintOpen, setIsLabelPrintOpen] = useState(false);
 
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printData, setPrintData] = useState<any>(null);
@@ -138,6 +140,7 @@ const AppContent: React.FC = () => {
         onOpenWhatsApp={() => setIsWhatsAppOpen(true)}
         onOpenSecurityReport={() => setIsSecurityReportOpen(true)}
         onOpenRestore={() => setIsRestoreOpen(true)}
+        onOpenLabelPrint={() => setIsLabelPrintOpen(true)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-20 md:pb-6">
@@ -317,6 +320,15 @@ const AppContent: React.FC = () => {
           <DataRestoreModal
             isOpen={isRestoreOpen}
             onClose={() => setIsRestoreOpen(false)}
+          />
+        </Suspense>
+      )}
+
+      {isLabelPrintOpen && (
+        <Suspense fallback={null}>
+          <BatchLabelPrintModal
+            isOpen={isLabelPrintOpen}
+            onClose={() => setIsLabelPrintOpen(false)}
           />
         </Suspense>
       )}

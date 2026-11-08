@@ -45,11 +45,14 @@ export interface Produk {
   jenis_nama?: string;
   nama: string;
   kategori: 'fast_moving' | 'recycle';
+  kategori_barang?: 'Alat' | 'Barang Habis Pakai';
+  tipe_stok?: string;
   catatan?: string | null;
   aktif: boolean | number;
   dibuat_oleh?: string | null;
   dibuat_pada: string;
   total_stok?: number;
+  stok_rusak?: number;
   tipes?: Tipe[];
   total_tipe?: number;
 }
@@ -77,6 +80,14 @@ export interface Tipe {
   aktif: boolean | number;
   dibuat_pada: string;
   stok_total?: number;
+  stok_tersedia?: number;
+  stok_rusak?: number;
+  stok_per_kondisi?: {
+    baru: number;
+    baik: number;
+    perlu_perbaikan: number;
+    rusak: number;
+  };
   sebaran_box?: Array<{ box_id: string; box_kode: string; box_keterangan?: string; jumlah: number }>;
   riwayat_terakhir?: Array<{
     id_aktivitas: string;
@@ -363,7 +374,7 @@ export class CatalogService {
   // 3. PRODUK
   // ============================================================================
 
-  static async listProduk(filters?: { jenis_id?: number; kategori?: string; search?: string }): Promise<Produk[]> {
+  static async listProduk(filters?: { jenis_id?: number; kategori?: string; kategori_barang?: string; search?: string }): Promise<Produk[]> {
     let sql = `
       SELECT p.*, j.nama as jenis_nama, COUNT(DISTINCT t.id) as total_tipe
       FROM produk p
@@ -383,6 +394,11 @@ export class CatalogService {
       params.push(filters.kategori);
     }
 
+    if (filters?.kategori_barang) {
+      sql += ' AND (p.kategori_barang = ? OR (? = "Barang Habis Pakai" AND p.kategori_barang IS NULL))';
+      params.push(filters.kategori_barang, filters.kategori_barang);
+    }
+
     if (filters?.search) {
       sql += ' AND (LOWER(p.nama) LIKE ? OR LOWER(j.nama) LIKE ?)';
       params.push(`%${filters.search.toLowerCase()}%`, `%${filters.search.toLowerCase()}%`);
@@ -394,18 +410,31 @@ export class CatalogService {
 
     for (const p of prods) {
       const pId = Number(p.id);
+      p.kategori_barang = p.kategori_barang || 'Barang Habis Pakai';
+      p.tipe_stok = p.tipe_stok || 'unit';
+
       const tipes = await executeQuery<any>('SELECT id FROM tipe WHERE produk_id = ? AND aktif = 1', [pId]);
       let totalItemCount = 0;
       let totalSjCount = 0;
+      let totalRusakCount = 0;
 
       if (tipes && tipes.length > 0) {
         for (const t of tipes) {
           const tId = Number(t.id);
+
+          // Stok aktif & kondisi bukan Rusak = stok tersedia
           const itemStok = await executeQuery<any>(
-            `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif'`,
+            `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND (kondisi IS NULL OR kondisi != 'Rusak')`,
             [tId]
           );
           totalItemCount += Number(itemStok[0]?.total || 0);
+
+          // Stok rusak
+          const itemRusak = await executeQuery<any>(
+            `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND kondisi = 'Rusak'`,
+            [tId]
+          );
+          totalRusakCount += Number(itemRusak[0]?.total || 0);
 
           const sjStok = await executeQuery<any>(
             `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
@@ -416,6 +445,7 @@ export class CatalogService {
       }
 
       p.total_stok = totalItemCount + totalSjCount;
+      p.stok_rusak = totalRusakCount;
       p.total_tipe = Number(p.total_tipe || (tipes ? tipes.length : 0));
     }
 
@@ -433,6 +463,8 @@ export class CatalogService {
 
     if (!rows || rows.length === 0) return null;
     const prod = rows[0];
+    prod.kategori_barang = prod.kategori_barang || 'Barang Habis Pakai';
+    prod.tipe_stok = prod.tipe_stok || 'unit';
     prod.tipes = await this.listTipeByProduk(id);
     return prod;
   }
@@ -441,14 +473,18 @@ export class CatalogService {
     jenis_id: number;
     nama: string;
     kategori: 'fast_moving' | 'recycle';
+    kategori_barang?: 'Alat' | 'Barang Habis Pakai';
+    tipe_stok?: string;
     catatan?: string;
   }, userId: string): Promise<Produk> {
     const cleanNama = input.nama.trim();
+    const kategoriBarang = input.kategori_barang || 'Barang Habis Pakai';
+    const tipeStok = (input.tipe_stok || 'unit').trim().toLowerCase();
 
     const res: any = await executeQuery(
-      `INSERT INTO produk (jenis_id, nama, kategori, catatan, aktif, dibuat_oleh)
-       VALUES (?, ?, ?, ?, 1, ?)`,
-      [input.jenis_id, cleanNama, input.kategori, input.catatan || null, userId]
+      `INSERT INTO produk (jenis_id, nama, kategori, kategori_barang, tipe_stok, catatan, aktif, dibuat_oleh)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [input.jenis_id, cleanNama, input.kategori, kategoriBarang, tipeStok, input.catatan || null, userId]
     );
 
     const prodId = res.insertId || res.id;
@@ -456,7 +492,7 @@ export class CatalogService {
     await ActivityLogService.recordActivity({
       aksi: 'tambah_produk',
       pelaku_id: userId,
-      catatan: `Menambahkan Produk baru: "${cleanNama}" (Kategori: ${input.kategori})`
+      catatan: `Menambahkan Produk baru: "${cleanNama}" (${kategoriBarang}, Tipe Stok: ${tipeStok})`
     });
 
     const created = await this.getProdukById(prodId);
@@ -466,23 +502,35 @@ export class CatalogService {
   static async updateProduk(id: number, input: {
     nama: string;
     kategori: 'fast_moving' | 'recycle';
+    kategori_barang?: 'Alat' | 'Barang Habis Pakai';
+    tipe_stok?: string;
     catatan?: string;
   }, userId: string): Promise<Produk> {
     const cleanNama = input.nama.trim();
+    const kategoriBarang = input.kategori_barang || 'Barang Habis Pakai';
+    const tipeStok = (input.tipe_stok || 'unit').trim().toLowerCase();
 
     await executeQuery(
-      `UPDATE produk SET nama = ?, kategori = ?, catatan = ? WHERE id = ?`,
-      [cleanNama, input.kategori, input.catatan || null, id]
+      `UPDATE produk SET nama = ?, kategori = ?, kategori_barang = ?, tipe_stok = ?, catatan = ? WHERE id = ?`,
+      [cleanNama, input.kategori, kategoriBarang, tipeStok, input.catatan || null, id]
     );
 
     await ActivityLogService.recordActivity({
       aksi: 'ubah_produk',
       pelaku_id: userId,
-      catatan: `Memperbarui Produk #${id} ("${cleanNama}")`
+      catatan: `Memperbarui Produk #${id} ("${cleanNama}", ${kategoriBarang}, Tipe Stok: ${tipeStok})`
     });
 
     const updated = await this.getProdukById(id);
     return updated!;
+  }
+
+  static async getTipeStokSuggestions(): Promise<string[]> {
+    const rows = await executeQuery<any>('SELECT DISTINCT tipe_stok FROM produk WHERE tipe_stok IS NOT NULL AND tipe_stok != ""');
+    const existing = rows.map((r: any) => String(r.tipe_stok).toLowerCase().trim());
+    const defaults = ['unit', 'roll', 'pcs', 'meter', 'box', 'pack', 'set'];
+    const combined = Array.from(new Set([...defaults, ...existing]));
+    return combined;
   }
 
   static async deleteProduk(id: number, userId: string): Promise<{ success: boolean; message: string }> {
@@ -557,20 +605,44 @@ export class CatalogService {
     for (const t of tipes) {
       t.nilai_atribut = await this.getNilaiAtributTipe(t.id);
 
-      // Hitung total stok (item fisik + stok jumlah)
-      const itemStok = await executeQuery<any>(
-        `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif'`,
+      // Hitung total stok (item fisik per kondisi + stok jumlah)
+      const itemStokAvailable = await executeQuery<any>(
+        `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND (kondisi IS NULL OR kondisi != 'Rusak')`,
         [t.id]
       );
-      const countItem = itemStok[0]?.total || 0;
+      const countAvailableItem = Number(itemStokAvailable[0]?.total || 0);
+
+      const itemStokRusak = await executeQuery<any>(
+        `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND kondisi = 'Rusak'`,
+        [t.id]
+      );
+      const countRusakItem = Number(itemStokRusak[0]?.total || 0);
+
+      const itemConditionBreakdown = await executeQuery<any>(
+        `SELECT COALESCE(kondisi, 'Baik') as kondisi_name, COUNT(id) as total
+         FROM item WHERE tipe_id = ? AND status = 'aktif'
+         GROUP BY COALESCE(kondisi, 'Baik')`,
+        [t.id]
+      );
+
+      const breakdown = { baru: 0, baik: 0, perlu_perbaikan: 0, rusak: 0 };
+      itemConditionBreakdown.forEach((r: any) => {
+        const k = String(r.kondisi_name).toLowerCase().replace(/ /g, '_');
+        if (k in breakdown) {
+          (breakdown as any)[k] = Number(r.total || 0);
+        }
+      });
 
       const sjStok = await executeQuery<any>(
         `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
         [t.id]
       );
-      const countSj = sjStok[0]?.total || 0;
+      const countSj = Number(sjStok[0]?.total || 0);
 
-      t.stok_total = Number(countItem) + Number(countSj);
+      t.stok_tersedia = countAvailableItem + countSj;
+      t.stok_rusak = countRusakItem;
+      t.stok_total = t.stok_tersedia + t.stok_rusak;
+      t.stok_per_kondisi = breakdown;
 
       // Sebaran box per tipe
       const itemBoxes = await executeQuery<any>(
@@ -633,6 +705,42 @@ export class CatalogService {
     if (!rows || rows.length === 0) return null;
     const t = rows[0];
     t.nilai_atribut = await this.getNilaiAtributTipe(id);
+
+    // Hitung stok fisik dan breakdown kondisi (Paket 4)
+    const physicalRows = await executeQuery<any>(
+      `SELECT
+         COUNT(id) as total,
+         SUM(CASE WHEN kondisi = 'Rusak' THEN 1 ELSE 0 END) as rusak,
+         SUM(CASE WHEN kondisi = 'Baru' THEN 1 ELSE 0 END) as baru,
+         SUM(CASE WHEN kondisi = 'Baik' THEN 1 ELSE 0 END) as baik,
+         SUM(CASE WHEN kondisi = 'Perlu Perbaikan' THEN 1 ELSE 0 END) as perlu_perbaikan
+       FROM item
+       WHERE tipe_id = ? AND status = 'aktif'`,
+      [t.id]
+    );
+
+    const countPhysicalTotal = Number(physicalRows[0]?.total || 0);
+    const countRusakItem = Number(physicalRows[0]?.rusak || 0);
+    const countAvailableItem = countPhysicalTotal - countRusakItem;
+
+    const breakdown = {
+      baru: Number(physicalRows[0]?.baru || 0),
+      baik: Number(physicalRows[0]?.baik || 0),
+      perlu_perbaikan: Number(physicalRows[0]?.perlu_perbaikan || 0),
+      rusak: countRusakItem
+    };
+
+    const sjStok = await executeQuery<any>(
+      `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
+      [t.id]
+    );
+    const countSj = Number(sjStok[0]?.total || 0);
+
+    t.stok_tersedia = countAvailableItem + countSj;
+    t.stok_rusak = countRusakItem;
+    t.stok_total = t.stok_tersedia + t.stok_rusak;
+    t.stok_per_kondisi = breakdown;
+
     return t;
   }
 
