@@ -192,8 +192,11 @@ const AppContent: React.FC = () => {
       <footer className="no-print border-t border-slate-200/60 dark:border-slate-800/80 glass py-4 pb-24 md:pb-6 mt-12 text-xs text-slate-600 dark:text-slate-400">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <img src="/assets/logo-full.webp" alt="FieldOps IT" className="h-5 w-auto object-contain dark:brightness-110" />
-            <span className="font-medium text-slate-800 dark:text-slate-200">· Inventarisasi Suku Cadang &amp; Auto-Deduct Tiket Lapangan</span>
+            <div className="w-5 h-5 rounded-md bg-white dark:bg-slate-100 border border-slate-200 dark:border-slate-300/50 flex items-center justify-center p-0.5 shrink-0">
+              <img src="/logo.webp" alt="FieldOps IT" className="w-full h-full object-contain" />
+            </div>
+            <span className="font-bold text-slate-900 dark:text-slate-100">FieldOps IT</span>
+            <span className="font-medium text-slate-600 dark:text-slate-400">· Inventarisasi Suku Cadang &amp; Auto-Deduct Tiket Lapangan</span>
             <span className="font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-md">
               v{VERSION}
             </span>

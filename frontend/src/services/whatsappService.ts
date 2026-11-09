@@ -1,169 +1,183 @@
 /**
  * WhatsApp Gateway Service Helper
+ * FieldOps IT Inventory v1.2.5 Paket 6
  * Handles communication with Express backend /api/whatsapp endpoints
- * Sends authorized X-App-Secret-Key header per SEC-03 remediation
  */
 
 export interface WhatsAppConfigData {
-  gatewayType: 'fonnte' | 'wablas' | 'custom_webhook';
+  id?: string;
+  isEnabled: boolean;
+  cooldownMinutes: number; // Minimal 1, default 15
+  lastSentAt?: string | null;
+  activeHoursStart?: string | null;
+  activeHoursEnd?: string | null;
+  alertOnOutOfStock: boolean;
+  alertOnLowStock: boolean;
+  alertOnEarlyWarning: boolean;
+  globalLowStockThreshold: number;
+  globalEarlyWarningThreshold: number;
+  recipients: string[];
   apiUrl: string;
   apiToken: string;
-  targetPhones: string;
-  autoAlertEnabled: boolean;
   maskedToken?: string;
+}
+
+export interface ThresholdMatrixItem {
+  produkId: number;
+  produkNama: string;
+  kategoriBarang: string;
+  tipeId: number;
+  tipeNama: string;
+  kodeTipe: string;
+  availableStock: number;
+  lowStockThreshold: number;
+  lowStockSource: 'dari tipe' | 'dari produk' | 'dari global';
+  earlyWarningThreshold: number;
+  earlyWarningSource: 'dari tipe' | 'dari produk' | 'dari global';
+  isWatchlist: boolean;
+  currentStatus: 'NORMAL' | 'PERINGATAN_DINI' | 'MENIPIS' | 'HABIS';
 }
 
 export interface WaLogItem {
   id: string;
-  timestamp: string;
-  target: string;
-  messageSnippet: string;
-  itemsCount: number;
-  status: 'SUCCESS' | 'FAILED' | 'SIMULATED';
-  details: string;
+  sent_at: string;
+  trigger_type: string;
+  recipients: string;
+  message_snippet: string;
+  summary_counts?: string;
+  fonnte_status: 'SUCCESS' | 'FAILED' | 'SIMULATED' | 'COOLDOWN_QUEUED';
+  fonnte_response?: string;
+  operator_id?: string;
 }
 
-const CONFIG_STORAGE_KEY = 'fieldops_wa_config';
-const INTERNAL_SECRET = 'fieldops-internal-proxy-v1';
-
-const getAuthHeaders = () => ({
+const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-App-Secret-Key': INTERNAL_SECRET,
 });
 
 export class WhatsAppService {
   /**
-   * Load stored config or fetch from Express backend with authorization
+   * Load stored config from Express backend
    */
   async getConfig(): Promise<WhatsAppConfigData> {
     try {
       const res = await fetch('/api/whatsapp/config', {
-        headers: getAuthHeaders(),
+        headers: getHeaders(),
+        credentials: 'include'
       });
       if (res.ok) {
         const data = await res.json();
         if (data.config) {
-          localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(data.config));
           return data.config;
         }
       }
-    } catch {
-      // Fallback to localStorage if offline
+    } catch (err) {
+      console.warn('Failed to fetch WA config:', err);
     }
 
-    try {
-      const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-
     return {
-      gatewayType: 'fonnte',
+      isEnabled: true,
+      cooldownMinutes: 15,
+      alertOnOutOfStock: true,
+      alertOnLowStock: true,
+      alertOnEarlyWarning: true,
+      globalLowStockThreshold: 3,
+      globalEarlyWarningThreshold: 5,
+      recipients: ['081290008888'],
       apiUrl: 'https://api.fonnte.com/send',
       apiToken: '',
-      targetPhones: '081290008888',
-      autoAlertEnabled: true,
     };
   }
 
   /**
-   * Save config to backend Express server & local storage
+   * Save config to backend Express server
    */
-  async updateConfig(config: WhatsAppConfigData): Promise<boolean> {
+  async updateConfig(config: Partial<WhatsAppConfigData>): Promise<{ success: boolean; message: string; config?: WhatsAppConfigData }> {
     try {
-      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
       const res = await fetch('/api/whatsapp/config', {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(config),
       });
-      return res.ok;
-    } catch (err) {
-      console.warn('Failed to update WA config on backend:', err);
-      return false;
-    }
-  }
-
-  /**
-   * Send WhatsApp Alert for Out-Of-Stock or Low-Stock items via Backend Proxy
-   */
-  async sendStockAlert(
-    items: Array<{
-      sku: string;
-      name: string;
-      quantity: number;
-      minStockAlert: number;
-      unit: string;
-    }>,
-    triggerSource: string = 'Pengurangan Stok'
-  ): Promise<{ success: boolean; message: string; log?: WaLogItem }> {
-    try {
-      const config = await this.getConfig();
-      if (!config.autoAlertEnabled && triggerSource.includes('Otomatis')) {
-        return {
-          success: false,
-          message: 'Otomatisasi notifikasi WhatsApp sedang dinonaktifkan di pengaturan.',
-        };
-      }
-
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          targetPhone: config.targetPhones,
-          items,
-          triggerSource,
-        }),
-      });
-
-      let data: any = {};
-      try {
-        const text = await res.text();
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { message: `Server mengembalikan status HTTP ${res.status} (${res.statusText})` };
-      }
-
-      if (!res.ok) {
-        return {
-          success: false,
-          message: data.message || `Gagal mengirim notifikasi (HTTP ${res.status}).`,
-        };
-      }
-
+      const data = await res.json();
       return {
-        success: data.success ?? res.ok,
-        message: data.message || 'Sinyal WhatsApp terkirim',
-        log: data.log,
+        success: res.ok,
+        message: data.message || (res.ok ? 'Konfigurasi tersimpan' : 'Gagal menyimpan konfigurasi'),
+        config: data.config
       };
     } catch (err: any) {
-      console.error('WhatsApp send error:', err);
       return {
         success: false,
-        message: `Gagal mengirim notifikasi WhatsApp: ${err.message || err}`,
+        message: err.message || 'Gagal menghubungi server backend.'
       };
     }
   }
 
   /**
-   * Test WhatsApp Gateway Connection
+   * Fetch hierarchical threshold matrix (showing source: "dari tipe", "dari produk", "dari global")
    */
-  async testConnection(targetPhone?: string): Promise<{ success: boolean; message: string; details?: string }> {
+  async getThresholds(): Promise<ThresholdMatrixItem[]> {
+    try {
+      const res = await fetch('/api/whatsapp/thresholds', {
+        headers: getHeaders(),
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.thresholds || [];
+      }
+    } catch (err) {
+      console.warn('Failed to load threshold matrix:', err);
+    }
+    return [];
+  }
+
+  /**
+   * Set specific threshold or toggle watchlist for product / type
+   */
+  async setThreshold(payload: {
+    level: 'produk' | 'tipe';
+    targetId: number;
+    lowStockThreshold?: number | null;
+    earlyWarningThreshold?: number | null;
+    isWatchlist?: boolean;
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetch('/api/whatsapp/thresholds', {
+        method: 'POST',
+        headers: getHeaders(),
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      return {
+        success: res.ok,
+        message: data.message || (res.ok ? 'Ambang berhasil diperbarui' : 'Gagal mengubah ambang')
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || 'Gagal menyimpan ambang khusus.'
+      };
+    }
+  }
+
+  /**
+   * Test WhatsApp Gateway Connection (Subject to 15-minute cooldown)
+   */
+  async testConnection(targetPhone?: string): Promise<{ success: boolean; message: string; remainingSeconds?: number; details?: string }> {
     try {
       const res = await fetch('/api/whatsapp/test', {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify({ targetPhone }),
       });
-      let data: any = {};
-      try {
-        const text = await res.text();
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { message: `Server mengembalikan status HTTP ${res.status} (${res.statusText})` };
-      }
+      const data = await res.json();
       return {
-        success: data.success ?? res.ok,
+        success: res.ok && data.success !== false,
         message: data.message || (res.ok ? 'Uji koneksi terkirim' : `Gagal HTTP ${res.status}`),
+        remainingSeconds: data.remainingSeconds,
         details: data.details,
       };
     } catch (err: any) {
@@ -175,18 +189,48 @@ export class WhatsAppService {
   }
 
   /**
+   * Trigger Consolidated Summary Alert
+   */
+  async sendConsolidatedAlert(force: boolean = false): Promise<{
+    sent: boolean;
+    message?: string;
+    inCooldown?: boolean;
+    remainingSeconds?: number;
+    log?: WaLogItem;
+  }> {
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: getHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({ force }),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return {
+        sent: false,
+        message: err.message || 'Gagal memicu pengiriman alert ringkasan.'
+      };
+    }
+  }
+
+  /**
    * Fetch WhatsApp Log History
    */
-  async getLogs(): Promise<WaLogItem[]> {
+  async getLogs(limit: number = 50): Promise<WaLogItem[]> {
     try {
-      const res = await fetch('/api/whatsapp/logs', {
-        headers: getAuthHeaders(),
+      const res = await fetch(`/api/whatsapp/logs?limit=${limit}`, {
+        headers: getHeaders(),
+        credentials: 'include'
       });
       if (res.ok) {
         const data = await res.json();
         return data.logs || [];
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Failed to load WA logs:', err);
+    }
     return [];
   }
 }

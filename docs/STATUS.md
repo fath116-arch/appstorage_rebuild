@@ -9,11 +9,11 @@ Perbarui di akhir setiap tahap. Agent membaca file ini bersama `IMPLEMENTATION_G
 - [x] Paket 3 — Konsolidasi Menu Tools Navbar — Terverifikasi 24/24 Tests PASS
 - [x] Paket 4 — Katalog, Tipe Stok, Kategori Barang, & Kondisi Item — Terverifikasi 13/13 Tests PASS
 - [x] Paket 5 — Input Stok via Kamera & Template Cetak Laporan A4 — Terverifikasi 15/15 Tests PASS
-- [ ] Paket 6 — WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m
-- [ ] Paket 7 — Branding Logo Baru & Kotak Logo Top Navigation
+- [x] Paket 6 — WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m — Terverifikasi 13/13 Tests PASS
+- [x] Paket 7 — Branding Logo Baru & Kotak Logo Top Navigation — Terverifikasi 6/6 Tests PASS
 
 ## Sedang dikerjakan
-- Paket 5 Selesai & Terverifikasi (Total 94/94 test suite Paket 1-5 PASS 100%). Siap melanjutkan ke Paket 6.
+- Seluruh 7 Paket v1.2.5 Telah Selesai & Terverifikasi Penuh (Total 113/113 test suite Paket 1 s/d Paket 7 PASS 100%). Versi 1.2.5 siap rilis.
 
 ## Keputusan penting
 - Definisi Hak Akses RBAC dipusatkan di `backend/src/utils/permissions.ts` agar mudah diaudit.

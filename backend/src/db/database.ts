@@ -1564,7 +1564,10 @@ function runMemoryQuery(sql: string, params: any[]): any {
       else if (k === 'Perlu Perbaikan') perlu_perbaikan++;
       else baik++;
     }
-    return [{ total, rusak, baru, baik, perlu_perbaikan }];
+    const count = upper.includes("KONDISI != 'RUSAK'") 
+      ? items.filter(i => (i.kondisi || 'Baik') !== 'Rusak').length 
+      : total;
+    return [{ total, rusak, baru, baik, perlu_perbaikan, count }];
   }
 
   if (upper.startsWith('SELECT') && upper.includes('FROM ITEM')) {

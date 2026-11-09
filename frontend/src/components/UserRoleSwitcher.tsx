@@ -268,8 +268,8 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/60">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center p-0.5 shadow-sm overflow-hidden shrink-0">
-              <img src="/assets/logo-icon.webp" alt="FieldOps IT Logo" className="w-full h-full object-contain rounded-lg" />
+            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-100 border border-slate-200 dark:border-slate-300/50 flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
+              <img src="/logo.webp" alt="FieldOps IT Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2">

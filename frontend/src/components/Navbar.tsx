@@ -129,16 +129,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                   closeAllDropdowns();
                   setAppMenuOpen(nextState);
                 }}
-                className="flex items-center gap-2.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl hover:bg-slate-900/5 dark:hover:bg-slate-800/60 transition-all group border border-transparent"
-                aria-label="Buka Menu Dropdown Aplikasi"
+                className="flex items-center gap-2.5 p-1 sm:px-2 sm:py-1.5 rounded-xl hover:bg-slate-900/5 dark:hover:bg-slate-800/60 transition-all group border border-transparent focus:outline-hidden"
+                aria-label="Buka Menu Dropdown Aplikasi FieldOps IT"
                 title="Klik untuk membuka Menu Navigasi & Kelompok Fitur"
               >
-                <img 
-                  src="/assets/logo-full.webp" 
-                  alt="FieldOps IT ASSET & INVENTORY" 
-                  className="h-8 sm:h-9 w-auto object-contain max-w-[200px] sm:max-w-[260px] dark:brightness-110 group-hover:scale-[1.02] transition-transform" 
-                />
-                <ChevronDown className={`w-4 h-4 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${appMenuOpen ? 'rotate-180 text-slate-900 dark:text-white' : 'group-hover:text-slate-900 dark:group-hover:text-white'}`} />
+                {/* Kotak Logo: Persegi bersudut membulat dengan latar terang agar logo kubus kontras di tema gelap & terang */}
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white dark:bg-slate-100 border border-slate-200/90 dark:border-slate-300/50 shadow-xs flex items-center justify-center p-1 overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
+                  <img 
+                    src="/logo.webp" 
+                    alt="FieldOps IT Logo" 
+                    className="w-full h-full object-contain" 
+                  />
+                </div>
+
+                {/* Teks FieldOps IT (Tebal, disembunyikan di layar sempit / HP) */}
+                <span className="hidden sm:inline-block font-extrabold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight leading-none font-display">
+                  FieldOps IT
+                </span>
+
+                {/* Ikon panah dropdown (chevron abu-abu di kanannya) */}
+                <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${appMenuOpen ? 'rotate-180 text-slate-900 dark:text-white' : 'group-hover:text-slate-700 dark:group-hover:text-slate-300'}`} />
               </button>
 
               {/* Master Dropdown Menu with Sub-Dropdowns */}

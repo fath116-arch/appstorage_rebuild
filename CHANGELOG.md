@@ -6,6 +6,37 @@ Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara 
 
 ---
 
+## 🚀 [v1.2.5] - Paket 7: Branding Logo Baru & Kotak Logo Top Navigation - 2026-11-08
+- **Model Baru Top Navigation (Sisi Kiri)**: Menggantikan logo kecil lama dengan satu blok klik terpadu yang memuat **[Kotak Logo] + Teks "FieldOps IT" (Tebal) + Ikon Panah Dropdown Chevron Abu-abu**.
+- **Desain Kotak Logo**: Persegi bersudut membulat (`rounded-xl`) dengan latar terang (`bg-white` / `dark:bg-slate-100`) berborder halus sehingga logo kubus terlihat jernih dan kontras di mode tema terang maupun tema gelap.
+- **Responsif Layar Sempit (HP)**: Teks "FieldOps IT" disembunyikan secara otomatis di layar kecil (`hidden sm:inline-block`), sedangkan kotak logo dan panah chevron tetap tampil presisi.
+- **Konsistensi Branding di Seluruh Aplikasi**:
+  - Favicon dan shortcut icon di `frontend/index.html` menggunakan `/logo.png`.
+  - Apple Touch Icon (`/apple-touch-icon.png`, 180x180 px) dengan latar solid.
+  - PWA Icons (`pwa-192x192.png`, `pwa-512x512.png`, `pwa-maskable-512x512.png`) dengan latar solid non-transparan dan ukuran sangat efisien (~162 KB total, jauh di bawah batas cache PWA 5 MB).
+  - Halaman Login (`LoginScreen.tsx`) dengan kotak logo hero berlatar terang.
+  - Modal Manajemen Akun/Peran (`UserRoleSwitcher.tsx`) dengan kotak logo berlatar terang.
+  - Template Cetak Laporan Resmi A4 (`PrintReportModal.tsx`) menggunakan `/logo.webp` pada Kop Surat resmi.
+  - Template Cetak Label QR A4 190x89 mm (`BatchLabelPrintModal.tsx`) menggunakan `/logo.png` pada header kartu.
+  - Footer aplikasi (`App.tsx`) dengan kotak logo dan teks tebal "FieldOps IT".
+- **Pengujian Otomatis**: Lulus 6/6 pengujian di `backend/src/tests/v125Paket7Branding.test.ts`.
+
+---
+
+## 🚀 [v1.2.5] - Paket 6: WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15 Menit - 2026-11-08
+- **Akses Role & Proteksi Read-Only**: Menu WA Alert di modal Tools dapat diakses oleh seluruh peran (`developer`, `admin`, `warehouse_admin`, `technician`). Peran teknisi dilindungi secara ketat dengan status *read-only* (hanya melihat riwayat log); pengubahan konfigurasi, pengubahan ambang, dan pengiriman alert ditolak dengan status HTTP 403 Forbidden di backend.
+- **3 Jenis Pesan Otomatis (Tanpa Teks Bebas)**: Peringatan Stok Habis (0 unit), Stok Menipis (stok $\le$ ambang menipis), dan Peringatan Dini (khusus produk/tipe di daftar pantauan/watchlist dengan stok $\le$ ambang dini).
+- **Pengecualian Stok Rusak**: Item fisik berkondisi `Rusak` tidak dihitung sebagai stok yang tersedia dalam seluruh proses evaluasi ambang batas alert.
+- **Ambang Berjenjang (*Hierarchical Thresholds*)**: Resolusi ambang otomatis dengan prioritas bertingkat: **tipe > produk > global**. Antarmuka dan API menampilkan nilai ambang berlaku secara transparan beserta label asal sumbernya (`dari tipe`, `dari produk`, `dari global`).
+- **Daftar Pantauan (*Watchlist*)**: Pengguna dapat menambahkan tipe atau produk ke dalam daftar pantauan khusus dengan ambang batas dini masing-masing.
+- **Batas Jeda 15 Menit di Backend & Penggabungan Konsolidasi**: Jeda pengiriman (*cooldown*) minimal 1 menit, default 15 menit, dan dilarang disetel 0 menit. Peringatan yang terjadi dalam rentang jeda ditahan di antrean dan dikonsolidasi menjadi satu pesan ringkasan lengkap. Tombol pesan uji (*test message*) juga mematuhi jeda 15 menit.
+- **Anti-Duplikat Berbasis Status**: Barang dengan status alert yang sama tidak dikirimkan berulang kali; status direset saat stok naik di atas ambang batas (`NORMAL`).
+- **Sanitasi & Deduplikasi Penerima**: Mendukung grup WhatsApp (`...-group` atau `...@g.us`) dan nomor telepon individual; nomor duplikat otomatis dibersihkan sehingga hanya dikirim satu kali.
+- **Ekstensibilitas Estimasi Sisa Hari**: Metode penentuan estimasi hari sisa pakai (`estimateDaysRemaining`) dirancang ekstensibel tanpa mengubah skema tabel.
+- **Pengujian Otomatis**: Lulus 13/13 pengujian di `backend/src/tests/v125Paket6WaAlert.test.ts`.
+
+---
+
 ## 🚀 [v1.2.5] - Paket 5: Kamera dan Laporan Cetak - 2026-11-08
 - **Input Stok via Kamera di Menu Keluar/Masuk (`StockInOutModal.tsx`)**: Integrasi pemindai kamera barcode/QR (memanfaatkan kembali aliran kamera `navigator.mediaDevices.getUserMedia` dan video targeting overlay) pada modal Barang Masuk (IN) dan Barang Keluar (OUT).
 - **Penanganan Scan Presisi**: Pemindaian otomatis mendeteksi kode SKU, Barcode, atau ID fisik. Kode valid memvalidasi ketersediaan stok fisik dan mengisi form secara instan; kode tidak valid atau barang tidak ditemukan ditolak dengan notifikasi kesalahan yang jelas.

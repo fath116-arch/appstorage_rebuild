@@ -62,3 +62,51 @@ Status: MENUNGGU PERSETUJUAN
 Mohon Developer / Admin / Admin Gudang segera memproses melalui sistem.`;
 }
 
+export interface ConsolidatedSummaryInput {
+  outOfStock: Array<{ sku: string; name: string; unit?: string }>;
+  lowStock: Array<{ sku: string; name: string; quantity: number; unit?: string; threshold: number; source?: string }>;
+  earlyWarning: Array<{ sku: string; name: string; quantity: number; unit?: string; threshold: number; source?: string }>;
+  triggerSource?: string;
+  cooldownWindowMinutes?: number;
+}
+
+export function formatConsolidatedStockAlertMessage(input: ConsolidatedSummaryInput): string {
+  const timeFormatted = new Date().toLocaleString('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
+  const sections: string[] = [];
+
+  // 1. Bagian Stok Habis
+  if (input.outOfStock && input.outOfStock.length > 0) {
+    const list = input.outOfStock
+      .map((it, idx) => `  ${idx + 1}. [${it.sku}] ${it.name} (Sisa: 0 ${it.unit || 'unit'})`)
+      .join('\n');
+    sections.push(`🚨 *STOK HABIS (0 UNIT)*:\n${list}`);
+  }
+
+  // 2. Bagian Stok Menipis
+  if (input.lowStock && input.lowStock.length > 0) {
+    const list = input.lowStock
+      .map((it, idx) => `  ${idx + 1}. [${it.sku}] ${it.name} - Sisa: ${it.quantity} ${it.unit || 'unit'} (Ambang: ${it.threshold}${it.source ? ` [${it.source}]` : ''})`)
+      .join('\n');
+    sections.push(`⚠️ *STOK MENIPIS (PERLU RESTOCK)*:\n${list}`);
+  }
+
+  // 3. Bagian Peringatan Dini (Daftar Pantauan)
+  if (input.earlyWarning && input.earlyWarning.length > 0) {
+    const list = input.earlyWarning
+      .map((it, idx) => `  ${idx + 1}. [${it.sku}] ${it.name} - Sisa: ${it.quantity} ${it.unit || 'unit'} (Ambang Dini: ${it.threshold}${it.source ? ` [${it.source}]` : ''})`)
+      .join('\n');
+    sections.push(`ℹ️ *PERLU DISIAPKAN (PERINGATAN DINI / DAFTAR PANTAUAN)*:\n${list}`);
+  }
+
+  const content = sections.join('\n\n');
+  const source = input.triggerSource || 'Sistem Audit Otomatis FieldOps IT';
+  const cooldownNote = input.cooldownWindowMinutes ? `\n(Ringkasan Konsolidasi Jendela ${input.cooldownWindowMinutes} Menit)` : '';
+
+  return `📊 *[RINGKASAN ALERT STOK - FIELDOPS IT]*${cooldownNote}\nSumber: ${source}\nWaktu: ${timeFormatted}\n\n${content}\n\n_Mohon tim logistik & pengadaan gudang segera menindaklanjuti._`;
+}
+
+

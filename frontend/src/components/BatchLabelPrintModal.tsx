@@ -445,7 +445,12 @@ export const BatchLabelPrintModal: React.FC<BatchLabelPrintModalProps> = ({
                           >
                             {/* Label Header */}
                             <div className="lh flex items-center gap-[3mm] h-[19mm] shrink-0">
-                              <div dangerouslySetInnerHTML={{ __html: logoSvg }} />
+                              <img 
+                                src="/logo.png" 
+                                alt="FieldOps IT Logo" 
+                                className="w-[11mm] h-[11mm] object-contain shrink-0" 
+                                style={{ width: '11mm', height: '11mm', objectFit: 'contain' }} 
+                              />
                               <div className="brand flex flex-col justify-center h-[14mm] pr-[3mm] border-r-[0.4mm] border-slate-900 shrink-0">
                                 <b className="text-[15pt] font-extrabold leading-none">
                                   Field<i className="not-italic text-emerald-600">Ops</i>

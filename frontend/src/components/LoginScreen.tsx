@@ -116,11 +116,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         
         {/* Header Branding */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-md p-2 mb-1 overflow-hidden">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white dark:bg-slate-100 border border-slate-200 dark:border-slate-300/60 shadow-md p-2 mb-1 overflow-hidden">
             <img 
-              src="/assets/logo-icon.webp" 
+              src="/logo.webp" 
               alt="FieldOps IT Icon" 
-              className="w-full h-full object-contain rounded-xl" 
+              className="w-full h-full object-contain" 
             />
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 font-display">

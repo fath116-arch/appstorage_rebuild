@@ -375,3 +375,6 @@ export const api = {
     return data;
   }
 };
+
+export const apiService = api;
+
