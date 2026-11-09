@@ -12,13 +12,23 @@ import { WhatsappAlertService } from '../services/whatsappAlertService';
 
 const router = Router();
 
-// GET /api/whatsapp/config (Semua Role Boleh Melihat)
-router.get('/config', requireAuth, async (_req: Request, res: Response) => {
+// GET /api/whatsapp/config (Semua Role Boleh Melihat; Token Disembunyikan untuk Non-Admin)
+router.get('/config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const config = await WhatsappAlertService.getConfig();
+    const role = req.user?.role;
+    const isDevOrAdmin = role === 'developer' || role === 'admin';
+
+    // Masked/Cleaned config response (Token mentah tidak pernah dikirim ke frontend)
+    const sanitizedConfig = {
+      ...config,
+      apiToken: '',
+      maskedToken: isDevOrAdmin ? config.maskedToken : '••••••••'
+    };
+
     res.json({
       success: true,
-      config
+      config: sanitizedConfig
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -28,12 +38,39 @@ router.get('/config', requireAuth, async (_req: Request, res: Response) => {
 // POST /api/whatsapp/config (Ubah Pengaturan: developer, admin, warehouse_admin; technician 403)
 router.post('/config', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const role = req.user!.role;
+    const isDevOrAdmin = role === 'developer' || role === 'admin';
+
+    // Cek apakah payload mencoba mengubah kredensial (apiToken / apiUrl) oleh non-admin
+    const isAttemptingCredentials = 
+      (req.body.apiToken !== undefined && req.body.apiToken !== '') ||
+      (req.body.apiUrl !== undefined && req.body.apiUrl !== '' && req.body.apiUrl !== 'https://api.fonnte.com/send');
+
+    if (isAttemptingCredentials && !isDevOrAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses Ditolak: Admin Gudang tidak diizinkan mengubah Token atau Endpoint Fonnte. Hanya Developer dan Admin yang berhak.'
+      });
+    }
+
+    // Jika warehouse_admin mengedit config, buang apiToken & apiUrl agar tidak mengubah kredensial di DB
+    const payload = { ...req.body };
+    if (!isDevOrAdmin) {
+      delete payload.apiToken;
+      delete payload.apiUrl;
+    }
+
     const operator = { id: req.user!.id, name: req.user!.name };
-    const updated = await WhatsappAlertService.updateConfig(req.body, operator);
+    const updated = await WhatsappAlertService.updateConfig(payload, operator);
+
     res.json({
       success: true,
       message: 'Konfigurasi WhatsApp Alert berhasil diperbarui!',
-      config: updated
+      config: {
+        ...updated,
+        apiToken: '',
+        maskedToken: isDevOrAdmin ? updated.maskedToken : '••••••••'
+      }
     });
   } catch (err: any) {
     res.status(400).json({

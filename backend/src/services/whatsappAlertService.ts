@@ -135,6 +135,7 @@ export class WhatsappAlertService {
 
     return {
       ...localWaConfig,
+      apiToken: '', // Sanitasi Keamanan: Raw token tidak pernah diekspos keluar
       maskedToken: localWaConfig.apiToken ? localWaConfig.apiToken.slice(0, 4) + '••••••••' : 'Belum diisi'
     };
   }
@@ -171,8 +172,8 @@ export class WhatsappAlertService {
       globalLowStockThreshold: payload.globalLowStockThreshold !== undefined ? Math.max(1, Number(payload.globalLowStockThreshold)) : current.globalLowStockThreshold,
       globalEarlyWarningThreshold: payload.globalEarlyWarningThreshold !== undefined ? Math.max(1, Number(payload.globalEarlyWarningThreshold)) : current.globalEarlyWarningThreshold,
       recipients: updatedRecipients,
-      apiUrl: payload.apiUrl || current.apiUrl,
-      apiToken: payload.apiToken !== undefined ? payload.apiToken : current.apiToken
+      apiUrl: (payload.apiUrl && payload.apiUrl.trim()) ? payload.apiUrl.trim() : localWaConfig.apiUrl,
+      apiToken: (payload.apiToken && payload.apiToken.trim()) ? payload.apiToken.trim() : localWaConfig.apiToken
     };
 
     localWaConfig = merged;

@@ -1,6 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * Uses navigator.mediaDevices.getUserMedia via scannerUtils
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -21,6 +22,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api';
+import { 
+  UniversalBarcodeScanner, 
+  startCameraStream, 
+  diagnoseCameraError, 
+  extractSNFromBarcode 
+} from '../utils/scannerUtils';
 
 interface StockInOutModalProps {
   isOpen: boolean;
@@ -100,8 +107,15 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     setScanFeedback(null);
   }, [mode, user, isOpen]);
 
+  // Refs for scanner
+  const scannerRef = useRef<UniversalBarcodeScanner | null>(null);
+
   // Stop camera function
   const stopCamera = useCallback(() => {
+    if (scannerRef.current) {
+      scannerRef.current.stopScanning();
+      scannerRef.current = null;
+    }
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
@@ -116,7 +130,8 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
 
   // Handle scanned code (from camera or barcode scanner input)
   const handleProcessCode = useCallback(async (rawCode: string) => {
-    const code = rawCode.trim();
+    const filter = extractSNFromBarcode(rawCode);
+    const code = filter.cleanValue.trim();
     if (!code) return;
 
     setIsScanning(true);
@@ -127,7 +142,8 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
       let matched = items.find(it => 
         it.sku.toLowerCase() === code.toLowerCase() ||
         (it.barcode && it.barcode.toLowerCase() === code.toLowerCase()) ||
-        it.id.toLowerCase() === code.toLowerCase()
+        it.id.toLowerCase() === code.toLowerCase() ||
+        ((it as any).kode_id && String((it as any).kode_id).toLowerCase() === code.toLowerCase())
       );
 
       // 2. Jika tidak ditemukan lokal, panggil API scan backend
@@ -184,42 +200,30 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     try {
       setIsCameraActive(true);
       setScanFeedback(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
 
-        // Menggunakan BarcodeDetector API jika didukung browser
-        if ('BarcodeDetector' in window) {
-          try {
-            const barcodeDetector = new (window as any).BarcodeDetector({
-              formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'data_matrix', 'upc_a']
-            });
-            scanIntervalRef.current = window.setInterval(async () => {
-              if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
-                try {
-                  const barcodes = await barcodeDetector.detect(videoRef.current);
-                  if (barcodes.length > 0) {
-                    const detectedVal = barcodes[0].rawValue;
-                    if (detectedVal) {
-                      stopCamera();
-                      handleProcessCode(detectedVal);
-                    }
-                  }
-                } catch {
-                  // Frame capture error, ignore
-                }
-              }
-            }, 300);
-          } catch {
-            // Barcode detector failed init
-          }
+      if (!videoRef.current) return;
+
+      await startCameraStream(videoRef.current);
+
+      scannerRef.current = new UniversalBarcodeScanner(
+        videoRef.current,
+        (filter) => {
+          stopCamera();
+          handleProcessCode(filter.cleanValue);
+        },
+        (ignored) => {
+          setScanFeedback({
+            type: 'error',
+            message: `Barcode ${ignored.rawType} terdeteksi (${ignored.cleanValue}). Abaikan, mengarahkan ke Serial Number (SN)...`
+          });
         }
-      }
-    } catch {
-      showToast('Kamera tidak dapat diakses (membutuhkan izin browser atau koneksi HTTPS).', 'warning');
+      );
+
+      scannerRef.current.startScanning();
+    } catch (err: any) {
+      const diag = diagnoseCameraError(err);
+      showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
+      setScanFeedback({ type: 'error', message: diag.message });
       setIsCameraActive(false);
     }
   };
@@ -370,15 +374,21 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
               )}
             </div>
 
-            {/* Video Preview */}
+            {/* Video Preview dengan Frame Persegi Panjang Lebar untuk Barcode 1D SN Router/Modem */}
             {isCameraActive && (
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-slate-700">
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-                <div className="absolute inset-0 border-2 border-emerald-500/60 m-6 rounded-lg pointer-events-none animate-pulse flex items-center justify-center">
-                  <div className="w-full h-0.5 bg-emerald-400/80 shadow-lg shadow-emerald-500" />
+                <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+                  {/* Frame Pipih Lebar Ideal untuk Barcode 1D / Code 128 */}
+                  <div className="w-full max-w-[280px] sm:max-w-xs h-24 sm:h-28 border-2 border-emerald-400 rounded-xl relative overflow-hidden shadow-lg shadow-emerald-500/20 bg-emerald-950/10">
+                    <div className="w-full h-0.5 bg-emerald-400 shadow-md shadow-emerald-500 absolute top-1/2 -translate-y-1/2 animate-pulse" />
+                    <div className="absolute top-1 left-2 text-[9px] font-mono text-emerald-300 font-bold bg-slate-900/80 px-1.5 py-0.5 rounded">
+                      BARCODE 1D (SN) / QR
+                    </div>
+                  </div>
                 </div>
-                <div className="absolute bottom-2 left-0 right-0 text-center text-[10px] text-white/90 bg-black/60 py-1">
-                  Arahkan barcode atau QR item ke dalam kotak bidik
+                <div className="absolute bottom-1.5 left-0 right-0 text-center text-[10px] text-emerald-300 font-medium bg-slate-900/80 py-1 px-2">
+                  Arahkan Barcode 1D Serial Number (S/N) atau QR ke dalam kotak hijau
                 </div>
               </div>
             )}

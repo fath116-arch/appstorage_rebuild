@@ -22,6 +22,12 @@ import {
 import { stockApi, Box } from '../../services/stockApi';
 import { catalogApi, Produk, Tipe } from '../../services/catalogApi';
 import { useInventory } from '../../context/InventoryContext';
+import { 
+  UniversalBarcodeScanner, 
+  startCameraStream, 
+  diagnoseCameraError, 
+  extractSNFromBarcode 
+} from '../../utils/scannerUtils';
 
 interface StockInputModalProps {
   isOpen: boolean;
@@ -119,37 +125,73 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
     }
   };
 
-  // Switch camera scanner
-  const startCamera = async () => {
-    try {
-      setIsCameraActive(true);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-    } catch (err: any) {
-      showToast('Kamera tidak dapat diakses (membutuhkan koneksi HTTPS / izin kamera).', 'warning');
-      setIsCameraActive(false);
-    }
-  };
+  const scannerRef = useRef<UniversalBarcodeScanner | null>(null);
 
-  const stopCamera = () => {
+  // Switch camera scanner
+  const stopCamera = useCallback(() => {
+    if (scannerRef.current) {
+      scannerRef.current.stopScanning();
+      scannerRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(t => t.stop());
       videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+  }, []);
+
+  const startCamera = async () => {
+    try {
+      setIsCameraActive(true);
+      if (!videoRef.current) return;
+
+      await startCameraStream(videoRef.current);
+
+      scannerRef.current = new UniversalBarcodeScanner(
+        videoRef.current,
+        async (filter) => {
+          const cleanSN = filter.cleanValue.trim();
+          if (!cleanSN) return;
+
+          // Process scanned SN automatically into queue
+          if (scannedList.includes(cleanSN)) {
+            showToast(`ID [${cleanSN}] sudah ada di antrean scan.`, 'warning');
+            return;
+          }
+
+          try {
+            const dupCheck = await stockApi.checkDuplicateId(cleanSN);
+            if (dupCheck.exists) {
+              const it = dupCheck.item;
+              showToast(`ID [${cleanSN}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box}).`, 'error');
+              return;
+            }
+
+            setScannedList(prev => [...prev, cleanSN]);
+            showToast(`[${cleanSN}] berhasil discan dari kamera!`, 'success');
+          } catch (err: any) {
+            showToast(err.message, 'error');
+          }
+        },
+        (ignored) => {
+          showToast(`Abaikan Barcode ${ignored.rawType} (${ignored.cleanValue}). Arahkan ke Barcode SN...`, 'warning');
+        }
+      );
+
+      scannerRef.current.startScanning();
+    } catch (err: any) {
+      const diag = diagnoseCameraError(err);
+      showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
+      setIsCameraActive(false);
+    }
   };
 
   useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   if (!isOpen) return null;
 
@@ -428,9 +470,19 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
                   </div>
 
                   {isCameraActive && (
-                    <div className="relative aspect-video bg-black rounded overflow-hidden border border-slate-700">
-                      <video ref={videoRef} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 border-2 border-emerald-500/50 m-8 rounded pointer-events-none animate-pulse" />
+                    <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-slate-700">
+                      <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                      <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+                        <div className="w-full max-w-[280px] sm:max-w-xs h-24 sm:h-28 border-2 border-emerald-400 rounded-xl relative overflow-hidden shadow-lg shadow-emerald-500/20 bg-emerald-950/10">
+                          <div className="w-full h-0.5 bg-emerald-400 shadow-md shadow-emerald-500 absolute top-1/2 -translate-y-1/2 animate-pulse" />
+                          <div className="absolute top-1 left-2 text-[9px] font-mono text-emerald-300 font-bold bg-slate-900/80 px-1.5 py-0.5 rounded">
+                            BARCODE 1D (SN) / QR
+                          </div>
+                        </div>
+                      </div>
+                      <div className="absolute bottom-1.5 left-0 right-0 text-center text-[10px] text-emerald-300 font-medium bg-slate-900/80 py-1 px-2">
+                        Arahkan Barcode 1D Serial Number (S/N) atau QR ke dalam kotak hijau
+                      </div>
                     </div>
                   )}
                 </div>

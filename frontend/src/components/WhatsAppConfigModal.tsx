@@ -51,8 +51,10 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
   const { user } = useAuth();
   const { showToast } = useInventory();
 
-  // Role Permissions: developer, admin, warehouse_admin can edit; technician is read-only
+  // Role Permissions: developer, admin, warehouse_admin can edit settings; technician is read-only
+  // Fonnte API Token / Credentials are restricted exclusively to developer & admin
   const canEdit = user?.role === 'developer' || user?.role === 'admin' || user?.role === 'warehouse_admin';
+  const canManageCredentials = user?.role === 'developer' || user?.role === 'admin';
 
   const [activeTab, setActiveTab] = useState<'config' | 'thresholds' | 'logs'>('config');
   const [loading, setLoading] = useState(false);
@@ -274,15 +276,22 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
           </button>
         </div>
 
-        {/* Role Warning Banner if Technician (Read-Only) */}
-        {!canEdit && (
+        {/* Role Banners */}
+        {!canEdit ? (
           <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 shrink-0">
             <Lock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>
               Peran Anda saat ini (<strong className="font-semibold">{user?.role}</strong>) hanya diizinkan untuk melihat riwayat log WhatsApp (Read-Only). Pengaturan dilindungi untuk Developer, Admin, dan Admin Gudang.
             </span>
           </div>
-        )}
+        ) : user?.role === 'warehouse_admin' ? (
+          <div className="px-5 py-2 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 text-[11px] flex items-center gap-2 shrink-0">
+            <Lock className="w-3.5 h-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
+            <span>
+              Sebagai <strong>Admin Gudang</strong>, Anda dapat mengatur penerima notifikasi, ambang stok, dan daftar pantauan. Kredensial Token Fonnte dikelola khusus oleh Developer dan Admin.
+            </span>
+          </div>
+        ) : null}
 
         {/* Tab Navigation */}
         <div className="px-5 pt-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 bg-white dark:bg-slate-900 shrink-0">
@@ -564,44 +573,46 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
                 </div>
               </div>
 
-              {/* Fonnte API Key & Gateway URL */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
-                  Kredensial Gateway Fonnte
-                </h3>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
-                      Endpoint API Fonnte
-                    </label>
-                    <input
-                      type="url"
-                      value={config.apiUrl}
-                      onChange={e => setConfig(prev => ({ ...prev, apiUrl: e.target.value }))}
-                      disabled={!canEdit}
-                      className="w-full py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-white"
-                    />
-                  </div>
+              {/* Fonnte API Key & Gateway URL (Khusus Developer & Admin) */}
+              {canManageCredentials && (
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                    Kredensial Gateway Fonnte
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                        Endpoint API Fonnte
+                      </label>
+                      <input
+                        type="url"
+                        value={config.apiUrl}
+                        onChange={e => setConfig(prev => ({ ...prev, apiUrl: e.target.value }))}
+                        disabled={!canEdit}
+                        className="w-full py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
-                      Token API Fonnte
-                    </label>
-                    <input
-                      type="password"
-                      placeholder={config.maskedToken || 'Masukkan token API Fonnte...'}
-                      value={config.apiToken}
-                      onChange={e => setConfig(prev => ({ ...prev, apiToken: e.target.value }))}
-                      disabled={!canEdit}
-                      className="w-full py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-white"
-                    />
-                    <span className="text-[10px] text-slate-500 mt-0.5 block">
-                      Token disimpan aman dan tidak diekspos secara publik.
-                    </span>
+                    <div>
+                      <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                        Token API Fonnte
+                      </label>
+                      <input
+                        type="password"
+                        placeholder={config.maskedToken || 'Masukkan token API Fonnte...'}
+                        value={config.apiToken}
+                        onChange={e => setConfig(prev => ({ ...prev, apiToken: e.target.value }))}
+                        disabled={!canEdit}
+                        className="w-full py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-white"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        Token disimpan aman dan tidak diekspos secara publik.
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
