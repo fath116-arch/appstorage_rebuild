@@ -18,7 +18,8 @@ import {
   CheckCircle2, 
   Scan, 
   Search,
-  Sparkles
+  Sparkles,
+  Upload
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api';
@@ -26,7 +27,8 @@ import {
   UniversalBarcodeScanner, 
   startCameraStream, 
   diagnoseCameraError, 
-  extractSNFromBarcode 
+  extractSNFromBarcode,
+  scanBarcodeFromImageFile
 } from '../utils/scannerUtils';
 
 interface StockInOutModalProps {
@@ -195,6 +197,8 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     }
   }, [items, mode, showToast]);
 
+  const [isPhotoScanning, setIsPhotoScanning] = useState<boolean>(false);
+
   // Start camera scanner
   const startCamera = async () => {
     try {
@@ -225,6 +229,27 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
       showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
       setScanFeedback({ type: 'error', message: diag.message });
       setIsCameraActive(false);
+    }
+  };
+
+  // Scan dari Foto / Galeri Fallback (Opsi A: Client-side decode tanpa server upload)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsPhotoScanning(true);
+    setScanFeedback(null);
+    try {
+      const filter = await scanBarcodeFromImageFile(file);
+      showToast(`SN [${filter.cleanValue}] berhasil diekstrak dari foto!`, 'success');
+      handleProcessCode(filter.cleanValue);
+    } catch (err: any) {
+      const msg = err.message || 'Gagal membaca barcode dari foto.';
+      showToast(msg, 'error');
+      setScanFeedback({ type: 'error', message: msg });
+    } finally {
+      setIsPhotoScanning(false);
+      e.target.value = '';
     }
   };
 
@@ -346,32 +371,48 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs overflow-y-auto">
           {/* Quick Camera Barcode / QR Scanner Section */}
           <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <QrCode className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
                   Scan Barcode / QR Kamera
                 </span>
               </div>
-              {!isCameraActive ? (
-                <button
-                  type="button"
-                  onClick={startCamera}
-                  className="px-2.5 py-1 text-[11px] font-medium text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-md transition-colors flex items-center gap-1.5"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Nyalakan Kamera</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={stopCamera}
-                  className="px-2.5 py-1 text-[11px] font-medium text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors flex items-center gap-1.5"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>Matikan Kamera</span>
-                </button>
-              )}
+              <div className="flex items-center gap-1.5">
+                {!isCameraActive ? (
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    className="px-2.5 py-1 text-[11px] font-medium text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-md transition-colors flex items-center gap-1.5"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Nyalakan Kamera</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="px-2.5 py-1 text-[11px] font-medium text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors flex items-center gap-1.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Matikan Kamera</span>
+                  </button>
+                )}
+
+                {/* Scan dari Foto / Galeri (Opsi A Fallback) */}
+                <label className="px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handlePhotoUpload}
+                    disabled={isPhotoScanning}
+                    className="hidden"
+                  />
+                </label>
+              </div>
             </div>
 
             {/* Video Preview dengan Frame Persegi Panjang Lebar untuk Barcode 1D SN Router/Modem */}

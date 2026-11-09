@@ -17,7 +17,8 @@ import {
   RefreshCw,
   Layers,
   Sparkles,
-  Trash2
+  Trash2,
+  Upload
 } from 'lucide-react';
 import { stockApi, Box } from '../../services/stockApi';
 import { catalogApi, Produk, Tipe } from '../../services/catalogApi';
@@ -26,7 +27,8 @@ import {
   UniversalBarcodeScanner, 
   startCameraStream, 
   diagnoseCameraError, 
-  extractSNFromBarcode 
+  extractSNFromBarcode,
+  scanBarcodeFromImageFile
 } from '../../utils/scannerUtils';
 
 interface StockInputModalProps {
@@ -63,8 +65,10 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
   const [quantityInput, setQuantityInput] = useState<number>(10);
   const [catatanInput, setCatatanInput] = useState<string>('');
 
-  // Camera State
+  // Camera & Photo Scan State
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [isPhotoScanning, setIsPhotoScanning] = useState<boolean>(false);
+  const [cameraErrorNotice, setCameraErrorNotice] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Memuat data produk & box
@@ -143,6 +147,7 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
 
   const startCamera = async () => {
     try {
+      setCameraErrorNotice(null);
       setIsCameraActive(true);
       if (!videoRef.current) return;
 
@@ -182,8 +187,45 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
       scannerRef.current.startScanning();
     } catch (err: any) {
       const diag = diagnoseCameraError(err);
+      setCameraErrorNotice(diag.message);
       showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
       setIsCameraActive(false);
+    }
+  };
+
+  // Handler Scan dari Foto / Galeri (Opsi A: Decode Sisi Klien Tanpa Server Upload)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsPhotoScanning(true);
+    setCameraErrorNotice(null);
+    try {
+      const filter = await scanBarcodeFromImageFile(file);
+      const cleanSN = filter.cleanValue.trim();
+      if (!cleanSN) return;
+
+      if (scannedList.includes(cleanSN)) {
+        showToast(`ID [${cleanSN}] sudah ada di antrean scan.`, 'warning');
+        return;
+      }
+
+      const dupCheck = await stockApi.checkDuplicateId(cleanSN);
+      if (dupCheck.exists) {
+        const it = dupCheck.item;
+        showToast(`ID [${cleanSN}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box}).`, 'error');
+        return;
+      }
+
+      setScannedList(prev => [...prev, cleanSN]);
+      showToast(`SN [${cleanSN}] berhasil diekstrak dari foto!`, 'success');
+    } catch (err: any) {
+      const msg = err.message || 'Gagal membaca barcode dari foto.';
+      showToast(msg, 'error');
+      setCameraErrorNotice(`Gagal scan foto: ${msg}`);
+    } finally {
+      setIsPhotoScanning(false);
+      e.target.value = '';
     }
   };
 
@@ -446,28 +488,57 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
               <div className="space-y-3">
                 {/* Camera Scanner View */}
                 <div className="p-3 bg-slate-900 text-white rounded-lg space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-bold flex items-center gap-1.5 text-xs text-emerald-400">
                       <Camera className="w-4 h-4" /> Pemindai Barcode / QR Kamera Browser
                     </span>
-                    {!isCameraActive ? (
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded"
-                      >
-                        Aktifkan Kamera
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={stopCamera}
-                        className="px-2.5 py-1 text-[10px] font-bold bg-red-600 hover:bg-red-500 text-white rounded"
-                      >
-                        Matikan Kamera
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {!isCameraActive ? (
+                        <button
+                          type="button"
+                          onClick={startCamera}
+                          className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
+                        >
+                          Aktifkan Kamera
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="px-2.5 py-1 text-[10px] font-bold bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
+                        >
+                          Matikan Kamera
+                        </button>
+                      )}
+
+                      {/* Fallback Opsi A: Scan dari Foto / Galeri HP */}
+                      <label className="px-2.5 py-1 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded cursor-pointer transition-colors flex items-center gap-1">
+                        <Upload className="w-3 h-3" />
+                        <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handlePhotoUpload}
+                          disabled={isPhotoScanning}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
                   </div>
+
+                  {/* Camera Diagnostics Banner */}
+                  {cameraErrorNotice && (
+                    <div className="p-2.5 rounded bg-rose-950/80 border border-rose-700 text-rose-200 text-[11px] flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 space-y-1">
+                        <div>{cameraErrorNotice}</div>
+                        <div className="text-[10px] text-rose-300 font-medium">
+                          Gunakan tombol <span className="font-bold underline text-white">"Scan dari Foto"</span> di atas atau ketik Serial Number secara manual pada bidang input di bawah.
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {isCameraActive && (
                     <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-slate-700">
