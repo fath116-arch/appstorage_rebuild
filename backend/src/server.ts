@@ -87,6 +87,11 @@ async function startServer() {
     }
   });
 
+  // 404 handler khusus rute /api agar tidak jatuh ke HTML SPA
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ success: false, message: 'Endpoint API tidak ditemukan.' });
+  });
+
   const frontendDir = path.resolve(rootDir, 'frontend');
   const isProduction = process.env.NODE_ENV === 'production';
 
@@ -94,8 +99,8 @@ async function startServer() {
     const distDir = path.resolve(frontendDir, 'dist');
     app.use(express.static(distDir));
 
-    // Fallback SPA routing (semua rute non-/api diarahkan ke index.html)
-    app.get('*', (req, res, next) => {
+    // Fallback SPA routing (Express 5 compatible)
+    app.use((req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
       }

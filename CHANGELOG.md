@@ -4,6 +4,14 @@
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
 
+## 🚀 [v1.2.6] - Perbaikan Cetak Label Presisi A4 (Eliminasi Lembar Kosong Berlebih) - 2026-11-08
+- **Eliminasi Bug Halaman A4 Berlebih**: Memperbaiki bug di mana pencetakan 1 atau 2 label menghasilkan 2 lembar cetak A4 alih-alih 1 lembar.
+- **Standarisasi Dimensi Lembar**: Lembar cetak (`.print-sheet`) dikunci pada ukuran presisi A4 `210mm × 296mm` (disisakan margin toleransi 1mm dari 297mm dengan `box-sizing: border-box` dan `overflow: hidden`) guna mencegah browser Chromium/Edge meluapkan halaman ke lembar ekstra.
+- **Implementasi Slot Kosong (`.label-slot-empty`)**: Menyediakan elemen penampung slot kosong berdimensi tetap (`190mm × 89mm`) dengan `visibility: hidden` pada lembar yang tidak terisi penuh (layout 1 atau 2 label), menjamin stabilitas DOM dan layouting cetak.
+- **Titik Petunjuk Potong Presisi**: Posisi titik potong (celah 195 × 94 mm) dihitung dari ukuran label tetap dan jarak celah antar label (bukan dari jumlah label terisi), dengan nilai Y maksimum 289.5 mm yang berada di dalam area batas 296 mm.
+- **Isolasi `@media print` & Normalisasi `@page`**: Memperbaiki konflik `@page` margin di `frontend/src/index.css` menjadi `margin: 0` dan mengisolasi modal wrapper serta elemen latar belakang agar tidak tercetak.
+- **Sinkronisasi Dokumen Referensi**: Menjadikan `FIX_PRINT_LABEL.md` dan `docs/v1.2.0/cetak_label.html` sebagai dokumen acuan resmi implementasi cetak label presisi.
+
 ---
 
 ## 🚀 [v1.2.5] - Paket 7: Branding Logo Baru & Kotak Logo Top Navigation - 2026-11-08

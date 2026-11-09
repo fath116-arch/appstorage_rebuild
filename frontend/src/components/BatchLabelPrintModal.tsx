@@ -191,20 +191,112 @@ export const BatchLabelPrintModal: React.FC<BatchLabelPrintModalProps> = ({
   const cubeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" style="width:9.5mm"><path d="M12 2.500 20.500 7v10L12 21.500 3.500 17V7z"/><path d="M3.500 7 12 11.500 20.500 7M12 11.500v10"/></svg>`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+    <div className="batch-label-modal-portal fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
       <style>{`
         @media print {
           @page { size: A4 portrait; margin: 0; }
-          html, body { background: #fff !important; }
-          .no-print { display: none !important; }
-          .print-area { display: block !important; padding: 0 !important; width: 210mm !important; margin: 0 !important; }
-          .pw { width: 210mm !important; height: auto !important; margin: 0 !important; box-shadow: none !important; break-after: page; }
-          .pw:last-child { break-after: auto; }
-          .page { transform: none !important; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            overflow: visible !important;
+            height: auto !important;
+            min-height: 0 !important;
+          }
+          body > #root > div > *:not(.batch-label-modal-portal),
+          header, nav, footer, .no-print {
+            display: none !important;
+          }
+          .batch-label-modal-portal {
+            position: static !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+            overflow: visible !important;
+            display: block !important;
+            width: 210mm !important;
+            max-width: 210mm !important;
+            height: auto !important;
+            max-height: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            inset: auto !important;
+          }
+          .batch-label-modal-box {
+            position: static !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            width: 210mm !important;
+            max-width: 210mm !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            display: block !important;
+          }
+          .batch-label-content-body {
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            overflow: visible !important;
+            width: 210mm !important;
+          }
+          .batch-label-preview-container {
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: transparent !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            width: 210mm !important;
+          }
+          .print-area {
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 210mm !important;
+          }
+          .print-sheet {
+            width: 210mm !important;
+            height: 296mm !important; /* Sisakan 1mm agar tidak meluap ke halaman kedua */
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            position: relative !important;
+            background: #fff !important;
+            color: #111 !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            transform: none !important;
+            break-after: page !important;
+            page-break-after: page !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .print-sheet:last-child {
+            break-after: auto !important;
+            page-break-after: auto !important;
+          }
+          .label-slot-empty {
+            position: absolute !important;
+            left: 10mm !important;
+            width: 190mm !important;
+            height: 89mm !important;
+            box-sizing: border-box !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+          }
         }
       `}</style>
 
-      <div className="relative w-full max-w-6xl max-h-[92vh] flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-100">
+      <div className="batch-label-modal-box relative w-full max-w-6xl max-h-[92vh] flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-100">
         
         {/* Header Modal */}
         <div className="no-print flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/90">
@@ -246,7 +338,7 @@ export const BatchLabelPrintModal: React.FC<BatchLabelPrintModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-0">
+        <div className="batch-label-content-body flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-0">
           
           {/* Controls Sidebar (no-print) */}
           <div className="no-print lg:col-span-4 p-5 border-r border-slate-800 bg-slate-900/70 space-y-5 text-xs overflow-y-auto">
@@ -386,129 +478,155 @@ export const BatchLabelPrintModal: React.FC<BatchLabelPrintModalProps> = ({
           </div>
 
           {/* Print Preview Area */}
-          <div className="lg:col-span-8 p-4 bg-slate-950 flex flex-col items-center justify-start overflow-auto min-h-[500px]">
+          <div className="batch-label-preview-container lg:col-span-8 p-4 bg-slate-950 flex flex-col items-center justify-start overflow-auto min-h-[500px]">
             {pages.length === 0 ? (
               <div className="my-auto text-center space-y-3 p-8 text-slate-500">
                 <Grid className="w-12 h-12 mx-auto text-slate-600" />
                 <p className="text-sm font-medium">Pilih minimal 1 katalog di panel sebelah kiri untuk melihat pratinjau cetak.</p>
               </div>
             ) : (
-              <div className="print-area space-y-6 w-full flex flex-col items-center">
-                {pages.map((slList, pageIdx) => (
-                  <div
-                    key={pageIdx}
-                    className="pw relative bg-white shadow-2xl border border-slate-300 rounded-sm overflow-hidden shrink-0"
-                    style={{
-                      width: '210mm',
-                      height: '296.5mm',
-                      transform: 'scale(0.85)',
-                      transformOrigin: 'top center',
-                      color: '#111'
-                    }}
-                  >
-                    <div className="page relative w-full h-full bg-white text-slate-900">
-                      {slList.map(({ slot, label }) => {
-                        const topMm = 10 + 94 * slot;
-                        const labelTitle = `${label.d.nama.toUpperCase()}${label.totalPages > 1 ? ` (${label.idx + 1}/${label.totalPages})` : ''}`;
-                        const titleFontSize = label.d.nama.length <= 16 ? '22pt' : label.d.nama.length <= 24 ? '17pt' : '13pt';
+              <div className="print-area space-y-6 print:space-y-0 w-full flex flex-col items-center">
+                {pages.map((slList, pageIdx) => {
+                  const filledMap = new Map(slList.map(item => [item.slot, item.label]));
 
-                        const renderTable = (startRow: number) => {
-                          const cells: React.ReactNode[] = [
-                            <div key="h1" className="c h font-black bg-slate-200 border-r border-b border-slate-700 text-[6.5pt] flex items-center justify-center">NO</div>,
-                            <div key="h2" className="c h font-black bg-slate-200 border-r border-b border-slate-700 text-[6.5pt] flex items-center justify-center">NAMA PRODUK</div>,
-                            <div key="h3" className="c h font-black bg-slate-200 border-b border-slate-700 text-[6.5pt] flex items-center justify-center">TIPE</div>
-                          ];
-
-                          for (let r = startRow; r < startRow + ROWS_PER_TABLE; r++) {
-                            const pair = label.rows[r];
-                            cells.push(
-                              <div key={`n-${r}`} className="c n border-r border-b border-slate-400 text-[7.5pt] flex items-center justify-center">{pair ? label.offset + r + 1 : ''}</div>,
-                              <div key={`p-${r}`} className="c border-r border-b border-slate-400 text-[7.5pt] px-1 flex items-center truncate">{pair ? pair[0] : ''}</div>,
-                              <div key={`t-${r}`} className="c border-b border-slate-400 text-[7.5pt] px-1 flex items-center truncate">{pair ? pair[1] : ''}</div>
+                  return (
+                    <div
+                      key={pageIdx}
+                      className="print-sheet pw relative bg-white shadow-2xl border border-slate-300 rounded-sm overflow-hidden shrink-0 print:border-none print:shadow-none"
+                      style={{
+                        width: '210mm',
+                        height: '296mm',
+                        transform: 'scale(0.85)',
+                        transformOrigin: 'top center',
+                        color: '#111'
+                      }}
+                    >
+                      <div className="page relative w-[210mm] h-[296mm] bg-white text-slate-900 box-border overflow-hidden">
+                        {[0, 1, 2].map(slot => {
+                          const label = filledMap.get(slot);
+                          if (!label) {
+                            return (
+                              <div
+                                key={`empty-${slot}`}
+                                className="label-slot-empty absolute left-[10mm] w-[190mm] h-[89mm] invisible pointer-events-none"
+                                style={{ top: `${10 + 94 * slot}mm` }}
+                              />
                             );
                           }
 
+                          const topMm = 10 + 94 * slot;
+                          const labelTitle = `${label.d.nama.toUpperCase()}${label.totalPages > 1 ? ` (${label.idx + 1}/${label.totalPages})` : ''}`;
+                          const titleFontSize = label.d.nama.length <= 16 ? '22pt' : label.d.nama.length <= 24 ? '17pt' : '13pt';
+
+                          const renderTable = (startRow: number) => {
+                            const cells: React.ReactNode[] = [
+                              <div key="h1" className="c h font-black bg-slate-200 border-r border-b border-slate-700 text-[6.5pt] flex items-center justify-center">NO</div>,
+                              <div key="h2" className="c h font-black bg-slate-200 border-r border-b border-slate-700 text-[6.5pt] flex items-center justify-center">NAMA PRODUK</div>,
+                              <div key="h3" className="c h font-black bg-slate-200 border-b border-slate-700 text-[6.5pt] flex items-center justify-center">TIPE</div>
+                            ];
+
+                            for (let r = startRow; r < startRow + ROWS_PER_TABLE; r++) {
+                              const pair = label.rows[r];
+                              cells.push(
+                                <div key={`n-${r}`} className="c n border-r border-b border-slate-400 text-[7.5pt] flex items-center justify-center">{pair ? label.offset + r + 1 : ''}</div>,
+                                <div key={`p-${r}`} className="c border-r border-b border-slate-400 text-[7.5pt] px-1 flex items-center truncate">{pair ? pair[0] : ''}</div>,
+                                <div key={`t-${r}`} className="c border-b border-slate-400 text-[7.5pt] px-1 flex items-center truncate">{pair ? pair[1] : ''}</div>
+                              );
+                            }
+
+                            return (
+                              <div className="tb grid grid-cols-[7mm_1fr_1fr] grid-rows-[6mm_repeat(5,1fr)] border border-slate-900 rounded-lg overflow-hidden min-h-0 min-w-0">
+                                {cells}
+                              </div>
+                            );
+                          };
+
+                          const qrSvgContent = generateQrSvg(`${baseUrl}${label.d.id}`);
+
                           return (
-                            <div className="tb grid grid-cols-[7mm_1fr_1fr] grid-rows-[6mm_repeat(5,1fr)] border border-slate-900 rounded-lg overflow-hidden min-h-0 min-w-0">
-                              {cells}
+                            <div
+                              key={slot}
+                              className="label absolute left-[10mm] w-[190mm] h-[89mm] border-[0.5mm] border-slate-900 rounded-[6mm] p-[3.5mm_4mm] flex flex-col gap-[2.5mm] bg-white text-slate-900"
+                              style={{ top: `${topMm}mm` }}
+                            >
+                              {/* Label Header */}
+                              <div className="lh flex items-center gap-[3mm] h-[19mm] shrink-0">
+                                <img 
+                                  src="/logo.png" 
+                                  alt="FieldOps IT Logo" 
+                                  className="w-[11mm] h-[11mm] object-contain shrink-0" 
+                                  style={{ width: '11mm', height: '11mm', objectFit: 'contain' }} 
+                                />
+                                <div className="brand flex flex-col justify-center h-[14mm] pr-[3mm] border-r-[0.4mm] border-slate-900 shrink-0">
+                                  <b className="text-[15pt] font-extrabold leading-none">
+                                    Field<i className="not-italic text-emerald-600">Ops</i>
+                                  </b>
+                                  <small className="text-[4.6pt] tracking-widest mt-1 font-semibold text-slate-700">
+                                    INVENTORY MANAGEMENT SYSTEM
+                                  </small>
+                                </div>
+                                <div className="ttl flex-1 min-w-0">
+                                  <h2 className="m-0 font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: titleFontSize }}>
+                                    {labelTitle}
+                                  </h2>
+                                  <small className="block text-[5.4pt] tracking-widest mt-1 font-semibold text-slate-700">
+                                    DATA BARANG • LEBIH TERTIB • LEBIH MUDAH
+                                  </small>
+                                </div>
+                                <div className="ico w-[16mm] h-[16mm] bg-emerald-600 rounded-[3.5mm] grid place-items-center shrink-0" dangerouslySetInnerHTML={{ __html: cubeSvg }} />
+                              </div>
+
+                              {/* Label Body (2 Tables + QR Code) */}
+                              <div className="lb flex-1 min-h-0 grid grid-cols-[1fr_44mm] gap-[3mm]">
+                                <div className="tbs grid grid-cols-2 gap-[2mm] min-h-0 min-w-0">
+                                  {renderTable(0)}
+                                  {renderTable(5)}
+                                </div>
+                                <div className="qr border-l-[0.5mm] border-slate-900 pl-[3mm] flex flex-col items-center justify-center">
+                                  <div className="qb w-[31mm] h-[31mm] p-[2mm] border-[0.6mm] border-emerald-600 rounded-[3mm]">
+                                    <div dangerouslySetInnerHTML={{ __html: qrSvgContent }} className="w-full h-full" />
+                                  </div>
+                                  <span className="text-[6pt] font-extrabold text-center mt-2 leading-tight text-slate-900">
+                                    SCAN UNTUK<br />LIHAT DETAIL
+                                  </span>
+                                </div>
+                              </div>
                             </div>
                           );
-                        };
+                        })}
 
-                        const qrSvgContent = generateQrSvg(`${baseUrl}${label.d.id}`);
-
-                        return (
-                          <div
-                            key={slot}
-                            className="label absolute left-[10mm] w-[190mm] h-[89mm] border-[0.5mm] border-slate-900 rounded-[6mm] p-[3.5mm_4mm] flex flex-col gap-[2.5mm] bg-white text-slate-900"
-                            style={{ top: `${topMm}mm` }}
-                          >
-                            {/* Label Header */}
-                            <div className="lh flex items-center gap-[3mm] h-[19mm] shrink-0">
-                              <img 
-                                src="/logo.png" 
-                                alt="FieldOps IT Logo" 
-                                className="w-[11mm] h-[11mm] object-contain shrink-0" 
-                                style={{ width: '11mm', height: '11mm', objectFit: 'contain' }} 
-                              />
-                              <div className="brand flex flex-col justify-center h-[14mm] pr-[3mm] border-r-[0.4mm] border-slate-900 shrink-0">
-                                <b className="text-[15pt] font-extrabold leading-none">
-                                  Field<i className="not-italic text-emerald-600">Ops</i>
-                                </b>
-                                <small className="text-[4.6pt] tracking-widest mt-1 font-semibold text-slate-700">
-                                  INVENTORY MANAGEMENT SYSTEM
-                                </small>
-                              </div>
-                              <div className="ttl flex-1 min-w-0">
-                                <h2 className="m-0 font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: titleFontSize }}>
-                                  {labelTitle}
-                                </h2>
-                                <small className="block text-[5.4pt] tracking-widest mt-1 font-semibold text-slate-700">
-                                  DATA BARANG • LEBIH TERTIB • LEBIH MUDAH
-                                </small>
-                              </div>
-                              <div className="ico w-[16mm] h-[16mm] bg-emerald-600 rounded-[3.5mm] grid place-items-center shrink-0" dangerouslySetInnerHTML={{ __html: cubeSvg }} />
-                            </div>
-
-                            {/* Label Body (2 Tables + QR Code) */}
-                            <div className="lb flex-1 min-h-0 grid grid-cols-[1fr_44mm] gap-[3mm]">
-                              <div className="tbs grid grid-cols-2 gap-[2mm] min-h-0 min-w-0">
-                                {renderTable(0)}
-                                {renderTable(5)}
-                              </div>
-                              <div className="qr border-l-[0.5mm] border-slate-900 pl-[3mm] flex flex-col items-center justify-center">
-                                <div className="qb w-[31mm] h-[31mm] p-[2mm] border-[0.6mm] border-emerald-600 rounded-[3mm]">
-                                  <div dangerouslySetInnerHTML={{ __html: qrSvgContent }} className="w-full h-full" />
-                                </div>
-                                <span className="text-[6pt] font-extrabold text-center mt-2 leading-tight text-slate-900">
-                                  SCAN UNTUK<br />LIHAT DETAIL
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {/* Cut line dots */}
-                      {showDots && slList.map(({ slot }) => {
-                        const topMm = 7.5 + 94 * slot;
-                        const dots = [
-                          [7.5, topMm],
-                          [202.5, topMm],
-                          [7.5, topMm + 94],
-                          [202.5, topMm + 94]
-                        ];
-                        return dots.map(([x, y], dIdx) => (
-                          <i
-                            key={`${slot}-${dIdx}`}
-                            className="dot absolute w-[1mm] h-[1mm] rounded-full bg-slate-900 -translate-x-1/2 -translate-y-1/2"
-                            style={{ left: `${x}mm`, top: `${y}mm` }}
-                          />
-                        ));
-                      })}
+                        {/* Cut line dots */}
+                        {showDots && (() => {
+                          const seen = new Set<string>();
+                          const dotElements: React.ReactNode[] = [];
+                          slList.forEach(({ slot }) => {
+                            const topMm = 7.5 + 94 * slot;
+                            const coords: Array<[number, number]> = [
+                              [7.5, topMm],
+                              [202.5, topMm],
+                              [7.5, topMm + 94],
+                              [202.5, topMm + 94]
+                            ];
+                            coords.forEach(([x, y]) => {
+                              const key = `${x},${y}`;
+                              if (!seen.has(key)) {
+                                seen.add(key);
+                                dotElements.push(
+                                  <i
+                                    key={key}
+                                    className="dot absolute w-[1mm] h-[1mm] rounded-full bg-slate-900 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                                    style={{ left: `${x}mm`, top: `${y}mm` }}
+                                  />
+                                );
+                              }
+                            });
+                          });
+                          return dotElements;
+                        })()}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -191,7 +191,7 @@ svg.recharts-surface *,
 /* Print Overrides: Always render clean light theme when printing or exporting PDF */
 @page {
   size: A4 portrait;
-  margin: 12mm 15mm 15mm 15mm;
+  margin: 0;
 }
 
 @media print {
@@ -208,6 +208,8 @@ svg.recharts-surface *,
     color: #000000 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   header, nav, footer, .no-print {
     display: none !important;
@@ -229,11 +231,31 @@ svg.recharts-surface *,
     page-break-inside: avoid !important;
   }
   .report-print-container {
-    padding: 0 !important;
+    padding: 12mm 15mm !important;
     margin: 0 !important;
     box-shadow: none !important;
     border: none !important;
     width: 100% !important;
     max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Standard Print Sheet for A4 Precision Printing */
+  .print-sheet {
+    width: 210mm !important;
+    height: 296mm !important; /* Sisakan 1mm agar tidak meluap ke halaman kedua */
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    position: relative !important;
+    break-after: page !important;
+    page-break-after: page !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .print-sheet:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
   }
 }
