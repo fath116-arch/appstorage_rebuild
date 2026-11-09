@@ -45,6 +45,7 @@ interface NavbarProps {
   onOpenSecurityReport?: () => void;
   onOpenRestore?: () => void;
   onOpenLabelPrint?: () => void;
+  onOpenSNPatterns?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ 
@@ -56,7 +57,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWhatsApp,
   onOpenSecurityReport,
   onOpenRestore,
-  onOpenLabelPrint
+  onOpenLabelPrint,
+  onOpenSNPatterns
 }) => {
   const { 
     activeTab, 
@@ -682,6 +684,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                       >
                         <Printer className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                         <span>Cetak Label Batch A4</span>
+                      </button>
+
+                      {/* Pola SN: All roles read, Admin/Dev edit */}
+                      <button
+                        onClick={() => { closeAllDropdowns(); onOpenSNPatterns?.(); }}
+                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                      >
+                        <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Pengaturan Pola SN</span>
                       </button>
                     </div>
                   </>

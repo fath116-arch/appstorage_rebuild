@@ -10,7 +10,7 @@
     "password_hash": "4a5af6f928233286ff52082bf48f1fd19f4f50ffabe3f4db05cc2b0581bbf32a",
     "salt": "salt_dev_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.086Z"
   },
   {
     "id": "usr-admin-01",
@@ -23,7 +23,7 @@
     "password_hash": "5b33a6f24f21e02c31d7c118df482f273e19bb14d6d9510409e197a3a9fe3b3d",
     "salt": "salt_master_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "usr-wh-01",
@@ -36,7 +36,7 @@
     "password_hash": "13b8afcff2144c70abd6fd6ca006db240fa7e626eaf47fc27de7279a1f096c62",
     "salt": "salt_gudang_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "usr-tech-01",
@@ -49,7 +49,7 @@
     "password_hash": "c38362670918f0ca205fab85bed40ea45e41b251e0bd50ab803c6d2dcf599f92",
     "salt": "salt_tech_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z",
+    "created_at": "2026-11-09T04:56:49.087Z",
     "updated_at": "2026-11-06T03:38:25.901Z"
   },
   {
@@ -63,7 +63,7 @@
     "password_hash": "f7c2adac1bf263488d635f08cf3226497b2d5932b398ec6ca1b0f69c88af0b0a",
     "salt": "8a715c856c1dd342108e5173a12b53e2",
     "status": "PENDING_APPROVAL",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "usr-1793936279680",
@@ -76,7 +76,7 @@
     "password_hash": "f0a33cdb2dc4f9b2979ac92220ba5dfc1a2b554280d66443d66495c169842673",
     "salt": "c85fa1073cc973a150fb4c5efe40610e",
     "status": "PENDING_APPROVAL",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794110651003",
@@ -87,7 +87,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794110728704",
@@ -98,7 +98,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794110790940",
@@ -109,7 +109,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794110808520",
@@ -120,7 +120,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794110905721",
@@ -131,7 +131,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794111577189",
@@ -142,7 +142,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794111600876",
@@ -153,7 +153,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794111602164",
@@ -164,7 +164,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794186355404",
@@ -175,7 +175,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794186356672",
@@ -186,7 +186,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794186968296",
@@ -197,7 +197,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794186969489",
@@ -208,7 +208,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794187800953",
@@ -219,7 +219,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794187802217",
@@ -230,7 +230,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794188332175",
@@ -241,7 +241,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794188333418",
@@ -252,7 +252,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794191867138",
@@ -263,7 +263,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794191868406",
@@ -274,7 +274,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794191899587",
@@ -285,7 +285,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794191900833",
@@ -296,7 +296,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794191943925",
@@ -307,7 +307,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794191945221",
@@ -318,7 +318,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-tester-1794198943779",
@@ -329,7 +329,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.948Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
   },
   {
     "id": "user-op-1794198944949",
@@ -340,6 +340,28 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-09T04:35:44.953Z"
+    "created_at": "2026-11-09T04:56:49.087Z"
+  },
+  {
+    "id": "user-tester-1794200207857",
+    "username": "admin_1794200207857",
+    "name": "Admin Test",
+    "email": "adm_1794200207857@test.com",
+    "department": "IT Operations",
+    "phone": "",
+    "salt": "",
+    "status": "ACTIVE",
+    "created_at": "2026-11-09T04:56:49.087Z"
+  },
+  {
+    "id": "user-op-1794200209088",
+    "username": "op_1794200209088",
+    "name": "Budi Teknisi Lapangan",
+    "email": "op_1794200209088@fieldops.id",
+    "department": "IT Operations",
+    "phone": "",
+    "salt": "",
+    "status": "ACTIVE",
+    "created_at": "2026-11-09T04:56:49.091Z"
   }
 ]

@@ -486,35 +486,17 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
             {/* Mode 1: Scan Beruntun / Single SN */}
             {inputMode === 'single_scan' && (
               <div className="space-y-3">
-                {/* Camera Scanner View */}
-                <div className="p-3 bg-slate-900 text-white rounded-lg space-y-2">
+                {/* Primary Pathway Scanner View (Scan Foto Utama + Kamera Eksperimental) */}
+                <div className="p-3.5 bg-slate-900 text-white rounded-xl space-y-3 shadow-md border border-slate-800">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-bold flex items-center gap-1.5 text-xs text-emerald-400">
-                      <Camera className="w-4 h-4" /> Pemindai Barcode / QR Kamera Browser
+                      <QrCode className="w-4 h-4" /> Pemindai Barcode / QR Label Router
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      {!isCameraActive ? (
-                        <button
-                          type="button"
-                          onClick={startCamera}
-                          className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
-                        >
-                          Aktifkan Kamera
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={stopCamera}
-                          className="px-2.5 py-1 text-[10px] font-bold bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
-                        >
-                          Matikan Kamera
-                        </button>
-                      )}
-
-                      {/* Fallback Opsi A: Scan dari Foto / Galeri HP */}
-                      <label className="px-2.5 py-1 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded cursor-pointer transition-colors flex items-center gap-1">
-                        <Upload className="w-3 h-3" />
-                        <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto'}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Jalur Utama: Scan dari Foto / Galeri HP */}
+                      <label className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg cursor-pointer transition-all shadow-xs flex items-center gap-1.5 shrink-0">
+                        <Upload className="w-4 h-4" />
+                        <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto / Galeri (Jalur Utama)'}</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -524,17 +506,45 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
                           className="hidden"
                         />
                       </label>
+
+                      {/* Jalur Sekunder: Kamera Live (Eksperimental) */}
+                      {!isCameraActive ? (
+                        <button
+                          type="button"
+                          onClick={startCamera}
+                          className="px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 shrink-0 border border-slate-700"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Kamera Live (Eksperimental)</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="px-2.5 py-1.5 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Matikan Kamera</span>
+                        </button>
+                      )}
                     </div>
+                  </div>
+
+                  {/* Format Pattern Guidance Hint */}
+                  <div className="text-[10px] text-slate-300 bg-slate-800/80 p-2 rounded-lg border border-slate-700/80 flex items-center justify-between">
+                    <span>
+                      💡 <strong className="text-emerald-300">Format SN Aktif:</strong> TP-Link (13 Angka: 3213067005147) · FiberHome (FHTT...) · ZTE (ZTEG...)
+                    </span>
                   </div>
 
                   {/* Camera Diagnostics Banner */}
                   {cameraErrorNotice && (
-                    <div className="p-2.5 rounded bg-rose-950/80 border border-rose-700 text-rose-200 text-[11px] flex items-start gap-2">
+                    <div className="p-2.5 rounded-lg bg-rose-950/90 border border-rose-700 text-rose-200 text-[11px] flex items-start gap-2 animate-in fade-in duration-150">
                       <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                       <div className="flex-1 space-y-1">
-                        <div>{cameraErrorNotice}</div>
-                        <div className="text-[10px] text-rose-300 font-medium">
-                          Gunakan tombol <span className="font-bold underline text-white">"Scan dari Foto"</span> di atas atau ketik Serial Number secara manual pada bidang input di bawah.
+                        <div className="font-semibold">{cameraErrorNotice}</div>
+                        <div className="text-[10px] text-rose-300">
+                          Fitur kamera live ditandai sebagai <span className="underline">eksperimental</span>. Gunakan tombol hijau <strong className="text-white font-bold">"Scan dari Foto / Galeri"</strong> di atas atau ketik Serial Number secara manual pada bidang input di bawah.
                         </div>
                       </div>
                     </div>

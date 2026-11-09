@@ -32,6 +32,7 @@ const WhatsAppConfigModal = lazy(() => import('./components/WhatsAppConfigModal'
 const SecurityReportModal = lazy(() => import('./components/SecurityReportModal').then(m => ({ default: m.SecurityReportModal })));
 const DataRestoreModal = lazy(() => import('./components/DataRestoreModal').then(m => ({ default: m.DataRestoreModal })));
 const BatchLabelPrintModal = lazy(() => import('./components/BatchLabelPrintModal').then(m => ({ default: m.BatchLabelPrintModal })));
+const SNPatternSettingsModal = lazy(() => import('./components/SNPatternSettingsModal').then(m => ({ default: m.SNPatternSettingsModal })));
 
 const TabLoadingFallback: React.FC = () => (
   <div className="bg-white rounded-xl border border-slate-200 p-12 text-center flex flex-col items-center justify-center space-y-3">
@@ -64,6 +65,7 @@ const AppContent: React.FC = () => {
   const [isSecurityReportOpen, setIsSecurityReportOpen] = useState(false);
   const [isRestoreOpen, setIsRestoreOpen] = useState(false);
   const [isLabelPrintOpen, setIsLabelPrintOpen] = useState(false);
+  const [isSNPatternsOpen, setIsSNPatternsOpen] = useState(false);
 
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printData, setPrintData] = useState<any>(null);
@@ -141,6 +143,7 @@ const AppContent: React.FC = () => {
         onOpenSecurityReport={() => setIsSecurityReportOpen(true)}
         onOpenRestore={() => setIsRestoreOpen(true)}
         onOpenLabelPrint={() => setIsLabelPrintOpen(true)}
+        onOpenSNPatterns={() => setIsSNPatternsOpen(true)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-20 md:pb-6">
@@ -332,6 +335,15 @@ const AppContent: React.FC = () => {
           <BatchLabelPrintModal
             isOpen={isLabelPrintOpen}
             onClose={() => setIsLabelPrintOpen(false)}
+          />
+        </Suspense>
+      )}
+
+      {isSNPatternsOpen && (
+        <Suspense fallback={null}>
+          <SNPatternSettingsModal
+            isOpen={isSNPatternsOpen}
+            onClose={() => setIsSNPatternsOpen(false)}
           />
         </Suspense>
       )}

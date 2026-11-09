@@ -1,26 +1,29 @@
 /**
  * Scanner Utility & Barcode Normalizer for Router/Modem SN Labels
- * FieldOps IT Inventory
- * - Supports BarcodeDetector API + ZXing Fallback (@zxing/library)
- * - Formats: CODE_128, CODE_39, EAN_13, EAN_8, QR_CODE, DATA_MATRIX, UPC_A, ITF
+ * FieldOps IT Inventory - v1.2.5 UPDATE 2
+ * - Primary Pathway: Client-Side Photo File Barcode Decoding (Opsi A)
+ * - Experimental Pathway: Live Camera WebRTC Stream with Flexible Fallbacks
+ * - Pattern Matching: Active SN Pattern Filter (#, A, ?, *) from Settings
  * - Multi-barcode Filtering: Distinguishes Serial Number (SN) from MAC Address and PIN/WPA
- * - Camera Diagnostics, Flexible Constraints Fallback & Client-side Photo File Scanning (Opsi A)
  */
 
 import { BrowserMultiFormatReader, BarcodeFormat } from '@zxing/browser';
 import * as ZXingLib from '@zxing/library';
+import { SNPattern, DEFAULT_SN_PATTERNS, normalizeSNString, validatePatternMatch } from './snPatternUtils';
 
 export interface ScanResultFilter {
   isSN: boolean;
   cleanValue: string;
   rawType: 'SN' | 'MAC' | 'PIN' | 'UNKNOWN';
   originalRaw: string;
+  matchedPatternName?: string;
+  allRawCandidates?: string[];
 }
 
 /**
- * 1. Filter Multi-Barcode Label Results (Extract SN, Ignore MAC / PIN)
+ * 1. Filter Multi-Barcode Label Results (Extract SN, Ignore MAC / PIN, Match Active Patterns)
  */
-export function extractSNFromBarcode(rawResult: string): ScanResultFilter {
+export function extractSNFromBarcode(rawResult: string, activePatterns?: SNPattern[]): ScanResultFilter {
   if (!rawResult || typeof rawResult !== 'string') {
     return { isSN: false, cleanValue: '', rawType: 'UNKNOWN', originalRaw: '' };
   }
@@ -31,8 +34,10 @@ export function extractSNFromBarcode(rawResult: string): ScanResultFilter {
     return { isSN: false, cleanValue: '', rawType: 'UNKNOWN', originalRaw: rawResult };
   }
 
+  // Debug Log
+  console.log('[ScannerDebug] Evaluating barcode candidate:', trimmed);
+
   // A. Deteksi MAC Address
-  // Contoh: MAC: FC-EC-DA-11-22-33, FC:EC:DA:11:22:33, MAC 001122334455, 00-11-22-33-44-55
   const isMacPattern =
     /^MAC[:\s-]/i.test(trimmed) ||
     /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/.test(trimmed) ||
@@ -43,39 +48,59 @@ export function extractSNFromBarcode(rawResult: string): ScanResultFilter {
   }
 
   // B. Deteksi PIN / WPA Password / SSID
-  // Contoh: PIN: 12345678, WPA: abc12345, WPA2: 87654321
   const isPinPattern = /^(?:PIN|WPA|WPA2|SSID|PASS|PWD|PASSWORD)[:\s-]/i.test(trimmed);
   if (isPinPattern) {
     return { isSN: false, cleanValue: trimmed, rawType: 'PIN', originalRaw: rawResult };
   }
 
-  // C. Ekstraksi SN dari Prefix (S/N:, SN:, SERIAL:, SERIAL NO:)
-  let cleanSN = trimmed;
-  const snPrefixMatch = trimmed.match(/^(?:S\/N|SN|SERIAL\s*NO|SERIAL)[:\s-]*(.+)$/i);
-  if (snPrefixMatch && snPrefixMatch[1]) {
-    cleanSN = snPrefixMatch[1].trim();
+  // C. Ekstraksi SN dari Prefix (S/N:, SN:, SERIAL:, SERIAL NO:) & Normalisasi
+  const cleanSN = normalizeSNString(trimmed, {
+    auto_uppercase: true,
+    strip_spaces: true,
+    strip_prefixes: true
+  });
+
+  // D. Cocokkan dengan Pola SN Aktif
+  const patternsToTest = activePatterns && activePatterns.length > 0 ? activePatterns : DEFAULT_SN_PATTERNS;
+  const activeOnly = patternsToTest.filter(p => p.aktif);
+
+  for (const pat of activeOnly) {
+    if (pat.pola_regex && validatePatternMatch(cleanSN, pat.pola_regex)) {
+      console.log(`[ScannerDebug] Matched active pattern "${pat.nama}":`, cleanSN);
+      return {
+        isSN: true,
+        cleanValue: cleanSN,
+        rawType: 'SN',
+        originalRaw: rawResult,
+        matchedPatternName: pat.nama
+      };
+    }
   }
 
-  // Jika setelah dibersihkan nilainya valid (minimal 3 karakter)
+  // Jika tidak ada pola spesifik yang cocok tetapi nilainya valid (minimal 3 karakter & bukan MAC/PIN)
   if (cleanSN.length >= 3) {
-    return { isSN: true, cleanValue: cleanSN, rawType: 'SN', originalRaw: rawResult };
+    return {
+      isSN: true,
+      cleanValue: cleanSN,
+      rawType: 'SN',
+      originalRaw: rawResult
+    };
   }
 
   return { isSN: false, cleanValue: cleanSN, rawType: 'UNKNOWN', originalRaw: rawResult };
 }
 
 /**
- * 2. Diagnosa Akses Kamera & Context HTTPS dengan Kode Error Spesifik
+ * 2. Diagnosa Akses Kamera Live (Eksperimental) & Context HTTPS dengan Kode Error Spesifik
  */
 export function diagnoseCameraError(err: any): { type: 'insecure' | 'denied' | 'not_found' | 'not_readable' | 'overconstrained' | 'general'; message: string; errorName: string } {
   const errName = err?.name || (err instanceof Error ? err.name : 'UnknownError');
 
-  // Cek apakah dibuka di non-secure context (HTTP biasa)
   if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     return {
       type: 'insecure',
       errorName: 'SecurityError',
-      message: '⚠️ Fitur kamera live membutuhkan koneksi HTTPS atau domain aman (misal: Cloudflare Tunnel, SSL lokal, https://). Pada HTTP biasa, browser memblokir kamera. Gunakan tombol "Scan dari Foto / Galeri" atau ketik SN manual di bawah.'
+      message: '⚠️ Kamera live (Eksperimental) membutuhkan koneksi HTTPS atau domain aman. Gunakan jalur utama "Scan dari Foto / Galeri" atau ketik SN manual.'
     };
   }
 
@@ -83,7 +108,7 @@ export function diagnoseCameraError(err: any): { type: 'insecure' | 'denied' | '
     return {
       type: 'denied',
       errorName: errName,
-      message: '❌ Izin akses kamera ditolak (NotAllowedError). Silakan izinkan akses kamera di pengaturan browser HP/PC Anda, atau gunakan opsi "Scan dari Foto".'
+      message: '❌ Izin akses kamera ditolak (NotAllowedError). Gunakan jalur utama "Scan dari Foto / Galeri" atau izinkan kamera di browser.'
     };
   }
 
@@ -91,7 +116,7 @@ export function diagnoseCameraError(err: any): { type: 'insecure' | 'denied' | '
     return {
       type: 'not_found',
       errorName: errName,
-      message: '❌ Kamera tidak ditemukan pada perangkat ini (NotFoundError). Gunakan opsi "Scan dari Foto" atau input manual.'
+      message: '❌ Kamera tidak ditemukan pada perangkat ini (NotFoundError). Gunakan jalur utama "Scan dari Foto / Galeri".'
     };
   }
 
@@ -99,7 +124,7 @@ export function diagnoseCameraError(err: any): { type: 'insecure' | 'denied' | '
     return {
       type: 'not_readable',
       errorName: errName,
-      message: '❌ Kamera sedang digunakan oleh aplikasi lain (NotReadableError). Tutup aplikasi kamera lain lalu coba lagi, atau gunakan opsi "Scan dari Foto".'
+      message: '❌ Kamera sedang digunakan aplikasi lain (NotReadableError). Gunakan jalur utama "Scan dari Foto / Galeri".'
     };
   }
 
@@ -107,41 +132,38 @@ export function diagnoseCameraError(err: any): { type: 'insecure' | 'denied' | '
     return {
       type: 'overconstrained',
       errorName: errName,
-      message: '❌ Resolusi / fokus kamera tidak didukung oleh perangkat ini (OverconstrainedError).'
+      message: '❌ Resolusi / fokus kamera tidak didukung (OverconstrainedError). Gunakan jalur utama "Scan dari Foto / Galeri".'
     };
   }
 
   return {
     type: 'general',
     errorName: errName,
-    message: `❌ Kamera tidak dapat diakses (${errName}: ${err?.message || 'Izin ditolak atau HTTP non-aman'}). Gunakan opsi "Scan dari Foto" atau ketik SN manual.`
+    message: `❌ Kamera live tidak aktif (${errName}: ${err?.message || 'Izin ditolak atau HTTP non-aman'}). Gunakan jalur utama "Scan dari Foto / Galeri" atau ketik SN manual.`
   };
 }
 
 /**
- * 3. Setup Kamera Stream dengan Constraint Ideal & Bertahap Fallback
+ * 3. Setup Kamera Stream dengan Constraint Ideal & Fallback (Eksperimental)
  */
 export async function startCameraStream(videoElement: HTMLVideoElement): Promise<MediaStream> {
-  // Matikan stream lama jika ada pada videoElement
   if (videoElement.srcObject) {
     const oldStream = videoElement.srcObject as MediaStream;
     oldStream.getTracks().forEach(track => track.stop());
     videoElement.srcObject = null;
   }
 
-  // Check secure context first
   if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     const diag = diagnoseCameraError(null);
     throw new Error(diag.message);
   }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error('API Kamera (navigator.mediaDevices.getUserMedia) tidak didukung oleh browser ini. Gunakan opsi Scan dari Foto.');
+    throw new Error('API Kamera tidak didukung oleh browser ini. Gunakan jalur utama "Scan dari Foto / Galeri".');
   }
 
   let stream: MediaStream | null = null;
 
-  // Attempt 1: Constraint Ideal Resolusi Tinggi (1080p) + Camera Belakang
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -151,13 +173,11 @@ export async function startCameraStream(videoElement: HTMLVideoElement): Promise
       }
     });
   } catch {
-    // Attempt 2: Fallback ke Constraint Kamera Belakang Sederhana
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } }
       });
     } catch {
-      // Attempt 3: Fallback ke Video Dasar Apapun
       stream = await navigator.mediaDevices.getUserMedia({
         video: true
       });
@@ -167,7 +187,6 @@ export async function startCameraStream(videoElement: HTMLVideoElement): Promise
   videoElement.srcObject = stream;
   await videoElement.play();
 
-  // Menerapkan constraint fokus kontinu bila didukung oleh perangkat
   try {
     const track = stream.getVideoTracks()[0];
     if (track && 'applyConstraints' in track) {
@@ -176,15 +195,13 @@ export async function startCameraStream(videoElement: HTMLVideoElement): Promise
         await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as any);
       }
     }
-  } catch {
-    // Focus mode adjustment optional
-  }
+  } catch {}
 
   return stream;
 }
 
 /**
- * 4. Scanner Controller Live Camera (BarcodeDetector Native + ZXing Fallback)
+ * 4. Live Camera Scanner Controller (Eksperimental)
  */
 export class UniversalBarcodeScanner {
   private videoElement: HTMLVideoElement;
@@ -193,22 +210,24 @@ export class UniversalBarcodeScanner {
   private isScanning: boolean = false;
   private onDetectedCallback: (filter: ScanResultFilter) => void;
   private onIgnoredCallback?: (filter: ScanResultFilter) => void;
+  private activePatterns?: SNPattern[];
 
   constructor(
     videoElement: HTMLVideoElement,
     onDetected: (filter: ScanResultFilter) => void,
-    onIgnored?: (filter: ScanResultFilter) => void
+    onIgnored?: (filter: ScanResultFilter) => void,
+    activePatterns?: SNPattern[]
   ) {
     this.videoElement = videoElement;
     this.onDetectedCallback = onDetected;
     this.onIgnoredCallback = onIgnored;
+    this.activePatterns = activePatterns;
   }
 
   public startScanning() {
     if (this.isScanning) return;
     this.isScanning = true;
 
-    // A. Persiapan ZXing Reader dengan Hints
     const hints = new Map();
     const formats = [
       BarcodeFormat.CODE_128,
@@ -225,7 +244,6 @@ export class UniversalBarcodeScanner {
 
     this.zxingReader = new BrowserMultiFormatReader(hints);
 
-    // B. Persiapan Native BarcodeDetector (Browser Modern)
     let nativeDetector: any = null;
     if ('BarcodeDetector' in window) {
       try {
@@ -237,7 +255,6 @@ export class UniversalBarcodeScanner {
       }
     }
 
-    // C. Continuous Loop (200ms interval)
     this.scanInterval = window.setInterval(async () => {
       if (!this.isScanning || !this.videoElement || this.videoElement.readyState < 2) {
         return;
@@ -245,14 +262,13 @@ export class UniversalBarcodeScanner {
 
       let detectedText: string | null = null;
 
-      // 1. Coba Native BarcodeDetector
       if (nativeDetector) {
         try {
           const barcodes = await nativeDetector.detect(this.videoElement);
           if (barcodes && barcodes.length > 0) {
             for (const b of barcodes) {
               if (b.rawValue) {
-                const filter = extractSNFromBarcode(b.rawValue);
+                const filter = extractSNFromBarcode(b.rawValue, this.activePatterns);
                 if (filter.isSN) {
                   detectedText = filter.originalRaw;
                   break;
@@ -265,12 +281,9 @@ export class UniversalBarcodeScanner {
               detectedText = barcodes[0].rawValue;
             }
           }
-        } catch {
-          // Frame error pass
-        }
+        } catch {}
       }
 
-      // 2. Fallback ZXing jika Native BarcodeDetector tidak menghasilkan
       if (!detectedText && this.zxingReader) {
         try {
           const reader = this.zxingReader as any;
@@ -280,14 +293,11 @@ export class UniversalBarcodeScanner {
           } else if (result && result.text) {
             detectedText = result.text;
           }
-        } catch {
-          // ZXing frame pass
-        }
+        } catch {}
       }
 
-      // 3. Proses Hasil
       if (detectedText) {
-        const filter = extractSNFromBarcode(detectedText);
+        const filter = extractSNFromBarcode(detectedText, this.activePatterns);
         if (filter.isSN) {
           this.onDetectedCallback(filter);
         } else if (filter.rawType === 'MAC' || filter.rawType === 'PIN') {
@@ -319,17 +329,18 @@ export class UniversalBarcodeScanner {
 }
 
 /**
- * 5. Decode Barcode 1D / QR dari File Foto / Galeri di Sisi Klien (Opsi A)
- * Tanpa Upload Gambar ke Server (Hanya Hasil Teks SN yang dikembalikan)
+ * 5. Decode Barcode 1D / QR dari Foto (Jalur Utama - Client Side Opsi A)
+ * Ekstraksi Barcode & Cocokkan dengan Pola SN Aktif
  */
-export async function scanBarcodeFromImageFile(file: File): Promise<ScanResultFilter> {
+export async function scanBarcodeFromImageFile(file: File, activePatterns?: SNPattern[]): Promise<ScanResultFilter> {
   if (!file || !file.type.startsWith('image/')) {
     throw new Error('File yang dipilih bukan berkas gambar yang valid.');
   }
 
-  let rawDetectedText: string | null = null;
+  console.log('[ScannerDebug] Processing primary photo scan:', file.name, 'Size:', file.size);
+  const rawCandidates: string[] = [];
 
-  // A. Coba Native BarcodeDetector browser bila tersedia
+  // A. Native BarcodeDetector
   if ('BarcodeDetector' in window) {
     try {
       const nativeDetector = new (window as any).BarcodeDetector({
@@ -340,75 +351,83 @@ export async function scanBarcodeFromImageFile(file: File): Promise<ScanResultFi
 
       if (barcodes && barcodes.length > 0) {
         for (const b of barcodes) {
-          if (b.rawValue) {
-            const filter = extractSNFromBarcode(b.rawValue);
-            if (filter.isSN) {
-              rawDetectedText = b.rawValue;
-              break;
-            }
+          if (b.rawValue && !rawCandidates.includes(b.rawValue)) {
+            rawCandidates.push(b.rawValue);
           }
         }
-        if (!rawDetectedText && barcodes[0]?.rawValue) {
-          rawDetectedText = barcodes[0].rawValue;
+      }
+    } catch {}
+  }
+
+  // B. Fallback Canvas & ZXing
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const hints = new Map();
+    hints.set(ZXingLib.DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.QR_CODE,
+      BarcodeFormat.DATA_MATRIX,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.ITF
+    ]);
+    hints.set(ZXingLib.DecodeHintType.TRY_HARDER, true);
+
+    const zxingReader = new BrowserMultiFormatReader(hints);
+    try {
+      const result = await zxingReader.decodeFromImageUrl(imageUrl);
+      if (result && result.getText() && !rawCandidates.includes(result.getText())) {
+        rawCandidates.push(result.getText());
+      }
+    } catch {
+      const preprocessResults = await preprocessCanvasAndScanAll(imageUrl);
+      for (const resStr of preprocessResults) {
+        if (resStr && !rawCandidates.includes(resStr)) {
+          rawCandidates.push(resStr);
         }
       }
-    } catch {
-      // Fallback ke Canvas + ZXing
+    }
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+
+  console.log('[ScannerDebug] All raw detected barcode candidates from image:', rawCandidates);
+
+  if (rawCandidates.length === 0) {
+    throw new Error('Barcode 1D (SN) tidak terbaca dari foto. Coba foto lebih dekat, tegak lurus, dan terang, atau gunakan input manual.');
+  }
+
+  // C. Evaluasi Candidate Terhadap Pola SN Aktif
+  for (const candidate of rawCandidates) {
+    const filter = extractSNFromBarcode(candidate, activePatterns);
+    if (filter.isSN) {
+      filter.allRawCandidates = rawCandidates;
+      return filter;
     }
   }
 
-  // B. Fallback Canvas + ZXing jika Native tidak mendeteksi
-  if (!rawDetectedText) {
-    const imageUrl = URL.createObjectURL(file);
-    try {
-      const hints = new Map();
-      hints.set(ZXingLib.DecodeHintType.POSSIBLE_FORMATS, [
-        BarcodeFormat.CODE_128,
-        BarcodeFormat.CODE_39,
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.QR_CODE,
-        BarcodeFormat.DATA_MATRIX,
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.ITF
-      ]);
-      hints.set(ZXingLib.DecodeHintType.TRY_HARDER, true);
-
-      const zxingReader = new BrowserMultiFormatReader(hints);
-      const result = await zxingReader.decodeFromImageUrl(imageUrl);
-      if (result && result.getText()) {
-        rawDetectedText = result.getText();
-      }
-    } catch {
-      // Coba pra-pemrosesan Canvas (Grayscale, Kontras & Rotasi 90 derajat)
-      rawDetectedText = await preprocessCanvasAndScan(imageUrl);
-    } finally {
-      URL.revokeObjectURL(imageUrl);
-    }
-  }
-
-  if (!rawDetectedText) {
-    throw new Error('Barcode 1D (SN) tidak terbaca dari foto. Pastikan foto fokus, terang, dan dekat dengan label barcode, atau ketik Serial Number secara manual.');
-  }
-
-  const resultFilter = extractSNFromBarcode(rawDetectedText);
-  return resultFilter;
+  // D. Jika tidak ada yang cocok dengan Pola SN Aktif, kembalikan hasil mentah pertama beserta seluruh kandidat
+  const fallbackFilter = extractSNFromBarcode(rawCandidates[0], activePatterns);
+  fallbackFilter.allRawCandidates = rawCandidates;
+  return fallbackFilter;
 }
 
 /**
- * Helper: Pra-pemrosesan Canvas gambar (Grayscale, Ambang Binarisasi, Rotasi) untuk barcode 1D pudar / miring
+ * Helper: Pra-pemrosesan Canvas (Grayscale, Kontras & Rotasi) mengembalikan seluruh hasil kandidat
  */
-async function preprocessCanvasAndScan(imageUrl: string): Promise<string | null> {
+async function preprocessCanvasAndScanAll(imageUrl: string): Promise<string[]> {
   return new Promise((resolve) => {
+    const results: string[] = [];
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = async () => {
       try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        if (!ctx) return resolve(null);
+        if (!ctx) return resolve(results);
 
-        // Skala maks 1920px
         let w = img.width;
         let h = img.height;
         const maxDim = 1920;
@@ -426,12 +445,10 @@ async function preprocessCanvasAndScan(imageUrl: string): Promise<string | null>
         canvas.height = h;
         ctx.drawImage(img, 0, 0, w, h);
 
-        // 1. Pra-pemrosesan Grayscale & High Contrast
         const imgData = ctx.getImageData(0, 0, w, h);
         const d = imgData.data;
         for (let i = 0; i < d.length; i += 4) {
           const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
-          // Enhancing contrast for barcode lines
           const contrastVal = avg > 128 ? Math.min(255, avg * 1.2) : Math.max(0, avg * 0.8);
           d[i] = contrastVal;
           d[i + 1] = contrastVal;
@@ -453,13 +470,11 @@ async function preprocessCanvasAndScan(imageUrl: string): Promise<string | null>
         try {
           const res = await reader.decodeFromImageUrl(processedUrl);
           if (res && res.getText()) {
-            return resolve(res.getText());
+            results.push(res.getText());
           }
-        } catch {
-          // Pass to rotation
-        }
+        } catch {}
 
-        // 2. Rotasi 90 Derajat (Barcode Miring Vertikal)
+        // Rotasi 90 Derajat
         const rotCanvas = document.createElement('canvas');
         rotCanvas.width = h;
         rotCanvas.height = w;
@@ -471,18 +486,18 @@ async function preprocessCanvasAndScan(imageUrl: string): Promise<string | null>
           const rotUrl = rotCanvas.toDataURL('image/jpeg', 0.9);
           try {
             const rotRes = await reader.decodeFromImageUrl(rotUrl);
-            if (rotRes && rotRes.getText()) {
-              return resolve(rotRes.getText());
+            if (rotRes && rotRes.getText() && !results.includes(rotRes.getText())) {
+              results.push(rotRes.getText());
             }
           } catch {}
         }
 
-        resolve(null);
+        resolve(results);
       } catch {
-        resolve(null);
+        resolve(results);
       }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => resolve(results);
     img.src = imageUrl;
   });
 }

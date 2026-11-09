@@ -19,6 +19,7 @@ import catalogRoutes from './routes/catalog';
 import boxRoutes from './routes/box';
 import stockRoutes from './routes/stock';
 import requestRoutes from './routes/request';
+import snPatternsRoutes from './routes/snPatterns';
 import { BackupService } from './services/backupService';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +75,7 @@ async function startServer() {
   app.use('/api/boxes', boxRoutes);
   app.use('/api/stock', stockRoutes);
   app.use('/api/requests', requestRoutes);
+  app.use('/api/sn-patterns', snPatternsRoutes);
 
   // Endpoint Backup Khusus Data Barang (Bebas Akun) - Khusus Developer & Admin
   app.get('/api/backup/inventory/download', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {

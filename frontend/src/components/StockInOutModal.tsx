@@ -378,31 +378,11 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
                   Scan Barcode / QR Kamera
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                {!isCameraActive ? (
-                  <button
-                    type="button"
-                    onClick={startCamera}
-                    className="px-2.5 py-1 text-[11px] font-medium text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-md transition-colors flex items-center gap-1.5"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>Nyalakan Kamera</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={stopCamera}
-                    className="px-2.5 py-1 text-[11px] font-medium text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors flex items-center gap-1.5"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    <span>Matikan Kamera</span>
-                  </button>
-                )}
-
-                {/* Scan dari Foto / Galeri (Opsi A Fallback) */}
-                <label className="px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* Jalur Utama: Scan dari Foto / Galeri HP */}
+                <label className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto'}</span>
+                  <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto / Galeri (Jalur Utama)'}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -412,6 +392,27 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
                     className="hidden"
                   />
                 </label>
+
+                {/* Jalur Sekunder: Kamera Live (Eksperimental) */}
+                {!isCameraActive ? (
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-md transition-colors flex items-center gap-1.5"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Kamera Live (Eksperimental)</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors flex items-center gap-1.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Matikan Kamera</span>
+                  </button>
+                )}
               </div>
             </div>
 
