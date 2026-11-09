@@ -452,10 +452,20 @@ export const TicketIntegrationHub: React.FC = () => {
 
                         <div className="w-20 shrink-0 flex items-center">
                           <input
-                            type="number"
-                            min="1"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             value={selected.quantity}
-                            onChange={(e) => handleUpdateSimItem(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                            onFocus={(e) => e.target.select()}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '');
+                              handleUpdateSimItem(idx, 'quantity', val === '' ? 1 : Math.max(1, parseInt(val, 10)));
+                            }}
+                            onBlur={() => {
+                              if (!selected.quantity || selected.quantity <= 0) {
+                                handleUpdateSimItem(idx, 'quantity', 1);
+                              }
+                            }}
                             className="w-full py-1 px-2 text-xs font-mono font-bold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-900 dark:text-slate-100 focus:outline-none"
                           />
                         </div>

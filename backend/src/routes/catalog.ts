@@ -205,7 +205,7 @@ router.post(
   requireRole(['developer', 'admin', 'warehouse_admin']),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
-      const { jenis_id, nama, kategori, kategori_barang, tipe_stok, catatan } = req.body;
+      const { jenis_id, nama, kategori, kategori_barang, tipe_stok, catatan, stok_awal } = req.body;
       if (!jenis_id || !nama) {
         return res.status(400).json({ success: false, message: 'Jenis dan nama produk wajib diisi.' });
       }
@@ -217,7 +217,8 @@ router.post(
           kategori: kategori === 'recycle' ? 'recycle' : 'fast_moving',
           kategori_barang: kategori_barang === 'Alat' ? 'Alat' : 'Barang Habis Pakai',
           tipe_stok: tipe_stok ? String(tipe_stok) : 'unit',
-          catatan
+          catatan,
+          stok_awal: stok_awal ? parseInt(String(stok_awal), 10) : 0
         },
         req.user!.id
       );

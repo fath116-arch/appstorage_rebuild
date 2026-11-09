@@ -227,6 +227,7 @@ export const catalogApi = {
     kategori_barang?: 'Alat' | 'Barang Habis Pakai';
     tipe_stok?: string;
     catatan?: string;
+    stok_awal?: number;
   }): Promise<Produk> {
     const res = await fetch('/api/catalog/products', {
       method: 'POST',

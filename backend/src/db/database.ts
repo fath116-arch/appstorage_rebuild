@@ -79,11 +79,29 @@ export async function initDatabase(): Promise<{ isMariaDb: boolean }> {
 
     // Jalankan migrasi file skema berversi
     await runMigrations(pool);
+
+    // Jalankan migrasi legacy ke v2 secara otomatis dan idempotent
+    try {
+      const { LegacyMigrationService } = await import('../services/legacyMigrationService');
+      await LegacyMigrationService.runMigration();
+    } catch (migErr: any) {
+      console.warn('[FieldOps Database] Warning saat migrasi v2 katalog:', migErr.message);
+    }
+
     return { isMariaDb: true };
   } catch (err: any) {
     console.warn(`[FieldOps Database] MariaDB (${dbConfig.host}:${dbConfig.port}) belum terhubung. Mengaktifkan adapter lokal mandiri.`);
     isMariaDbActive = false;
     await seedMemoryDb();
+
+    // Jalankan migrasi legacy ke v2 pada memory store
+    try {
+      const { LegacyMigrationService } = await import('../services/legacyMigrationService');
+      await LegacyMigrationService.runMigration();
+    } catch (migErr: any) {
+      console.warn('[FieldOps Database] Warning saat migrasi v2 katalog lokal:', migErr.message);
+    }
+
     return { isMariaDb: false };
   }
 }
@@ -142,7 +160,9 @@ async function runMigrations(dbPool: mysql.Pool) {
     '05_v2_catalog_schema.sql',
     '06_v2_stock_schema.sql',
     '07_v2_request_schema.sql',
-    '08_v125_paket4_schema.sql'
+    '08_v125_paket4_schema.sql',
+    '09_v125_paket6_wa_alert.sql',
+    '10_v2_unify_stock_and_sessions.sql'
   ];
 
   for (const file of files) {
@@ -196,12 +216,12 @@ async function seedMemoryDb() {
     updated_at: new Date().toISOString()
   });
 
-  // Set default v2 Pengaturan Sistem
+  // Set default v2 Pengaturan Sistem (30 Hari Persistent Session & Multi-Perangkat)
   const defaultSettings: Array<[string, string, string]> = [
-    ['ACCESS_TOKEN_TTL_DETIK', '900', 'Masa berlaku access token (15 menit)'],
-    ['IDLE_TIMEOUT_MENIT', '30', 'Sesi mati bila tidak ada aktivitas (30 menit)'],
-    ['ABSOLUTE_TIMEOUT_JAM', '12', 'Sesi mati mutlak setelah 12 jam'],
-    ['MAX_SESI_PER_AKUN', '1', 'Batas sesi aktif per akun (login baru mencabut sesi lama)'],
+    ['ACCESS_TOKEN_TTL_DETIK', '2592000', 'Masa berlaku access token (30 hari)'],
+    ['IDLE_TIMEOUT_MENIT', '43200', 'Sesi mati bila tidak ada aktivitas (30 hari)'],
+    ['ABSOLUTE_TIMEOUT_JAM', '720', 'Sesi mati mutlak setelah 30 hari'],
+    ['MAX_SESI_PER_AKUN', '50', 'Batas sesi aktif per akun (multi-perangkat diizinkan)'],
     ['REAUTH_MENIT', '15', 'Batas waktu re-autentikasi password untuk aksi tingkat 3'],
     ['RETENSI_SAMPAH_HARI', '14', 'Masa simpan sampah hapus permanen sebelum dibersihkan'],
     ['CONFIRMATION_TOKEN_TTL_DETIK', '120', 'Masa berlaku token konfirmasi bertingkat sekali pakai'],
@@ -368,16 +388,23 @@ function runMemoryQuery(sql: string, params: any[]): any {
   // SELECT items
   if (upper.startsWith('SELECT') && upper.includes('FROM ITEMS')) {
     let list = Array.from(memoryStore.items.values()).filter(it => !it.is_deleted);
+    if (upper.includes('WHERE (ID = ? OR UPPER(SKU) = UPPER(?))') || (upper.includes('WHERE') && upper.includes('ID = ?') && upper.includes('SKU = ?'))) {
+      const target = String(params[0] || params[1] || '').toUpperCase();
+      const match = list.find(it => it.id === params[0] || it.sku.toUpperCase() === target);
+      return match ? [match] : [];
+    }
     if (upper.includes('WHERE ID = ?')) {
       const match = memoryStore.items.get(params[0]);
       return match && !match.is_deleted ? [match] : [];
     }
-    if (upper.includes('WHERE SKU = ?')) {
-      const match = list.find(it => it.sku.toLowerCase() === String(params[0]).toLowerCase());
+    if (upper.includes('WHERE SKU = ?') || upper.includes('UPPER(SKU) = UPPER(?)')) {
+      const target = String(params[0] || '').toLowerCase();
+      const match = list.find(it => it.sku.toLowerCase() === target);
       return match ? [match] : [];
     }
-    if (upper.includes('WHERE BARCODE = ?')) {
-      const match = list.find(it => it.barcode && String(it.barcode).toLowerCase() === String(params[0]).toLowerCase());
+    if (upper.includes('WHERE BARCODE = ?') || upper.includes('UPPER(BARCODE) = UPPER(?)')) {
+      const target = String(params[0] || '').toLowerCase();
+      const match = list.find(it => it.barcode && String(it.barcode).toLowerCase() === target);
       return match ? [match] : [];
     }
     return list;
@@ -392,20 +419,69 @@ function runMemoryQuery(sql: string, params: any[]): any {
     return Array.from(memoryStore.categories.values());
   }
 
-  // SELECT transactions
+  // SELECT transactions (Enriched with Snapshot: item_name, item_sku, item_unit, tipe_mutasi)
   if (upper.startsWith('SELECT') && upper.includes('FROM TRANSACTIONS')) {
+    const enrichTx = (t: any) => {
+      let itemName = t.nama_barang || t.item_name;
+      let itemSku = t.sku || t.item_sku;
+      let itemUnit = t.satuan || t.item_unit;
+
+      if (!itemName || !itemSku || !itemUnit) {
+        if (t.item_id && memoryStore.items.has(t.item_id)) {
+          const it = memoryStore.items.get(t.item_id);
+          itemName = itemName || it.name;
+          itemSku = itemSku || it.sku;
+          itemUnit = itemUnit || it.unit;
+        }
+        const tId = t.tipe_id ? Number(t.tipe_id) : (typeof t.item_id === 'number' || /^\d+$/.test(String(t.item_id)) ? Number(t.item_id) : null);
+        if (tId && memoryStore.tipe.has(tId)) {
+          const tipe = memoryStore.tipe.get(tId);
+          const prod = memoryStore.produk.get(tipe?.produk_id);
+          itemName = itemName || (prod ? `${prod.nama} - ${tipe.nama_tipe}` : tipe?.nama_tipe);
+          itemSku = itemSku || tipe?.prefix_id || `TIPE-${tId}`;
+          itemUnit = itemUnit || prod?.tipe_stok || 'unit';
+        }
+      }
+
+      return {
+        ...t,
+        nama_barang: itemName || 'Barang IT',
+        sku: itemSku || 'SKU',
+        satuan: itemUnit || 'pcs',
+        item_name: itemName || 'Barang IT',
+        item_sku: itemSku || 'SKU',
+        item_unit: itemUnit || 'pcs',
+        tipe_mutasi: t.tipe_mutasi || (t.type === 'IN' ? 'MASUK' : 'KELUAR')
+      };
+    };
+
+    if (upper.includes('SUM(')) {
+      // Menghitung stok dari mutasi transaksi SUM(MASUK) - SUM(KELUAR)
+      let sum = 0;
+      const targetTipeId = params[0] ? Number(params[0]) : null;
+      for (const t of memoryStore.transactions.values()) {
+        const tTipeId = t.tipe_id ? Number(t.tipe_id) : null;
+        if (!targetTipeId || tTipeId === targetTipeId || t.item_id === String(targetTipeId)) {
+          const isMasuk = t.tipe_mutasi === 'MASUK' || t.type === 'IN';
+          const qty = Number(t.quantity || 0);
+          sum += isMasuk ? qty : -qty;
+        }
+      }
+      return [{ total: Math.max(0, sum) }];
+    }
+
     if (upper.includes('WHERE ID = ?') || upper.includes('WHERE T.ID = ?')) {
       const match = memoryStore.transactions.get(params[0]);
-      return match ? [match] : [];
+      return match ? [enrichTx(match)] : [];
     }
-    if (upper.includes('WHERE ITEM_ID = ?') || upper.includes('WHERE T.ITEM_ID = ?')) {
-      const filtered = Array.from(memoryStore.transactions.values()).filter(t => t.item_id === params[0]);
+    if (upper.includes('WHERE ITEM_ID = ?') || upper.includes('WHERE T.ITEM_ID = ?') || upper.includes('WHERE T.TIPE_ID = ?')) {
+      const filtered = Array.from(memoryStore.transactions.values()).filter(t => t.item_id === params[0] || String(t.tipe_id) === String(params[0]) || (params[1] && String(t.tipe_id) === String(params[1])));
       filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      return filtered;
+      return filtered.map(enrichTx);
     }
     let list = Array.from(memoryStore.transactions.values());
     list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return list;
+    return list.map(enrichTx);
   }
 
   // SELECT api_keys
@@ -673,21 +749,37 @@ function runMemoryQuery(sql: string, params: any[]): any {
   }
 
   if (upper.startsWith('INSERT INTO TRANSACTIONS')) {
-    const tx = {
-      id: params[0],
-      type: params[1],
-      item_id: params[2],
-      quantity: params[3],
-      previous_qty: params[4],
-      new_qty: params[5],
-      reference_type: params[6],
-      reference_number: params[7],
-      recipient_destination: params[8],
-      user_id: params[9],
-      performed_by: params[10],
-      notes: params[11],
-      created_at: new Date().toISOString()
-    };
+    const colMatch = cleanSql.match(/INSERT\s+INTO\s+transactions\s*\(([^)]+)\)/i);
+    let tx: any = { created_at: new Date().toISOString() };
+    if (colMatch && colMatch[1]) {
+      const cols = colMatch[1].split(',').map(c => c.trim().toLowerCase());
+      cols.forEach((col, idx) => {
+        tx[col] = params[idx];
+      });
+      if (!tx.type && tx.tipe_mutasi) {
+        tx.type = tx.tipe_mutasi === 'MASUK' ? 'IN' : 'OUT';
+      }
+      if (!tx.tipe_mutasi && tx.type) {
+        tx.tipe_mutasi = tx.type === 'IN' ? 'MASUK' : 'KELUAR';
+      }
+    } else {
+      tx = {
+        id: params[0],
+        type: params[1],
+        tipe_mutasi: params[1] === 'IN' ? 'MASUK' : 'KELUAR',
+        item_id: params[2],
+        quantity: params[3],
+        previous_qty: params[4],
+        new_qty: params[5],
+        reference_type: params[6],
+        reference_number: params[7],
+        recipient_destination: params[8],
+        user_id: params[9],
+        performed_by: params[10],
+        notes: params[11],
+        created_at: new Date().toISOString()
+      };
+    }
     memoryStore.transactions.set(tx.id, tx);
     return { affectedRows: 1 };
   }
@@ -1020,6 +1112,12 @@ function runMemoryQuery(sql: string, params: any[]): any {
     return j ? [{ ...j }] : [];
   }
 
+  if (upper.includes('FROM JENIS') && upper.includes('LOWER(NAMA) = LOWER(?)')) {
+    const targetName = String(params[0] || '').toLowerCase().trim();
+    const match = Array.from(memoryStore.jenis.values()).find(j => j.nama.toLowerCase().trim() === targetName);
+    return match ? [{ id: match.id, nama: match.nama }] : [];
+  }
+
   // ATRIBUT & ATRIBUT_OPSI
   if (upper.startsWith('INSERT INTO ATRIBUT (')) {
     const nextId = memoryStore.atribut.size + 1;
@@ -1235,12 +1333,33 @@ function runMemoryQuery(sql: string, params: any[]): any {
     return { affectedRows: 0 };
   }
 
+  if (upper.includes('FROM PRODUK') && upper.includes('LOWER(NAMA) = LOWER(?)')) {
+    const targetName = String(params[0] || '').toLowerCase().trim();
+    const jId = params[1] ? parseInt(String(params[1]), 10) : null;
+    const match = Array.from(memoryStore.produk.values()).find(p => {
+      const nameMatch = p.nama.toLowerCase().trim() === targetName;
+      return jId ? (nameMatch && p.jenis_id === jId) : nameMatch;
+    });
+    return match ? [{ id: match.id, nama: match.nama }] : [];
+  }
+
   if (upper.includes('SELECT ID FROM TIPE WHERE PRODUK_ID = ? AND NAMA_TIPE = ? AND AKTIF = 1')) {
     const prodId = parseInt(String(params[0]), 10);
     const namaTipe = String(params[1]);
     const match = Array.from(memoryStore.tipe.values())
       .filter(t => t.produk_id === prodId && t.nama_tipe === namaTipe && (t.aktif === 1 || t.aktif === true));
     return match.map(m => ({ id: m.id }));
+  }
+
+  if (upper.includes('FROM TIPE') && upper.includes('PRODUK_ID = ?') && upper.includes('LOWER(NAMA_TIPE) = LOWER(?)')) {
+    const prodId = parseInt(String(params[0]), 10);
+    const targetName = String(params[1] || '').toLowerCase().trim();
+    const match = Array.from(memoryStore.tipe.values()).find(t => {
+      const pMatch = t.produk_id === prodId;
+      const nMatch = (t.nama_tipe || '').toLowerCase().trim() === targetName || (t.prefix_id || '').toLowerCase().trim() === targetName;
+      return pMatch && nMatch;
+    });
+    return match ? [{ id: match.id }] : [];
   }
 
   if (upper.startsWith('SELECT') && upper.includes('FROM TIPE')) {
@@ -1253,7 +1372,8 @@ function runMemoryQuery(sql: string, params: any[]): any {
       return [{
         ...t,
         produk_nama: prod ? prod.nama : '',
-        jenis_nama: jenis ? jenis.nama : ''
+        jenis_nama: jenis ? jenis.nama : '',
+        tipe_stok: prod ? prod.tipe_stok : 'pcs'
       }];
     }
 

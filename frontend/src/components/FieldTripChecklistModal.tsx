@@ -672,10 +672,20 @@ export const FieldTripChecklistModal: React.FC<FieldTripChecklistModalProps> = (
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="text-slate-400 dark:text-slate-500 text-[11px]">Qty:</span>
                         <input
-                          type="number"
-                          min="1"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           value={sp.reqQty}
-                          onChange={(e) => handleUpdateSparePart(idx, 'reqQty', Math.max(1, parseInt(e.target.value) || 1))}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            handleUpdateSparePart(idx, 'reqQty', val === '' ? 1 : Math.max(1, parseInt(val, 10)));
+                          }}
+                          onBlur={() => {
+                            if (!sp.reqQty || sp.reqQty <= 0) {
+                              handleUpdateSparePart(idx, 'reqQty', 1);
+                            }
+                          }}
                           className="w-14 py-1 px-1.5 font-mono font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white text-xs"
                         />
                         <button

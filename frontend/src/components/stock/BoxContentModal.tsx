@@ -52,7 +52,7 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
   const [catatanKondisiInput, setCatatanKondisiInput] = useState<string>('');
 
   const [targetBoxId, setTargetBoxId] = useState<string>('');
-  const [moveQuantity, setMoveQuantity] = useState<number>(1);
+  const [moveQuantity, setMoveQuantity] = useState<string>('1');
   const [moveCatatan, setMoveCatatan] = useState<string>('');
 
   const loadContents = useCallback(async () => {
@@ -88,17 +88,19 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
     if (!movingItem || !data || !targetBoxId) return;
 
     try {
+      const qty = parseInt(moveQuantity, 10) || 1;
       const res = await stockApi.pindahBox({
         item_id: movingItem.itemId,
         tipe_id: movingItem.tipeId,
         box_asal_id: data.box.id,
         box_tujuan_id: targetBoxId,
-        jumlah: movingItem.tipeId ? moveQuantity : undefined,
+        jumlah: movingItem.tipeId ? qty : undefined,
         catatan: moveCatatan.trim() || undefined
       });
 
       showToast(res.message, 'success');
       setMovingItem(null);
+      setMoveQuantity('1');
       setMoveCatatan('');
       await loadContents();
       if (onRefreshParent) onRefreshParent();
@@ -278,7 +280,7 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                                       namaSnapshot: `${produkNama} - ${tipeNama}`,
                                       jumlahAvailable: contentObj.stokJumlah
                                     });
-                                    setMoveQuantity(1);
+                                    setMoveQuantity('1');
                                   }
                                 }}
                                 className="px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 hover:bg-emerald-200 rounded transition-colors flex items-center gap-1"
@@ -331,12 +333,14 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                         Jumlah Dipindah * (Max: {movingItem.jumlahAvailable})
                       </label>
                       <input
-                        type="number"
-                        min={1}
-                        max={movingItem.jumlahAvailable || 1}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={moveQuantity}
-                        onChange={e => setMoveQuantity(Number(e.target.value))}
-                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                        onFocus={(e) => e.target.select()}
+                        onChange={e => setMoveQuantity(e.target.value.replace(/\D/g, ''))}
+                        onBlur={() => { if (!moveQuantity || moveQuantity === '0') setMoveQuantity('1'); }}
+                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono font-bold"
                       />
                     </div>
                   )}

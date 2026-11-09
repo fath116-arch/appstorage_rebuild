@@ -61,8 +61,8 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
   // Input states
   const [singleKodeInput, setSingleKodeInput] = useState<string>('');
   const [scannedList, setScannedList] = useState<string[]>([]);
-  const [autoCountInput, setAutoCountInput] = useState<number>(10);
-  const [quantityInput, setQuantityInput] = useState<number>(10);
+  const [autoCountInput, setAutoCountInput] = useState<string>('10');
+  const [quantityInput, setQuantityInput] = useState<string>('10');
   const [catatanInput, setCatatanInput] = useState<string>('');
 
   // Camera & Photo Scan State
@@ -311,7 +311,8 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
           showToast(res.message, 'success');
         }
       } else if (inputMode === 'bulk_auto') {
-        if (autoCountInput <= 0) {
+        const count = parseInt(autoCountInput, 10) || 0;
+        if (count <= 0) {
           showToast('Jumlah N unit harus lebih besar dari 0.', 'warning');
           return;
         }
@@ -319,12 +320,13 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
         const res = await stockApi.inputBulkStock({
           tipe_id: Number(selectedTipeId),
           box_id: selectedBoxId,
-          auto_count: autoCountInput,
+          auto_count: count,
           catatan: catatanInput.trim() || undefined
         });
         showToast(res.message, 'success');
       } else if (inputMode === 'quantity') {
-        if (quantityInput <= 0) {
+        const qty = parseInt(quantityInput, 10) || 0;
+        if (qty <= 0) {
           showToast('Jumlah unit harus lebih besar dari 0.', 'warning');
           return;
         }
@@ -332,7 +334,7 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
         const res = await stockApi.inputQuantityStock({
           tipe_id: Number(selectedTipeId),
           box_id: selectedBoxId,
-          jumlah: quantityInput,
+          jumlah: qty,
           catatan: catatanInput.trim() || undefined
         });
         showToast(res.message, 'success');
@@ -643,15 +645,17 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
                   Jumlah Unit Otomatis Dihasilkan (N Unit)
                 </label>
                 <input
-                  type="number"
-                  min={1}
-                  max={500}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={autoCountInput}
-                  onChange={e => setAutoCountInput(Number(e.target.value))}
+                  onFocus={(e) => e.target.select()}
+                  onChange={e => setAutoCountInput(e.target.value.replace(/\D/g, ''))}
+                  onBlur={() => { if (!autoCountInput || autoCountInput === '0') setAutoCountInput('10'); }}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono font-bold"
                 />
                 <span className="text-[11px] text-slate-500 block">
-                  Sistem akan membuat {autoCountInput} ID item fisik dengan format prefix "{currentTipe?.prefix_id || 'ITEM-'}" dalam 1 transaksi.
+                  Sistem akan membuat {autoCountInput || '0'} ID item fisik dengan format prefix "{currentTipe?.prefix_id || 'ITEM-'}" dalam 1 transaksi.
                 </span>
               </div>
             )}
@@ -663,10 +667,13 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
                   Jumlah Unit Masuk (Stok Jumlah)
                 </label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={quantityInput}
-                  onChange={e => setQuantityInput(Number(e.target.value))}
+                  onFocus={(e) => e.target.select()}
+                  onChange={e => setQuantityInput(e.target.value.replace(/\D/g, ''))}
+                  onBlur={() => { if (!quantityInput || quantityInput === '0') setQuantityInput('10'); }}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono font-bold"
                 />
               </div>

@@ -476,10 +476,12 @@ export class CatalogService {
     kategori_barang?: 'Alat' | 'Barang Habis Pakai';
     tipe_stok?: string;
     catatan?: string;
+    stok_awal?: number;
   }, userId: string): Promise<Produk> {
     const cleanNama = input.nama.trim();
     const kategoriBarang = input.kategori_barang || 'Barang Habis Pakai';
     const tipeStok = (input.tipe_stok || 'unit').trim().toLowerCase();
+    const stokAwal = Math.max(0, parseInt(String(input.stok_awal || 0), 10));
 
     const res: any = await executeQuery(
       `INSERT INTO produk (jenis_id, nama, kategori, kategori_barang, tipe_stok, catatan, aktif, dibuat_oleh)
@@ -487,13 +489,62 @@ export class CatalogService {
       [input.jenis_id, cleanNama, input.kategori, kategoriBarang, tipeStok, input.catatan || null, userId]
     );
 
-    const prodId = res.insertId || res.id;
+    const prodId = Number(res.insertId || res.id);
 
     await ActivityLogService.recordActivity({
       aksi: 'tambah_produk',
       pelaku_id: userId,
-      catatan: `Menambahkan Produk baru: "${cleanNama}" (${kategoriBarang}, Tipe Stok: ${tipeStok})`
+      catatan: `Menambahkan Produk baru: "${cleanNama}" (${kategoriBarang}, Tipe Stok: ${tipeStok}${stokAwal > 0 ? `, Stok Awal: ${stokAwal} ${tipeStok}` : ''})`
     });
+
+    if (stokAwal > 0) {
+      // Buat varian default Tipe
+      const tRes: any = await executeQuery(
+        `INSERT INTO tipe (produk_id, nama_tipe, mode_stok, sumber_id, id_dikunci, aktif)
+         VALUES (?, 'Standar', 'jumlah', 'tanpa_id', 0, 1)`,
+        [prodId]
+      );
+      const tipeId = Number(tRes.insertId || tRes.id);
+
+      // Cari atau gunakan box default
+      const boxes = await executeQuery<any>('SELECT id FROM box WHERE kode = "BOX-A-01"');
+      const boxId = boxes && boxes.length > 0 ? boxes[0].id : 'box-1';
+
+      // Insert stok_jumlah
+      await executeQuery(
+        `INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)`,
+        [tipeId, boxId, stokAwal]
+      );
+
+      // Catat transaksi mutasi SALDO_AWAL dengan snapshot
+      const txId = `tx-saldo-awal-${prodId}-${Date.now()}`;
+      await executeQuery(
+        `INSERT INTO transactions (
+          id, type, tipe_mutasi, item_id, tipe_id, nama_barang, sku, satuan,
+          quantity, previous_qty, new_qty, reference_type, reference_number,
+          recipient_destination, user_id, performed_by, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          txId,
+          'IN',
+          'MASUK',
+          String(tipeId),
+          tipeId,
+          cleanNama,
+          `PRD-${prodId}`,
+          tipeStok,
+          stokAwal,
+          0,
+          stokAwal,
+          'SALDO_AWAL',
+          `SALDO-AWAL-PRD-${prodId}`,
+          'Gudang Utama - Rak A-01',
+          userId,
+          userId,
+          `Saldo awal saat pendaftaran produk baru (${stokAwal} ${tipeStok})`
+        ]
+      );
+    }
 
     const created = await this.getProdukById(prodId);
     return created!;

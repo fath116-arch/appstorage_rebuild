@@ -61,7 +61,8 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
   const { items, recordStockIn, recordStockOut, showToast } = useInventory();
 
   const [selectedItemId, setSelectedItemId] = useState<string>('');
-  const [quantity, setQuantity] = useState<number>(1);
+  const [qtyInput, setQtyInput] = useState<string>('1');
+  const [qtyError, setQtyError] = useState<string | null>(null);
   const [referenceType, setReferenceType] = useState<ReferenceType>('TICKET_EXTERNAL');
   const [referenceNumber, setReferenceNumber] = useState<string>('');
   const [performedBy, setPerformedBy] = useState<string>('');
@@ -105,7 +106,8 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
       setRecipientOrDestination('Gudang Utama IT');
       setNotes('Penerimaan pengadaan suku cadang baru');
     }
-    setQuantity(1);
+    setQtyInput('1');
+    setQtyError(null);
     setScanFeedback(null);
   }, [mode, user, isOpen]);
 
@@ -270,6 +272,32 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     onClose();
   };
 
+  const handleQtyChange = (val: string) => {
+    const digits = val.replace(/\D/g, '');
+    setQtyInput(digits);
+    if (digits !== '') {
+      const n = parseInt(digits, 10);
+      if (n <= 0) {
+        setQtyError('Jumlah harus lebih besar dari 0');
+      } else if (isStockOut && currentItem && n > currentItem.quantity) {
+        setQtyError(`Maksimal stok tersedia: ${currentItem.quantity} ${currentItem.unit}`);
+      } else {
+        setQtyError(null);
+      }
+    } else {
+      setQtyError(null);
+    }
+  };
+
+  const handleQtyBlur = () => {
+    if (!qtyInput || qtyInput === '0') {
+      setQtyInput('1');
+      setQtyError(null);
+    } else if (isStockOut && currentItem && parseInt(qtyInput, 10) > currentItem.quantity) {
+      setQtyError(`Maksimal stok tersedia: ${currentItem.quantity} ${currentItem.unit}`);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentItem) {
@@ -277,12 +305,15 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
       return;
     }
 
-    if (quantity <= 0) {
+    const parsedQty = parseInt(qtyInput, 10) || 0;
+    if (parsedQty <= 0) {
+      setQtyError('Jumlah harus lebih besar dari 0.');
       showToast('Jumlah harus lebih besar dari 0.', 'warning');
       return;
     }
 
-    if (isStockOut && currentItem.quantity < quantity) {
+    if (isStockOut && currentItem.quantity < parsedQty) {
+      setQtyError(`Maksimal stok tersedia: ${currentItem.quantity} ${currentItem.unit}`);
       showToast(`Stok ${currentItem.name} tidak mencukupi (tersedia: ${currentItem.quantity}).`, 'error');
       return;
     }
@@ -294,21 +325,21 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
       if (mode === 'IN') {
         await recordStockIn({
           itemId: currentItem.id,
-          quantity: Number(quantity),
+          quantity: parsedQty,
           referenceNumber: refNum,
           sourceOrVendor: destination,
           notes: notes.trim()
         });
-        showToast(`Stok masuk berhasil dicatat: +${quantity} ${currentItem.unit} (${currentItem.name})`, 'success');
+        showToast(`Stok masuk berhasil dicatat: +${parsedQty} ${currentItem.unit} (${currentItem.name})`, 'success');
       } else {
         await recordStockOut({
           itemId: currentItem.id,
-          quantity: Number(quantity),
+          quantity: parsedQty,
           referenceNumber: refNum,
           recipientOrDestination: destination,
           notes: notes.trim()
         });
-        showToast(`Stok keluar berhasil dicatat: -${quantity} ${currentItem.unit} (${currentItem.name})`, 'success');
+        showToast(`Stok keluar berhasil dicatat: -${parsedQty} ${currentItem.unit} (${currentItem.name})`, 'success');
       }
 
       if (onSuccessPrint) {
@@ -316,7 +347,7 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
           type: mode,
           itemName: currentItem.name,
           itemSku: currentItem.sku,
-          quantity: Number(quantity),
+          quantity: parsedQty,
           unit: currentItem.unit,
           referenceNumber: refNum,
           recipientOrDestination: destination,
@@ -547,18 +578,28 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
               </label>
               <div className="relative">
                 <input
-                  type="number"
-                  min="1"
-                  max={isStockOut && currentItem ? currentItem.quantity : undefined}
-                  value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 0))}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={qtyInput}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => handleQtyChange(e.target.value)}
+                  onBlur={handleQtyBlur}
                   required
-                  className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500"
+                  placeholder="1"
+                  className={`w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border rounded-lg text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
+                    qtyError
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-slate-200 dark:border-slate-700 focus:ring-slate-900 dark:focus:ring-emerald-500'
+                  }`}
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 font-sans text-xs">
                   {currentItem?.unit || 'unit'}
                 </span>
               </div>
+              {qtyError && (
+                <p className="text-[11px] text-red-600 dark:text-red-400 mt-1 font-medium">{qtyError}</p>
+              )}
             </div>
 
             <div>
@@ -658,11 +699,11 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isStockOut && currentItem && currentItem.quantity < quantity}
+              disabled={!qtyInput || parseInt(qtyInput, 10) <= 0 || (isStockOut && currentItem ? currentItem.quantity < (parseInt(qtyInput, 10) || 0) : false)}
               className={`px-4 py-2 text-xs font-semibold text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-xs ${
                 isStockOut
                   ? 'bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed'
-                  : 'bg-emerald-700 hover:bg-emerald-800'
+                  : 'bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed'
               }`}
             >
               <FileCheck className="w-4 h-4" />

@@ -42,6 +42,24 @@ export interface StokJumlah {
 }
 
 export class StockService {
+  /**
+   * Mengambil stok fisik berwenang tunggal (Single Source of Truth) untuk satu Tipe v2.
+   * Rumus: Stok = SUM(stok_jumlah) + COUNT(item fisik ber-ID yang aktif)
+   */
+  static async getStock(tipeId: number): Promise<number> {
+    const sjRows = await executeQuery<any>(
+      'SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?',
+      [tipeId]
+    );
+    const itemRows = await executeQuery<any>(
+      'SELECT COUNT(*) as total FROM item WHERE tipe_id = ? AND status = "aktif"',
+      [tipeId]
+    );
+    const totalSj = Number(sjRows[0]?.total || 0);
+    const totalItem = Number(itemRows[0]?.total || 0);
+    return totalSj + totalItem;
+  }
+
   // ============================================================================
   // 1. PENGELOLAAN BOX
   // ============================================================================

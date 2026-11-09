@@ -72,10 +72,10 @@ router.post('/login', loginRateLimiter, async (req: AuthenticatedRequest, res: e
     const isProduction = process.env.NODE_ENV === 'production';
     const secureFlag = isProduction ? '; Secure' : '';
 
-    // Pasang cookie HttpOnly terisolasi
+    // Pasang cookie HttpOnly terisolasi (30 Hari Persistent Session)
     res.setHeader('Set-Cookie', [
       `fieldops_access=${sessionRes.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionRes.expiresInSeconds}${secureFlag}`,
-      `fieldops_refresh=${sessionRes.refreshToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${12 * 3600}${secureFlag}`,
+      `fieldops_refresh=${sessionRes.refreshToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureFlag}`,
       `fieldops_device=${sessionRes.deviceId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${365 * 24 * 3600}${secureFlag}`,
       `fieldops_session=${sessionRes.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionRes.expiresInSeconds}${secureFlag}`
     ]);
@@ -212,9 +212,9 @@ router.post('/refresh', async (req: AuthenticatedRequest, res: express.Response)
     const secureFlag = isProduction ? '; Secure' : '';
 
     res.setHeader('Set-Cookie', [
-      `fieldops_access=${result.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=900${secureFlag}`,
-      `fieldops_refresh=${result.newRefreshToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${12 * 3600}${secureFlag}`,
-      `fieldops_session=${result.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=900${secureFlag}`
+      `fieldops_access=${result.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureFlag}`,
+      `fieldops_refresh=${result.newRefreshToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureFlag}`,
+      `fieldops_session=${result.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureFlag}`
     ]);
 
     return res.json({

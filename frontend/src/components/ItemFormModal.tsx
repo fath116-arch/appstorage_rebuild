@@ -25,8 +25,8 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [quantity, setQuantity] = useState<number>(0);
-  const [minStockAlert, setMinStockAlert] = useState<number>(3);
+  const [quantityInput, setQuantityInput] = useState<string>('0');
+  const [minStockAlertInput, setMinStockAlertInput] = useState<string>('2');
   const [unit, setUnit] = useState('pcs');
   const [location, setLocation] = useState('');
   const [specs, setSpecs] = useState('');
@@ -39,8 +39,8 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
       setSku(editingItem.sku || '');
       setBarcode(editingItem.barcode || '');
       setCategoryId(editingItem.category_id || editingItem.categoryId || '');
-      setQuantity(editingItem.quantity || 0);
-      setMinStockAlert(editingItem.min_stock_alert ?? editingItem.minStockAlert ?? 2);
+      setQuantityInput(String(editingItem.quantity || 0));
+      setMinStockAlertInput(String(editingItem.min_stock_alert ?? editingItem.minStockAlert ?? 2));
       setUnit(editingItem.unit || 'pcs');
       setLocation(editingItem.location || '');
       setSpecs(editingItem.specs || '');
@@ -51,8 +51,8 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
       setSku(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
       setBarcode(`899${Math.floor(1000000 + Math.random() * 9000000)}`);
       setCategoryId(categories[0]?.id || '');
-      setQuantity(5);
-      setMinStockAlert(2);
+      setQuantityInput('5');
+      setMinStockAlertInput('2');
       setUnit('pcs');
       setLocation('Gudang Utama - Rak A-01');
       setSpecs('');
@@ -75,8 +75,8 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
       barcode: barcode.trim(),
       category_id: categoryId,
       categoryName: selectedCategory ? selectedCategory.name : 'Umum',
-      quantity: Number(quantity),
-      min_stock_alert: Number(minStockAlert),
+      quantity: parseInt(quantityInput, 10) || 0,
+      min_stock_alert: parseInt(minStockAlertInput, 10) || 0,
       unit: unit.trim(),
       location: location.trim(),
       specs: specs.trim(),
@@ -189,10 +189,13 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
                 Stok Fisik {editingItem ? 'Sekarang' : 'Awal'} <span className="text-red-500">*</span>
               </label>
               <input
-                type="number"
-                min="0"
-                value={quantity}
-                onChange={(e) => setQuantity(Math.max(0, parseInt(e.target.value) || 0))}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={quantityInput}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setQuantityInput(e.target.value.replace(/\D/g, ''))}
+                onBlur={() => { if (!quantityInput) setQuantityInput('0'); }}
                 className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-400"
               />
             </div>
@@ -221,10 +224,13 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
                 Batas Minimum Alert <span className="text-red-500">*</span>
               </label>
               <input
-                type="number"
-                min="0"
-                value={minStockAlert}
-                onChange={(e) => setMinStockAlert(Math.max(0, parseInt(e.target.value) || 0))}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={minStockAlertInput}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setMinStockAlertInput(e.target.value.replace(/\D/g, ''))}
+                onBlur={() => { if (!minStockAlertInput) setMinStockAlertInput('2'); }}
                 className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-400"
               />
             </div>

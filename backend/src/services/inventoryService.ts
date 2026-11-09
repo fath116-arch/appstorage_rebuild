@@ -4,14 +4,54 @@
  */
 
 import { InventoryRepository, ItemRecord, CategoryRecord } from '../repositories/inventoryRepository';
+import { StockService } from './stockService';
+import { LegacyMigrationService } from './legacyMigrationService';
 
 export class InventoryService {
   static async getAllItems(includeDeleted: boolean = false): Promise<ItemRecord[]> {
-    return InventoryRepository.findAllItems(includeDeleted);
+    const rawItems = await InventoryRepository.findAllItems(includeDeleted);
+    const projectedItems: ItemRecord[] = [];
+
+    for (const it of rawItems) {
+      let qty = it.quantity;
+      try {
+        const tipeId = await LegacyMigrationService.resolveTipeId(it.sku || it.id);
+        if (tipeId) {
+          qty = await StockService.getStock(tipeId);
+        }
+      } catch {}
+
+      let status: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'NORMAL';
+      if (qty === 0) status = 'OUT_OF_STOCK';
+      else if (qty <= it.min_stock_alert) status = 'LOW_STOCK';
+
+      projectedItems.push({
+        ...it,
+        quantity: qty,
+        status
+      });
+    }
+
+    return projectedItems;
   }
 
   static async getItemById(id: string): Promise<ItemRecord | null> {
-    return InventoryRepository.findItemById(id);
+    const it = await InventoryRepository.findItemById(id);
+    if (!it) return null;
+
+    let qty = it.quantity;
+    try {
+      const tipeId = await LegacyMigrationService.resolveTipeId(it.sku || it.id);
+      if (tipeId) {
+        qty = await StockService.getStock(tipeId);
+      }
+    } catch {}
+
+    let status: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'NORMAL';
+    if (qty === 0) status = 'OUT_OF_STOCK';
+    else if (qty <= it.min_stock_alert) status = 'LOW_STOCK';
+
+    return { ...it, quantity: qty, status };
   }
 
   static async getItemByCode(code: string): Promise<ItemRecord | null> {

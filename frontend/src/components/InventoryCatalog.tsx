@@ -197,11 +197,12 @@ export const InventoryCatalog: React.FC<InventoryCatalogProps> = ({
 
                 {isAdminOrSpv && (
                   <button
-                    onClick={onOpenAddItem}
+                    onClick={() => setCatalogMode('v2')}
                     className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 dark:hover:bg-emerald-500 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shadow-xs"
+                    title="Buka Form Katalog v2 untuk pendaftaran produk & stok resmi"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Tambah Barang Baru</span>
+                    <span>+ Buat Produk Baru di Katalog</span>
                   </button>
                 )}
               </div>

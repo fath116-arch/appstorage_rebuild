@@ -100,8 +100,9 @@ export const CatalogV2Manager: React.FC = () => {
   const [newProdKategori, setNewProdKategori] = useState<'fast_moving' | 'recycle'>('fast_moving');
   const [newProdKategoriBarang, setNewProdKategoriBarang] = useState<'Alat' | 'Barang Habis Pakai'>('Barang Habis Pakai');
   const [newProdTipeStok, setNewProdTipeStok] = useState<string>('unit');
-  const [tipeStokSuggestions, setTipeStokSuggestions] = useState<string[]>(['unit', 'roll', 'meter', 'pcs', 'box', 'set']);
   const [newProdCatatan, setNewProdCatatan] = useState('');
+  const [newProdStokAwal, setNewProdStokAwal] = useState<string>('0');
+  const [tipeStokSuggestions, setTipeStokSuggestions] = useState<string[]>(['unit', 'roll', 'meter', 'pcs', 'box', 'set']);
 
   // Form Buat Tipe
   const [typeAttrValues, setTypeAttrValues] = useState<{
@@ -303,13 +304,15 @@ export const CatalogV2Manager: React.FC = () => {
         kategori: newProdKategori,
         kategori_barang: newProdKategoriBarang,
         tipe_stok: newProdTipeStok.trim().toLowerCase() || 'unit',
-        catatan: newProdCatatan.trim() || undefined
+        catatan: newProdCatatan.trim() || undefined,
+        stok_awal: parseInt(newProdStokAwal, 10) || 0
       });
 
       showToast(`Produk "${newProdNama.trim()}" berhasil dibuat.`, 'success');
       setIsAddProductOpen(false);
       setNewProdNama('');
       setNewProdCatatan('');
+      setNewProdStokAwal('0');
       setNewProdKategoriBarang('Barang Habis Pakai');
       setNewProdTipeStok('unit');
       await loadData();
@@ -1284,7 +1287,7 @@ export const CatalogV2Manager: React.FC = () => {
                   />
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     <span className="text-[10px] text-slate-400">Saran penulisan:</span>
-                    {tipeStokSuggestions.map(sug => (
+                    {tipeStokSuggestions.map((sug: string) => (
                       <button
                         type="button"
                         key={sug}
@@ -1300,6 +1303,31 @@ export const CatalogV2Manager: React.FC = () => {
                     ))}
                   </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Stok Awal Fisik (Opsional)
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="0"
+                    value={newProdStokAwal}
+                    onFocus={(e) => e.target.select()}
+                    onChange={e => setNewProdStokAwal(e.target.value.replace(/\D/g, ''))}
+                    onBlur={() => { if (!newProdStokAwal) setNewProdStokAwal('0'); }}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-sans text-xs">
+                    {newProdTipeStok || 'unit'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Bila diisi &gt; 0, sistem otomatis mencatat transaksi mutasi MASUK (SALDO_AWAL) ke Box Gudang Utama.
+                </span>
               </div>
 
               <div>
