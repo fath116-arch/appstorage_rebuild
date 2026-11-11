@@ -1,10 +1,26 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.2.0-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.5.3-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
 
-## 🚀 [v1.2.6] - Perbaikan Cetak Label Presisi A4 (Eliminasi Lembar Kosong Berlebih) - 2026-11-08
+## 🚀 [v1.2.5.3] - Restrukturisasi Sub-tab Katalog, Agregasi Status WhatsApp Alert & Audit Trail Terpadu - 2026-11-10
+- **1. Pencatatan Transaksi Terpadu**: Fungsi sentral `recordStockTransaction` di `transactionService.ts` memastikan setiap mutasi stok (masuk, keluar, alokasi tiket) menyimpan snapshot lengkap (`nama_barang`, `sku`, `satuan`, `tipe_id`, `tipe_mutasi`, `alasan`) tanpa ketergantungan wajib pada tabel lama `items`.
+- **2. Pelepasan Foreign Key `item_id`**: Menghapus kekakuan relasi kunci asing `transactions.item_id` ke tabel `items` via migrasi `11_drop_transactions_item_id_fk.sql` sehingga transaksi v2 berbasis varian dan tipe dapat dicatat mulus.
+- **3. Migrasi & Transisi Data Lama**: Seluruh item lawas dimigrasikan ke katalog v2 via `legacyMigrationService.ts`, dan antarmuka legacy "Inventori Stok Fisik" sepenuhnya dilepas untuk menyatukan pengalaman pengguna.
+- **4. Satukan API Baca & Agregasi Status WhatsApp**: Endpoint `/api/catalog/products-v2` mengembalikan seluruh produk beserta varian, stok fisik aktif, dan status stok teragregasi (`aman`, `menipis`, `habis`) yang dihitung berjenjang sesuai ambang alert WhatsApp (`tipe > produk > global`).
+- **5. Standarisasi Istilah & Perbaikan Chip Kategori**: Seluruh label antarmuka distandarisasi menggunakan istilah **Kategori** (menggantikan "Jenis"), dan hitungan chip kategori diperbaiki konsistensi propertinya (`(item.category_id || item.categoryId)`).
+- **6. 4 Sub-tab Baru Menu Katalog**:
+  - **Produk**: Kartu status klik-filter (Semua, Aman, Menipis, Habis), bilah pencarian, filter kategori, dan kartu produk bertingkat dengan detail varian.
+  - **Kategori (Jelajah Shopee)**: Tampilan visual ramah sentuhan berbasis kartu folder kategori, ringkasan stok, dan tombol cepat "Pakai untuk Tiket" (default untuk peran teknisi).
+  - **Storage Box**: Tampilan kartu box penyimpanan, isi suku cadang fisik, dan pencetakan QR box.
+  - **Kelola**: Manajemen definisi kategori, atribut dinamis, aturan format Serial Number, pemulihan arsip JSON, dan kotak sampah (khusus peran admin, warehouse, dan developer; disembunyikan untuk teknisi).
+- **7. Modularisasi Komponen Katalog**: Pemecahan berkas besar `CatalogV2Manager.tsx` menjadi subkomponen terisolasi (`CatalogSummaryCards.tsx`, `CatalogBrowseCategoriesTab.tsx`, `CatalogBoxesTab.tsx`, `CatalogManageTab.tsx`).
+- **8. Riwayat Masuk/Keluar Murni Audit Trail**: `TransactionHistory.tsx` dispesialisasikan sebagai riwayat audit terlindung dengan integrasi ekspor Excel aman (`sanitizeFormulaInput`).
+- **9. Sinkronisasi Versi**: Pembaruan menyeluruh nomor versi ke `v1.2.5.3` pada `version.ts`, `package.json`, dan footer.
+- **10. Pembersihan File Usang**: Audit dan penghapusan duplikat berkas panduan markdown di `public/assets/aistudio/` serta file dokumentasi kadaluarsa di root workspace.
+
+---
 - **Eliminasi Bug Halaman A4 Berlebih**: Memperbaiki bug di mana pencetakan 1 atau 2 label menghasilkan 2 lembar cetak A4 alih-alih 1 lembar.
 - **Standarisasi Dimensi Lembar**: Lembar cetak (`.print-sheet`) dikunci pada ukuran presisi A4 `210mm × 296mm` (disisakan margin toleransi 1mm dari 297mm dengan `box-sizing: border-box` dan `overflow: hidden`) guna mencegah browser Chromium/Edge meluapkan halaman ke lembar ekstra.
 - **Implementasi Slot Kosong (`.label-slot-empty`)**: Menyediakan elemen penampung slot kosong berdimensi tetap (`190mm × 89mm`) dengan `visibility: hidden` pada lembar yang tidak terisi penuh (layout 1 atau 2 label), menjamin stabilitas DOM dan layouting cetak.

@@ -80,6 +80,87 @@ export class TransactionService {
   }
 
   /**
+   * Single Unified Function untuk Mencatat Transaksi Mutasi dengan Snapshot Lengkap
+   * Mengisi semua kolom: nama_barang, sku, satuan, tipe_id, tipe_mutasi, quantity, dll.
+   */
+  static async recordStockTransaction(params: {
+    id?: string;
+    type: 'IN' | 'OUT';
+    tipe_mutasi?: 'MASUK' | 'KELUAR';
+    itemId?: string | null;
+    tipeId?: number | null;
+    namaBarang?: string;
+    sku?: string;
+    satuan?: string;
+    quantity: number;
+    previousQty?: number;
+    newQty?: number;
+    referenceType?: string;
+    referenceNumber?: string;
+    recipientOrDestination?: string;
+    userId?: string;
+    performedBy?: string;
+    notes?: string;
+  }, conn?: { query: (sql: string, params?: any[]) => Promise<any> }): Promise<string> {
+    const q = conn ? conn.query.bind(conn) : executeQuery;
+    const txId = params.id || `tx-${params.type === 'IN' ? 'in' : 'out'}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    let namaBarang = params.namaBarang;
+    let sku = params.sku;
+    let satuan = params.satuan;
+    let tipeId = params.tipeId || null;
+    const itemId = params.itemId ? String(params.itemId) : (tipeId ? String(tipeId) : null);
+
+    // Jika snapshot belum lengkap, coba selesaikan dari database
+    if ((!namaBarang || !sku || !satuan) && (tipeId || itemId)) {
+      try {
+        const meta = await this.resolveItemMeta(String(tipeId || itemId), conn);
+        if (!namaBarang) namaBarang = meta.itemName;
+        if (!sku) sku = meta.itemSku;
+        if (!satuan) satuan = meta.itemUnit;
+        if (!tipeId && meta.tipeId) tipeId = meta.tipeId;
+      } catch {
+        // Fallback
+      }
+    }
+
+    if (!namaBarang) namaBarang = 'Barang IT';
+    if (!sku) sku = itemId ? `SKU-${itemId}` : 'SKU';
+    if (!satuan) satuan = 'unit';
+
+    const tipeMutasi: 'MASUK' | 'KELUAR' = params.tipe_mutasi || (params.type === 'IN' ? 'MASUK' : 'KELUAR');
+
+    await q(
+      `INSERT INTO transactions (
+        id, type, tipe_mutasi, item_id, tipe_id, nama_barang, sku, satuan,
+        quantity, previous_qty, new_qty, reference_type, reference_number,
+        recipient_destination, user_id, performed_by, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        txId,
+        params.type,
+        tipeMutasi,
+        itemId,
+        tipeId,
+        namaBarang,
+        sku,
+        satuan,
+        params.quantity,
+        params.previousQty ?? 0,
+        params.newQty ?? 0,
+        params.referenceType || (params.type === 'IN' ? 'STOCK_IN' : 'STOCK_OUT'),
+        params.referenceNumber || '',
+        params.recipientOrDestination || (params.type === 'IN' ? 'Vendor Gudang' : 'Teknisi Lapangan'),
+        params.userId || 'system',
+        params.performedBy || 'Operator IT',
+        params.notes || ''
+      ]
+    );
+
+    return txId;
+  }
+
+  /**
    * Mutasi Stok Masuk (Stock In) - Transaksi Atomik dengan Snapshot Lengkap
    */
   static async recordStockIn(payload: {
@@ -149,34 +230,25 @@ export class TransactionService {
         };
       }
 
-      // 3. Catat transaksi mutasi lengkap dengan snapshot
-      const txId = `tx-in-${Date.now()}`;
-      await conn.query(
-        `INSERT INTO transactions (
-          id, type, tipe_mutasi, item_id, tipe_id, nama_barang, sku, satuan,
-          quantity, previous_qty, new_qty, reference_type, reference_number,
-          recipient_destination, user_id, performed_by, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          txId,
-          'IN',
-          'MASUK',
-          meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
-          meta.tipeId || null,
-          meta.itemName,
-          meta.itemSku,
-          meta.itemUnit,
-          qty,
-          previousQty,
-          newQty,
-          payload.referenceType || 'PURCHASE_ORDER',
-          payload.referenceNumber || '',
-          payload.sourceOrVendor || 'Vendor Gudang',
-          operatorUser.id,
-          operatorUser.name,
-          payload.notes || ''
-        ]
-      );
+      // 3. Catat transaksi mutasi lengkap dengan snapshot via recordStockTransaction
+      const txId = await this.recordStockTransaction({
+        type: 'IN',
+        tipe_mutasi: 'MASUK',
+        itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
+        tipeId: meta.tipeId || null,
+        namaBarang: meta.itemName,
+        sku: meta.itemSku,
+        satuan: meta.itemUnit,
+        quantity: qty,
+        previousQty,
+        newQty,
+        referenceType: payload.referenceType || 'PURCHASE_ORDER',
+        referenceNumber: payload.referenceNumber || '',
+        recipientOrDestination: payload.sourceOrVendor || 'Vendor Gudang',
+        userId: operatorUser.id,
+        performedBy: operatorUser.name,
+        notes: payload.notes || ''
+      }, conn);
 
       // 4. Audit Trail
       await conn.query(
@@ -275,34 +347,25 @@ export class TransactionService {
         };
       }
 
-      // 3. Catat transaksi mutasi lengkap dengan snapshot
-      const txId = `tx-out-${Date.now()}`;
-      await conn.query(
-        `INSERT INTO transactions (
-          id, type, tipe_mutasi, item_id, tipe_id, nama_barang, sku, satuan,
-          quantity, previous_qty, new_qty, reference_type, reference_number,
-          recipient_destination, user_id, performed_by, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          txId,
-          'OUT',
-          'KELUAR',
-          meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
-          meta.tipeId || null,
-          meta.itemName,
-          meta.itemSku,
-          meta.itemUnit,
-          qty,
-          previousQty,
-          newQty,
-          payload.referenceType || 'FIELD_DISPATCH',
-          payload.referenceNumber || '',
-          payload.recipientOrDestination || 'Teknisi Lapangan',
-          operatorUser.id,
-          operatorUser.name,
-          payload.notes || ''
-        ]
-      );
+      // 3. Catat transaksi mutasi lengkap dengan snapshot via recordStockTransaction
+      const txId = await this.recordStockTransaction({
+        type: 'OUT',
+        tipe_mutasi: 'KELUAR',
+        itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
+        tipeId: meta.tipeId || null,
+        namaBarang: meta.itemName,
+        sku: meta.itemSku,
+        satuan: meta.itemUnit,
+        quantity: qty,
+        previousQty,
+        newQty,
+        referenceType: payload.referenceType || 'FIELD_DISPATCH',
+        referenceNumber: payload.referenceNumber || '',
+        recipientOrDestination: payload.recipientOrDestination || 'Teknisi Lapangan',
+        userId: operatorUser.id,
+        performedBy: operatorUser.name,
+        notes: payload.notes || ''
+      }, conn);
 
       // 4. Audit Trail
       await conn.query(
@@ -421,36 +484,26 @@ export class TransactionService {
           }
         }
 
-        // 3. Catat transaksi mutasi lengkap dengan snapshot
-        const txId = `tx-batch-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        // 3. Catat transaksi mutasi lengkap dengan snapshot via recordStockTransaction
+        const txId = await this.recordStockTransaction({
+          type: 'OUT',
+          tipe_mutasi: 'KELUAR',
+          itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || req.itemId),
+          tipeId: meta.tipeId || null,
+          namaBarang: meta.itemName,
+          sku: meta.itemSku,
+          satuan: meta.itemUnit,
+          quantity: qty,
+          previousQty: prev,
+          newQty: next,
+          referenceType: payload.referenceType || 'BATCH_DISPATCH',
+          referenceNumber: payload.referenceNumber || '',
+          recipientOrDestination: payload.recipientOrDestination || 'Teknisi Lapangan',
+          userId: operatorUser.id,
+          performedBy: operatorUser.name,
+          notes: payload.notes || ''
+        }, conn);
         txIds.push(txId);
-
-        await conn.query(
-          `INSERT INTO transactions (
-            id, type, tipe_mutasi, item_id, tipe_id, nama_barang, sku, satuan,
-            quantity, previous_qty, new_qty, reference_type, reference_number,
-            recipient_destination, user_id, performed_by, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            txId,
-            'OUT',
-            'KELUAR',
-            meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || req.itemId),
-            meta.tipeId || null,
-            meta.itemName,
-            meta.itemSku,
-            meta.itemUnit,
-            qty,
-            prev,
-            next,
-            payload.referenceType || 'BATCH_DISPATCH',
-            payload.referenceNumber || '',
-            payload.recipientOrDestination || 'Teknisi Lapangan',
-            operatorUser.id,
-            operatorUser.name,
-            payload.notes || ''
-          ]
-        );
       }
 
       return {

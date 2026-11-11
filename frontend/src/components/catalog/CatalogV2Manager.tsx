@@ -26,7 +26,9 @@ import {
   Database,
   Box as BoxIcon,
   Camera,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Folder,
+  Briefcase
 } from 'lucide-react';
 import { catalogApi, Jenis, Atribut, Produk, Tipe } from '../../services/catalogApi';
 import { useAuth } from '../../context/AuthContext';
@@ -34,13 +36,39 @@ import { useInventory } from '../../context/InventoryContext';
 import { StockInputModal } from '../stock/StockInputModal';
 import { BoxManagerModal } from '../stock/BoxManagerModal';
 import { BoxContentModal } from '../stock/BoxContentModal';
+import { CatalogSummaryCards } from './CatalogSummaryCards';
+import { CatalogBrowseCategoriesTab } from './CatalogBrowseCategoriesTab';
+import { CatalogBoxesTab } from './CatalogBoxesTab';
+import { CatalogManageTab } from './CatalogManageTab';
+import { TrashModal } from '../TrashModal';
 
-export const CatalogV2Manager: React.FC = () => {
+interface CatalogV2ManagerProps {
+  onOpenChecklist?: () => void;
+  onOpenRestore?: () => void;
+  onOpenStockInItem?: (item: any) => void;
+  onOpenStockOutItem?: (item: any) => void;
+}
+
+export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
+  onOpenChecklist,
+  onOpenRestore,
+  onOpenStockInItem,
+  onOpenStockOutItem,
+}) => {
   const { user } = useAuth();
-  const { showToast } = useInventory();
+  const { showToast, trashItems } = useInventory();
 
-  // State utama
-  const [activeSubTab, setActiveSubTab] = useState<'products' | 'jenis_attrs' | 'storage_boxes'>('products');
+  // Role check
+  const isTechnician = user?.role === 'technician';
+  const canManageCatalog = user?.role === 'developer' || user?.role === 'admin' || user?.role === 'warehouse_admin';
+
+  // Sub-tab bawaan: teknisi -> 'kategori', admin/gudang/dev -> 'produk'
+  const [activeSubTab, setActiveSubTab] = useState<'produk' | 'kategori' | 'boxes' | 'kelola'>(
+    isTechnician ? 'kategori' : 'produk'
+  );
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'aman' | 'menipis' | 'habis'>('ALL');
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+
   const [jenisList, setJenisList] = useState<Jenis[]>([]);
   const [products, setProducts] = useState<Produk[]>([]);
   const [boxesList, setBoxesList] = useState<any[]>([]);
@@ -138,9 +166,6 @@ export const CatalogV2Manager: React.FC = () => {
   const [newJenisSumberId, setNewJenisSumberId] = useState<'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id'>('manual');
   const [newJenisPrefix, setNewJenisPrefix] = useState('');
 
-  // Check roles (developer, admin, warehouse_admin)
-  const canManageCatalog = user?.role === 'developer' || user?.role === 'admin' || user?.role === 'warehouse_admin';
-
   // Memuat data
   const loadData = useCallback(async () => {
     try {
@@ -211,6 +236,11 @@ export const CatalogV2Manager: React.FC = () => {
     const q = searchQuery.trim().toLowerCase();
 
     return products.filter(p => {
+      // Filter status stok agregasi (aman, menipis, habis)
+      if (statusFilter !== 'ALL' && (p.status_stok || 'aman') !== statusFilter) {
+        return false;
+      }
+
       if (selectedJenisId !== 'ALL' && p.jenis_id !== parseInt(selectedJenisId, 10)) {
         return false;
       }
@@ -258,7 +288,7 @@ export const CatalogV2Manager: React.FC = () => {
 
       return true;
     });
-  }, [products, selectedJenisId, selectedKategori, searchQuery, attrOptionFilters, attrMinNumberFilters]);
+  }, [products, statusFilter, selectedJenisId, selectedKategori, searchQuery, attrOptionFilters, attrMinNumberFilters]);
 
   // Toggle detail produk & muat tipe
   const toggleProductExpand = async (productId: number) => {
@@ -475,19 +505,29 @@ export const CatalogV2Manager: React.FC = () => {
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
               <span>FieldOps IT Inventory v2</span>
               <span aria-hidden="true">·</span>
-              <span>Katalog Bertingkat</span>
+              <span>Katalog Terpadu</span>
               <span aria-hidden="true">·</span>
-              <span className="font-mono text-emerald-600 dark:text-emerald-400">Jenis → Atribut → Produk → Tipe</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400">Kategori → Atribut → Produk → Tipe</span>
             </div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight mt-1">
               Katalog Suku Cadang & Aturan ID Varian
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 max-w-2xl">
-              Struktur katalog multi-tier dengan pembentukan nama varian otomatis, validasi regex ID item, dan isolasi filter dinamis tanpa pengaturan manual.
+              Struktur katalog terpadu multi-tier dengan agregasi status stok WhatsApp Alert, penelusuran kategori visual, dan pengelolaan storage box.
             </p>
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            {onOpenChecklist && (
+              <button
+                onClick={onOpenChecklist}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
+              >
+                <Briefcase className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                <span>Simulasi Tas Teknisi</span>
+              </button>
+            )}
+
             {canManageCatalog && (
               <button
                 onClick={() => setIsStockInputOpen(true)}
@@ -499,40 +539,54 @@ export const CatalogV2Manager: React.FC = () => {
             )}
 
             <button
-              onClick={() => setActiveSubTab('products')}
+              onClick={() => setActiveSubTab('produk')}
               className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
-                activeSubTab === 'products'
+                activeSubTab === 'produk'
                   ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               <Tag className="w-4 h-4" />
-              <span>Daftar Produk & Varian</span>
+              <span>Produk & Varian</span>
             </button>
 
             <button
-              onClick={() => setActiveSubTab('storage_boxes')}
+              onClick={() => setActiveSubTab('kategori')}
               className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
-                activeSubTab === 'storage_boxes'
+                activeSubTab === 'kategori'
+                  ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <Folder className="w-4 h-4 text-emerald-500" />
+              <span>Jelajah Kategori</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab('boxes')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
+                activeSubTab === 'boxes'
                   ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               <BoxIcon className="w-4 h-4 text-emerald-500" />
-              <span>Daftar Storage Box ({boxesList.length})</span>
+              <span>Storage Box ({boxesList.length})</span>
             </button>
 
-            <button
-              onClick={() => setActiveSubTab('jenis_attrs')}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
-                activeSubTab === 'jenis_attrs'
-                  ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              <span>Kelola Jenis & Atribut</span>
-            </button>
+            {!isTechnician && (
+              <button
+                onClick={() => setActiveSubTab('kelola')}
+                className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
+                  activeSubTab === 'kelola'
+                    ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <Sliders className="w-4 h-4" />
+                <span>Kelola & Pengaturan</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -540,8 +594,15 @@ export const CatalogV2Manager: React.FC = () => {
       {/* ========================================================================= */}
       {/* SUBTAB 1: DAFTAR PRODUK & TIPE */}
       {/* ========================================================================= */}
-      {activeSubTab === 'products' && (
+      {activeSubTab === 'produk' && (
         <div className="space-y-4">
+          {/* Kartu Ringkasan Status Stok & Klik-Filter */}
+          <CatalogSummaryCards
+            products={products}
+            selectedStatus={statusFilter}
+            onSelectStatus={setStatusFilter}
+          />
+
           {/* Toolbar & Filter */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs space-y-3">
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
@@ -550,14 +611,14 @@ export const CatalogV2Manager: React.FC = () => {
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Cari nama produk atau jenis katalog..."
+                  placeholder="Cari nama produk atau kategori..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
-              {/* Filter Jenis */}
+              {/* Filter Kategori */}
               <div className="flex items-center gap-2 flex-wrap">
                 <select
                   value={selectedJenisId}
@@ -568,7 +629,7 @@ export const CatalogV2Manager: React.FC = () => {
                   }}
                   className="px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value="ALL">Semua Jenis ({jenisList.length})</option>
+                  <option value="ALL">Semua Kategori ({jenisList.length})</option>
                   {jenisList.map(j => (
                     <option key={j.id} value={j.id}>
                       {j.nama} ({j.total_produk || 0} produk)
@@ -602,8 +663,8 @@ export const CatalogV2Manager: React.FC = () => {
                   <button
                     onClick={() => {
                       if (jenisList.length === 0) {
-                        showToast('Buat Jenis katalog terlebih dahulu sebelum membuat produk.', 'warning');
-                        setActiveSubTab('jenis_attrs');
+                        showToast('Buat Kategori katalog terlebih dahulu sebelum membuat produk.', 'warning');
+                        setActiveSubTab('kelola');
                         setIsAddJenisOpen(true);
                       } else {
                         setNewProdJenisId(jenisList[0].id);
@@ -857,7 +918,7 @@ export const CatalogV2Manager: React.FC = () => {
                                 {/* Nilai Atribut Chip */}
                                 {t.nilai_atribut && t.nilai_atribut.length > 0 && (
                                   <div className="flex flex-wrap gap-1.5 pt-1">
-                                    {t.nilai_atribut.map((na, idx) => (
+                                    {t.nilai_atribut.map((na: any, idx: number) => (
                                       <span
                                         key={idx}
                                         className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
@@ -927,226 +988,52 @@ export const CatalogV2Manager: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* SUBTAB 2: KELOLA JENIS & ATRIBUT */}
+      {/* SUBTAB 2: JELAJAH KATEGORI (Pola Visual Shopee) */}
       {/* ========================================================================= */}
-      {activeSubTab === 'jenis_attrs' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Definisi Golongan Besar (Jenis) & Spesifikasi (Atribut)
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Setiap Jenis (misal: Adaptor, Kabel, Modem/ONU) mendefinisikan kolom atribut spesifiknya masing-masing.
-              </p>
-            </div>
-
-            {canManageCatalog && (
-              <button
-                onClick={() => setIsAddJenisOpen(true)}
-                className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Tambah Jenis Baru</span>
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {jenisList.map(j => (
-              <div
-                key={j.id}
-                className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-4 transition-colors"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 dark:text-white text-base">
-                        {j.nama}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                        {j.total_produk || 0} Produk Aktif
-                      </span>
-                    </div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                      Sumber ID Bawaan: {j.sumber_id_bawaan} {j.prefix_id_bawaan ? `(Prefix: ${j.prefix_id_bawaan})` : ''}
-                    </span>
-                  </div>
-
-                  {canManageCatalog && (
-                    <button
-                      onClick={() => {
-                        setSelectedJenisForAttr(j);
-                        setNewAttrKode('');
-                        setNewAttrNama('');
-                        setNewAttrSatuan('');
-                        setNewAttrOpsiText('');
-                        setIsAddAttrOpen(true);
-                      }}
-                      className="px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Tambah Atribut</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Daftar Atribut */}
-                <div className="space-y-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    Daftar Kolom Atribut ({j.atributs?.length || 0}):
-                  </span>
-
-                  {!j.atributs || j.atributs.length === 0 ? (
-                    <div className="p-4 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-                      Belum ada atribut spesifikasi untuk jenis ini.
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {j.atributs.map(a => (
-                        <div
-                          key={a.id}
-                          className="bg-slate-50 dark:bg-slate-800/60 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800 text-xs flex flex-col gap-1.5"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-800 dark:text-slate-200">
-                                {a.nama}
-                              </span>
-                              <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
-                                ({a.kode})
-                              </span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium">
-                                {a.tipe_isian} {a.satuan ? `(${a.satuan})` : ''}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 text-[10px]">
-                              {a.wajib && (
-                                <span className="text-amber-700 dark:text-amber-400 font-bold">Wajib</span>
-                              )}
-                              {a.masuk_nama && (
-                                <span className="text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950 px-1 rounded">
-                                  Masuk Nama
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Jika Pilihan, tampilkan Opsi */}
-                          {a.tipe_isian === 'pilihan' && a.opsi && a.opsi.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-0.5">
-                              {a.opsi.map(o => (
-                                <span
-                                  key={o.id}
-                                  className="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
-                                >
-                                  {o.nilai}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {activeSubTab === 'kategori' && (
+        <CatalogBrowseCategoriesTab
+          categories={jenisList}
+          products={products}
+          onOpenTypeDetail={handleOpenTypeItems}
+          onOpenStockOut={(tipe) => {
+            setIsStockInputOpen(true);
+          }}
+        />
       )}
 
       {/* ========================================================================= */}
-      {/* SUBTAB 3: DAFTAR STORAGE BOX (Paket 4) */}
+      {/* SUBTAB 3: DAFTAR STORAGE BOX */}
       {/* ========================================================================= */}
-      {activeSubTab === 'storage_boxes' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <BoxIcon className="w-4 h-4 text-emerald-500" />
-                <span>Pusat Penyimpanan Storage Box</span>
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Setiap box dapat menampung campuran berbagai produk dan tipe varian suku cadang fisik ber-ID maupun stok jumlah.
-              </p>
-            </div>
+      {activeSubTab === 'boxes' && (
+        <CatalogBoxesTab
+          boxesList={boxesList}
+          loading={loading}
+          canManageCatalog={canManageCatalog}
+          onOpenCreateBox={() => setIsBoxManagerOpen(true)}
+          onSelectBox={(boxId) => setSelectedBoxForContent(boxId)}
+        />
+      )}
 
-            <div className="flex items-center gap-2">
-              {canManageCatalog && (
-                <button
-                  onClick={() => setIsBoxManagerOpen(true)}
-                  className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Tambah Box Baru</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500">
-              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
-              <span>Memuat data storage box...</span>
-            </div>
-          ) : boxesList.length === 0 ? (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
-              <BoxIcon className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Belum ada Storage Box</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Buat kode box pertama Anda (misal: BOX-01, RAK-A) untuk mulai menempatkan barang.
-              </p>
-              {canManageCatalog && (
-                <button
-                  onClick={() => setIsBoxManagerOpen(true)}
-                  className="mt-3 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg inline-flex items-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Buat Box Pertama</span>
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {boxesList.map((box: any) => (
-                <div
-                  key={box.id}
-                  className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs hover:border-emerald-500/50 transition-all flex flex-col justify-between space-y-3 group"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                        <BoxIcon className="w-5 h-5" />
-                      </div>
-                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                        {box.total_item ?? 0} item
-                      </span>
-                    </div>
-
-                    <h4 className="font-bold text-slate-900 dark:text-white text-base mt-2.5 font-mono">
-                      {box.kode}
-                    </h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
-                      {box.keterangan || 'Tanpa keterangan lokasi'}
-                    </p>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <button
-                      onClick={() => setSelectedBoxForContent(box.id)}
-                      className="w-full py-2 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>Buka Isi Box</span>
-                      <ArrowRightLeft className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* ========================================================================= */}
+      {/* SUBTAB 4: KELOLA & PENGATURAN (Khusus Admin/Gudang/Dev, Tersembunyi untuk Teknisi) */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'kelola' && !isTechnician && (
+        <CatalogManageTab
+          categories={jenisList}
+          canManageCatalog={canManageCatalog}
+          onOpenAddCategory={() => setIsAddJenisOpen(true)}
+          onOpenAddAttribute={(cat) => {
+            setSelectedJenisForAttr(cat);
+            setNewAttrKode('');
+            setNewAttrNama('');
+            setNewAttrSatuan('');
+            setNewAttrOpsiText('');
+            setIsAddAttrOpen(true);
+          }}
+          onOpenRestore={onOpenRestore}
+          onOpenTrash={() => setIsTrashOpen(true)}
+          trashCount={trashItems?.length || 0}
+        />
       )}
 
       {/* ========================================================================= */}
@@ -2115,6 +2002,12 @@ export const CatalogV2Manager: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal Kotak Sampah (Soft Delete) */}
+      <TrashModal
+        isOpen={isTrashOpen}
+        onClose={() => setIsTrashOpen(false)}
+      />
     </div>
   );
 };

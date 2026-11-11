@@ -162,7 +162,8 @@ async function runMigrations(dbPool: mysql.Pool) {
     '07_v2_request_schema.sql',
     '08_v125_paket4_schema.sql',
     '09_v125_paket6_wa_alert.sql',
-    '10_v2_unify_stock_and_sessions.sql'
+    '10_v2_unify_stock_and_sessions.sql',
+    '11_drop_transactions_item_id_fk.sql'
   ];
 
   for (const file of files) {
@@ -175,8 +176,8 @@ async function runMigrations(dbPool: mysql.Pool) {
         try {
           await dbPool.query(statement);
         } catch (e: any) {
-          // Ignore index already exists error
-          if (!e.message.includes('Duplicate key name')) {
+          // Ignore index already exists error or fk already dropped error
+          if (!e.message.includes('Duplicate key name') && !e.message.includes("Can't DROP") && !e.message.includes("check that column/key exists")) {
             console.warn(`[Migration Warning] ${file}: ${e.message}`);
           }
         }

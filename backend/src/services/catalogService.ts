@@ -7,6 +7,7 @@
 import { executeQuery, runTransaction } from '../db/database';
 import { ActivityLogService } from './activityLogService';
 import { TrashService } from './trashService';
+import { WhatsappAlertService } from './whatsappAlertService';
 
 export interface AtributOpsi {
   id: number;
@@ -43,6 +44,8 @@ export interface Produk {
   id: number;
   jenis_id: number;
   jenis_nama?: string;
+  kategori_id?: number;
+  kategori_nama?: string;
   nama: string;
   kategori: 'fast_moving' | 'recycle';
   kategori_barang?: 'Alat' | 'Barang Habis Pakai';
@@ -55,6 +58,7 @@ export interface Produk {
   stok_rusak?: number;
   tipes?: Tipe[];
   total_tipe?: number;
+  status_stok?: 'aman' | 'menipis' | 'habis';
 }
 
 export interface NilaiAtributInput {
@@ -110,6 +114,8 @@ export interface Tipe {
     opsi_id?: number;
     nilai_teks?: string;
   }>;
+  status_stok?: 'aman' | 'menipis' | 'habis';
+  threshold?: any;
 }
 
 export class CatalogService {
@@ -450,6 +456,83 @@ export class CatalogService {
     }
 
     return prods;
+  }
+
+  /**
+   * Unified Single Read API: Daftar Produk beserta varian lengkap, stok aktual,
+   * ambang batas bertingkat WhatsApp Alert, dan status stok teragregasi (Aman / Menipis / Habis).
+   */
+  static async listProdukWithFullDetails(filters?: {
+    jenis_id?: number;
+    kategori_id?: number;
+    kategori?: string;
+    kategori_barang?: string;
+    search?: string;
+    status?: string;
+  }): Promise<Produk[]> {
+    const jId = filters?.jenis_id || filters?.kategori_id;
+    const prods = await this.listProduk({
+      jenis_id: jId,
+      kategori: filters?.kategori,
+      kategori_barang: filters?.kategori_barang,
+      search: filters?.search
+    });
+
+    const enrichedProducts: Produk[] = [];
+
+    for (const p of prods) {
+      const tipes = await this.listTipeByProduk(p.id);
+
+      // Evaluasi status setiap varian berdasarkan ambang batas WA Alert (tipe > produk > global)
+      let allOutOfStock = true;
+      let hasLowStockOrOutOfStock = false;
+
+      for (const t of tipes) {
+        const threshold = await WhatsappAlertService.resolveThreshold(p.id, t.id);
+        t.threshold = threshold;
+
+        const available = t.stok_tersedia ?? 0;
+        if (available > 0) {
+          allOutOfStock = false;
+        }
+
+        if (available === 0) {
+          t.status_stok = 'habis';
+          hasLowStockOrOutOfStock = true;
+        } else if (available <= threshold.lowStockThreshold) {
+          t.status_stok = 'menipis';
+          hasLowStockOrOutOfStock = true;
+        } else {
+          t.status_stok = 'aman';
+        }
+      }
+
+      let productStatus: 'aman' | 'menipis' | 'habis' = 'aman';
+      if (tipes.length === 0 || allOutOfStock) {
+        productStatus = 'habis';
+      } else if (hasLowStockOrOutOfStock) {
+        productStatus = 'menipis';
+      } else {
+        productStatus = 'aman';
+      }
+
+      p.tipes = tipes;
+      p.status_stok = productStatus;
+      p.kategori_id = p.jenis_id;
+      p.kategori_nama = p.jenis_nama;
+
+      // Filter status jika diminta di parameter
+      if (filters?.status && filters.status !== 'ALL') {
+        const targetStatus = filters.status.toLowerCase();
+        if (productStatus !== targetStatus) {
+          continue;
+        }
+      }
+
+      enrichedProducts.push(p);
+    }
+
+    return enrichedProducts;
   }
 
   static async getProdukById(id: number): Promise<Produk | null> {

@@ -173,14 +173,15 @@ router.get('/tipe-stok-suggestions', requireAuth, async (_req, res) => {
   }
 });
 
-router.get('/products', requireAuth, async (req, res) => {
+router.get(['/products', '/products-v2'], requireAuth, async (req, res) => {
   try {
-    const { jenis_id, kategori, kategori_barang, search } = req.query;
-    const prods = await CatalogService.listProduk({
-      jenis_id: jenis_id ? parseInt(String(jenis_id), 10) : undefined,
+    const { jenis_id, kategori_id, kategori, kategori_barang, search, status } = req.query;
+    const prods = await CatalogService.listProdukWithFullDetails({
+      jenis_id: jenis_id || kategori_id ? parseInt(String(jenis_id || kategori_id), 10) : undefined,
       kategori: kategori as string,
       kategori_barang: kategori_barang as string,
-      search: search as string
+      search: search as string,
+      status: status as string
     });
     return res.json({ success: true, products: prods });
   } catch (err: any) {

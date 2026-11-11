@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { api, InventoryItem, Category, Transaction } from '../services/api';
 import { useAuth } from './AuthContext';
+import { APP_VERSION } from '../constants/version';
 
 export type TabType = 'dashboard' | 'catalog' | 'inout' | 'weekly-report' | 'categories' | 'integration';
 
@@ -53,7 +54,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const VERSION = '1.1.0';
+  const VERSION = APP_VERSION;
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
     const id = `toast-${Date.now()}-${Math.random()}`;

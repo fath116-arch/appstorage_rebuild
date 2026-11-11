@@ -21,6 +21,7 @@ import stockRoutes from './routes/stock';
 import requestRoutes from './routes/request';
 import snPatternsRoutes from './routes/snPatterns';
 import { BackupService } from './services/backupService';
+import { LegacyMigrationService } from './services/legacyMigrationService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +45,9 @@ async function startServer() {
 
   // Inisialisasi Database MariaDB & Migrasi Skema
   await initDatabase();
+
+  // Migrasi Otomatis Data Legacy ke Katalog v2
+  await LegacyMigrationService.runMigration().catch(err => console.error('[LegacyMigration] Error:', err));
 
   // Inisialisasi Cron Backup Harian Terpisah
   BackupService.initDailyBackupCron();

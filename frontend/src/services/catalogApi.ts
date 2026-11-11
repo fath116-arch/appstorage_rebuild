@@ -81,12 +81,16 @@ export interface Tipe {
     status_sesudah?: string;
   }>;
   nilai_atribut?: NilaiAtributView[];
+  status_stok?: 'aman' | 'menipis' | 'habis';
+  threshold?: any;
 }
 
 export interface Produk {
   id: number;
   jenis_id: number;
   jenis_nama?: string;
+  kategori_id?: number;
+  kategori_nama?: string;
   nama: string;
   kategori: 'fast_moving' | 'recycle';
   kategori_barang?: 'Alat' | 'Barang Habis Pakai';
@@ -99,6 +103,7 @@ export interface Produk {
   stok_rusak?: number;
   tipes?: Tipe[];
   total_tipe?: number;
+  status_stok?: 'aman' | 'menipis' | 'habis';
 }
 
 export const catalogApi = {
@@ -200,14 +205,16 @@ export const catalogApi = {
   },
 
   // PRODUK
-  async listProduk(filters?: { jenis_id?: number; kategori?: string; kategori_barang?: string; search?: string }): Promise<Produk[]> {
+  async listProduk(filters?: { jenis_id?: number; kategori_id?: number; kategori?: string; kategori_barang?: string; search?: string; status?: string }): Promise<Produk[]> {
     const params = new URLSearchParams();
-    if (filters?.jenis_id) params.append('jenis_id', String(filters.jenis_id));
+    const jId = filters?.jenis_id || filters?.kategori_id;
+    if (jId) params.append('jenis_id', String(jId));
     if (filters?.kategori && filters.kategori !== 'ALL') params.append('kategori', filters.kategori);
     if (filters?.kategori_barang && filters.kategori_barang !== 'ALL') params.append('kategori_barang', filters.kategori_barang);
     if (filters?.search) params.append('search', filters.search);
+    if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
 
-    const res = await fetch(`/api/catalog/products?${params.toString()}`, { credentials: 'include' });
+    const res = await fetch(`/api/catalog/products-v2?${params.toString()}`, { credentials: 'include' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Gagal memuat daftar produk.');
     return data.products || [];

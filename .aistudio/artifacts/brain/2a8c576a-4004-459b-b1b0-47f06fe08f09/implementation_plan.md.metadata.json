@@ -1,0 +1,6 @@
+{
+  "summary":  "Pembaruan rencana implementasi restrukturisasi sub-tab Katalog FieldOps IT dengan penambahan Langkah 10: Audit & Pembersihan File Usang (Dead Code & Obsolete Assets Cleanup). Langkah ini mencakup inventarisasi dan penghapusan aman untuk aset duplikat, komponen yang tidak lagi diimpor, dan sisa dokumen sementara setelah verifikasi dependensi.",
+  "updatedAt":  "2026-11-10T02:20:20.801921292Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

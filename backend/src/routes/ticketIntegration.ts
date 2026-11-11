@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { executeQuery, runTransaction } from '../db/database';
 import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { ItemRecord } from '../repositories/inventoryRepository';
+import { TransactionService } from '../services/transactionService';
 
 const router = express.Router();
 
@@ -107,25 +108,23 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
 
         await conn.query('UPDATE items SET quantity = ?, status = ? WHERE id = ?', [next, status, pair.item.id]);
 
-        const txId = `tx-tck-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        await conn.query(
-          `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            txId,
-            'OUT',
-            pair.item.id,
-            pair.requestedQty,
-            prev,
-            next,
-            'EXTERNAL_TICKET',
-            ticketId,
-            technicianName || 'Teknisi Lapangan Tiket',
-            'api-system',
-            systemName || 'Sistem Tiket',
-            `${systemName || 'Sistem Tiket'}: ${ticketTitle}`
-          ]
-        );
+        const txId = await TransactionService.recordStockTransaction({
+          type: 'OUT',
+          tipe_mutasi: 'KELUAR',
+          itemId: pair.item.id,
+          namaBarang: pair.item.name,
+          sku: pair.item.sku,
+          satuan: pair.item.unit,
+          quantity: pair.requestedQty,
+          previousQty: prev,
+          newQty: next,
+          referenceType: 'EXTERNAL_TICKET',
+          referenceNumber: ticketId,
+          recipientOrDestination: technicianName || 'Teknisi Lapangan Tiket',
+          userId: 'api-system',
+          performedBy: systemName || 'Sistem Tiket',
+          notes: `${systemName || 'Sistem Tiket'}: ${ticketTitle}`
+        }, conn);
 
         processed.push({
           sku: pair.item.sku,

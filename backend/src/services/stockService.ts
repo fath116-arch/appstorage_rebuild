@@ -7,6 +7,7 @@ import { executeQuery, runTransaction } from '../db/database';
 import { ActivityLogService } from './activityLogService';
 import { CatalogService } from './catalogService';
 import { ConfirmationService } from './confirmationService';
+import { TransactionService } from './transactionService';
 import crypto from 'crypto';
 
 export interface Box {
@@ -387,13 +388,25 @@ export class StockService {
         ]
       }, conn);
 
-      // Sync into unified transactions table (type = 'IN')
-      const txId = `tx-in-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-      await conn.query(
-        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [txId, 'IN', itemId, 1, 0, 1, 'SINGLE_SCAN', cleanKode, box.kode, input.user_id, input.user_id, input.catatan || `Input stok item (${cleanKode})`]
-      );
+      // Sync into unified transactions table (type = 'IN') via TransactionService.recordStockTransaction
+      await TransactionService.recordStockTransaction({
+        type: 'IN',
+        tipe_mutasi: 'MASUK',
+        itemId: itemId,
+        tipeId: input.tipe_id,
+        namaBarang: namaSnapshot,
+        sku: cleanKode,
+        satuan: 'unit',
+        quantity: 1,
+        previousQty: 0,
+        newQty: 1,
+        referenceType: 'SINGLE_SCAN',
+        referenceNumber: cleanKode,
+        recipientOrDestination: box.kode,
+        userId: input.user_id,
+        performedBy: input.user_id,
+        notes: input.catatan || `Input stok item (${cleanKode})`
+      }, conn);
 
       return {
         success: true,
@@ -516,13 +529,25 @@ export class StockService {
         details: detailsPayload
       }, conn);
 
-      // Sync into unified transactions table (type = 'IN')
-      const txId = `tx-in-bulk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-      await conn.query(
-        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [txId, 'IN', insertedItemIds[0] || String(input.tipe_id), finalKodeIds.length, 0, finalKodeIds.length, 'BULK_SCAN', `BULK-${finalKodeIds.length}`, box.kode, input.user_id, input.user_id, input.catatan || `Input stok massal ${finalKodeIds.length} unit`]
-      );
+      // Sync into unified transactions table (type = 'IN') via TransactionService.recordStockTransaction
+      await TransactionService.recordStockTransaction({
+        type: 'IN',
+        tipe_mutasi: 'MASUK',
+        itemId: insertedItemIds[0] || String(input.tipe_id),
+        tipeId: input.tipe_id,
+        namaBarang: namaSnapshot,
+        sku: finalKodeIds[0] || `BULK-${finalKodeIds.length}`,
+        satuan: 'unit',
+        quantity: finalKodeIds.length,
+        previousQty: 0,
+        newQty: finalKodeIds.length,
+        referenceType: 'BULK_SCAN',
+        referenceNumber: `BULK-${finalKodeIds.length}`,
+        recipientOrDestination: box.kode,
+        userId: input.user_id,
+        performedBy: input.user_id,
+        notes: input.catatan || `Input stok massal ${finalKodeIds.length} unit`
+      }, conn);
 
       return {
         success: true,
@@ -598,13 +623,25 @@ export class StockService {
         ]
       }, conn);
 
-      // Sync into unified transactions table (type = 'IN')
-      const txId = `tx-in-qty-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-      await conn.query(
-        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [txId, 'IN', String(input.tipe_id), input.jumlah, 0, input.jumlah, 'QUANTITY_INPUT', `QTY-${input.jumlah}`, box.kode, input.user_id, input.user_id, input.catatan || `Input stok jumlah +${input.jumlah} unit`]
-      );
+      // Sync into unified transactions table (type = 'IN') via TransactionService.recordStockTransaction
+      await TransactionService.recordStockTransaction({
+        type: 'IN',
+        tipe_mutasi: 'MASUK',
+        itemId: String(input.tipe_id),
+        tipeId: input.tipe_id,
+        namaBarang: namaSnapshot,
+        sku: tipe.prefix_id || `TIPE-${input.tipe_id}`,
+        satuan: 'unit',
+        quantity: input.jumlah,
+        previousQty: 0,
+        newQty: input.jumlah,
+        referenceType: 'QUANTITY_INPUT',
+        referenceNumber: `QTY-${input.jumlah}`,
+        recipientOrDestination: box.kode,
+        userId: input.user_id,
+        performedBy: input.user_id,
+        notes: input.catatan || `Input stok jumlah +${input.jumlah} unit`
+      }, conn);
 
       return {
         success: true,
@@ -697,13 +734,25 @@ export class StockService {
           ]
         }, conn);
 
-        // Sync into unified transactions table (type = 'OUT')
-        const txId = `tx-out-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-        await conn.query(
-          `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [txId, 'OUT', item.id, 1, 1, 0, 'STOCK_OUT', item.kode_id, item.kode_box || 'Gudang', input.userId, input.userId, input.catatan || `Barang keluar item (${item.kode_id})`]
-        );
+        // Sync into unified transactions table (type = 'OUT') via TransactionService.recordStockTransaction
+        await TransactionService.recordStockTransaction({
+          type: 'OUT',
+          tipe_mutasi: 'KELUAR',
+          itemId: item.id,
+          tipeId: item.tipe_id,
+          namaBarang: namaSnapshot,
+          sku: item.kode_id,
+          satuan: 'unit',
+          quantity: 1,
+          previousQty: 1,
+          newQty: 0,
+          referenceType: 'STOCK_OUT',
+          referenceNumber: item.kode_id,
+          recipientOrDestination: item.kode_box || 'Gudang',
+          userId: input.userId,
+          performedBy: input.userId,
+          notes: input.catatan || `Barang keluar item (${item.kode_id})`
+        }, conn);
 
         return {
           success: true,
@@ -756,13 +805,25 @@ export class StockService {
           ]
         }, conn);
 
-        // Sync into unified transactions table (type = 'OUT')
-        const txId = `tx-out-qty-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-        await conn.query(
-          `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [txId, 'OUT', String(input.tipeId), outQty, currentQty, currentQty - outQty, 'STOCK_OUT', `QTY-OUT-${outQty}`, box.kode, input.userId, input.userId, input.catatan || `Pengurangan stok jumlah -${outQty} unit`]
-        );
+        // Sync into unified transactions table (type = 'OUT') via TransactionService.recordStockTransaction
+        await TransactionService.recordStockTransaction({
+          type: 'OUT',
+          tipe_mutasi: 'KELUAR',
+          itemId: String(input.tipeId),
+          tipeId: input.tipeId,
+          namaBarang: namaSnapshot,
+          sku: tipe.prefix_id || `TIPE-${input.tipeId}`,
+          satuan: 'unit',
+          quantity: outQty,
+          previousQty: currentQty,
+          newQty: currentQty - outQty,
+          referenceType: 'STOCK_OUT',
+          referenceNumber: `QTY-OUT-${outQty}`,
+          recipientOrDestination: box.kode,
+          userId: input.userId,
+          performedBy: input.userId,
+          notes: input.catatan || `Pengurangan stok jumlah -${outQty} unit`
+        }, conn);
 
         return {
           success: true,
@@ -832,13 +893,25 @@ export class StockService {
         details: detailsPayload
       }, conn);
 
-      // Sync into unified transactions table (type = 'OUT')
-      const txId = `tx-out-bulk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-      await conn.query(
-        `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [txId, 'OUT', 'bulk-items', totalOutCount, totalOutCount, 0, 'BULK_DISPATCH', `BULK-OUT-${totalOutCount}`, 'Arsip', input.userId, input.userId, input.catatan || `Barang keluar massal ${totalOutCount} unit`]
-      );
+      // Sync into unified transactions table (type = 'OUT') via TransactionService.recordStockTransaction
+      await TransactionService.recordStockTransaction({
+        type: 'OUT',
+        tipe_mutasi: 'KELUAR',
+        itemId: 'bulk-items',
+        tipeId: null,
+        namaBarang: `Pengeluaran Massal (${totalOutCount} unit)`,
+        sku: `BULK-OUT-${totalOutCount}`,
+        satuan: 'unit',
+        quantity: totalOutCount,
+        previousQty: totalOutCount,
+        newQty: 0,
+        referenceType: 'BULK_DISPATCH',
+        referenceNumber: `BULK-OUT-${totalOutCount}`,
+        recipientOrDestination: 'Arsip',
+        userId: input.userId,
+        performedBy: input.userId,
+        notes: input.catatan || `Barang keluar massal ${totalOutCount} unit`
+      }, conn);
 
       return {
         success: true,
