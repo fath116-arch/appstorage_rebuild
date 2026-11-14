@@ -9,9 +9,11 @@
  * - Ekstensibilitas Estimasi Sisa Hari
  */
 
-import { executeQuery, runTransaction, memoryStore } from '../db/database';
+import { executeQuery, memoryStore } from '../db/database';
 import { FonnteProvider } from '../integrations/whatsapp/fonnte';
+import { WhatsAppProvider } from '../integrations/whatsapp/provider';
 import { formatConsolidatedStockAlertMessage, formatTestConnectionMessage } from '../integrations/whatsapp/templates';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export interface WaConfigData {
   id: string;
@@ -51,6 +53,71 @@ export interface WaDeliveryLogRecord {
   operator_id?: string;
 }
 
+export type StockAlertStatus = 'NORMAL' | 'PERINGATAN_DINI' | 'MENIPIS' | 'HABIS';
+
+export interface ThresholdMatrixEntry {
+  produkId: number;
+  produkNama: string;
+  kategoriBarang: string;
+  tipeId: number;
+  tipeNama: string;
+  kodeTipe: string;
+  availableStock: number;
+  lowStockThreshold: number;
+  lowStockSource: 'dari tipe' | 'dari produk' | 'dari global';
+  earlyWarningThreshold: number;
+  earlyWarningSource: 'dari tipe' | 'dari produk' | 'dari global';
+  isWatchlist: boolean;
+  currentStatus: StockAlertStatus;
+}
+
+interface WaConfigRow {
+  id?: string;
+  is_enabled?: number | boolean;
+  cooldown_minutes?: number | string;
+  last_sent_at?: string | Date | null;
+  active_hours_start?: string | null;
+  active_hours_end?: string | null;
+  alert_on_out_of_stock?: number | boolean;
+  alert_on_low_stock?: number | boolean;
+  alert_on_early_warning?: number | boolean;
+  global_low_stock_threshold?: number | string;
+  global_early_warning_threshold?: number | string;
+  recipients_json?: string;
+  api_url?: string;
+  api_token?: string;
+}
+
+interface WaThresholdRow {
+  id: string;
+  level: 'produk' | 'tipe';
+  produk_id: number | null;
+  tipe_id: number | null;
+  low_stock_threshold: number | null;
+  early_warning_threshold: number | null;
+  is_watchlist: boolean | number;
+}
+
+interface ProdukSummaryRow {
+  id: number;
+  nama: string;
+  kategori_barang?: string;
+  tipe_stok?: string;
+}
+
+interface TipeSummaryRow {
+  id: number;
+  nama_tipe: string;
+  kode_tipe?: string;
+  mode_stok?: 'per_id' | 'jumlah';
+}
+
+interface CountRow {
+  count?: number | string;
+  total?: number | string;
+  rusak?: number | string;
+}
+
 // Memory fallback store for standalone testing
 let localWaConfig: WaConfigData = {
   id: 'main',
@@ -69,9 +136,21 @@ let localWaConfig: WaConfigData = {
   apiToken: process.env.WHATSAPP_API_TOKEN || '',
 };
 
-const localThresholds = new Map<string, any>();
+const localThresholds = new Map<string, WaThresholdRow>();
 const localAlertStatuses = new Map<string, { current: string; lastSent: string | null; pending: boolean }>();
 const localLogs: WaDeliveryLogRecord[] = [];
+
+function maskToken(token?: string): string {
+  return token ? `${token.slice(0, 4)}••••••••` : 'Belum diisi';
+}
+
+function sanitizeConfigForClient(config: WaConfigData): WaConfigData {
+  return {
+    ...config,
+    apiToken: '',
+    maskedToken: maskToken(config.apiToken)
+  };
+}
 
 export class WhatsappAlertService {
   /**
@@ -97,11 +176,11 @@ export class WhatsappAlertService {
   }
 
   /**
-   * 2. Ambil Konfigurasi WA Alert
+   * Ambil konfigurasi internal lengkap termasuk raw apiToken (Hanya untuk internal server/provider)
    */
-  static async getConfig(): Promise<WaConfigData> {
+  private static async getInternalConfig(): Promise<WaConfigData> {
     try {
-      const rows = await executeQuery<any>('SELECT * FROM wa_config WHERE id = "main" LIMIT 1');
+      const rows = await executeQuery<WaConfigRow>('SELECT * FROM wa_config WHERE id = "main" LIMIT 1');
       if (rows && rows.length > 0) {
         const r = rows[0];
         let recs: string[] = [];
@@ -111,22 +190,23 @@ export class WhatsappAlertService {
           recs = this.deduplicateRecipients(r.recipients_json || '');
         }
 
+        const resolvedToken = r.api_token || process.env.WHATSAPP_API_TOKEN || '';
         localWaConfig = {
           id: r.id || 'main',
           isEnabled: Boolean(r.is_enabled),
-          cooldownMinutes: Math.max(1, parseInt(r.cooldown_minutes || '15', 10)),
+          cooldownMinutes: Math.max(1, parseInt(String(r.cooldown_minutes || '15'), 10)),
           lastSentAt: r.last_sent_at ? new Date(r.last_sent_at).toISOString() : null,
           activeHoursStart: r.active_hours_start || null,
           activeHoursEnd: r.active_hours_end || null,
           alertOnOutOfStock: Boolean(r.alert_on_out_of_stock),
           alertOnLowStock: Boolean(r.alert_on_low_stock),
           alertOnEarlyWarning: Boolean(r.alert_on_early_warning),
-          globalLowStockThreshold: parseInt(r.global_low_stock_threshold || '3', 10),
-          globalEarlyWarningThreshold: parseInt(r.global_early_warning_threshold || '5', 10),
+          globalLowStockThreshold: parseInt(String(r.global_low_stock_threshold || '3'), 10),
+          globalEarlyWarningThreshold: parseInt(String(r.global_early_warning_threshold || '5'), 10),
           recipients: this.deduplicateRecipients(recs),
-          apiUrl: r.api_url || 'https://api.fonnte.com/send',
-          apiToken: r.api_token || '',
-          maskedToken: r.api_token ? r.api_token.slice(0, 4) + '••••••••' : 'Belum diisi'
+          apiUrl: r.api_url || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send',
+          apiToken: resolvedToken,
+          maskedToken: maskToken(resolvedToken)
         };
       }
     } catch {
@@ -135,9 +215,16 @@ export class WhatsappAlertService {
 
     return {
       ...localWaConfig,
-      apiToken: '', // Sanitasi Keamanan: Raw token tidak pernah diekspos keluar
-      maskedToken: localWaConfig.apiToken ? localWaConfig.apiToken.slice(0, 4) + '••••••••' : 'Belum diisi'
+      maskedToken: maskToken(localWaConfig.apiToken)
     };
+  }
+
+  /**
+   * 2. Ambil Konfigurasi WA Alert (Tersanitasi untuk klien)
+   */
+  static async getConfig(): Promise<WaConfigData> {
+    const internal = await this.getInternalConfig();
+    return sanitizeConfigForClient(internal);
   }
 
   /**
@@ -155,9 +242,9 @@ export class WhatsappAlertService {
       }
     }
 
-    const current = await this.getConfig();
-    const updatedRecipients = payload.recipients !== undefined 
-      ? this.deduplicateRecipients(payload.recipients) 
+    const current = await this.getInternalConfig();
+    const updatedRecipients = payload.recipients !== undefined
+      ? this.deduplicateRecipients(payload.recipients)
       : current.recipients;
 
     const merged: WaConfigData = {
@@ -172,8 +259,8 @@ export class WhatsappAlertService {
       globalLowStockThreshold: payload.globalLowStockThreshold !== undefined ? Math.max(1, Number(payload.globalLowStockThreshold)) : current.globalLowStockThreshold,
       globalEarlyWarningThreshold: payload.globalEarlyWarningThreshold !== undefined ? Math.max(1, Number(payload.globalEarlyWarningThreshold)) : current.globalEarlyWarningThreshold,
       recipients: updatedRecipients,
-      apiUrl: (payload.apiUrl && payload.apiUrl.trim()) ? payload.apiUrl.trim() : localWaConfig.apiUrl,
-      apiToken: (payload.apiToken && payload.apiToken.trim()) ? payload.apiToken.trim() : localWaConfig.apiToken
+      apiUrl: (payload.apiUrl && payload.apiUrl.trim()) ? payload.apiUrl.trim() : current.apiUrl,
+      apiToken: (payload.apiToken && payload.apiToken.trim()) ? payload.apiToken.trim() : current.apiToken
     };
 
     localWaConfig = merged;
@@ -217,17 +304,31 @@ export class WhatsappAlertService {
       // Memory store fallback
     }
 
-    return {
-      ...merged,
-      maskedToken: merged.apiToken ? merged.apiToken.slice(0, 4) + '••••••••' : 'Belum diisi'
-    };
+    return sanitizeConfigForClient(merged);
+  }
+
+  private static async findThresholdRow(level: 'produk' | 'tipe', targetId: number): Promise<WaThresholdRow | undefined> {
+    const cached = localThresholds.get(`${level}_${targetId}`);
+    if (cached) return cached;
+
+    const column = level === 'tipe' ? 'tipe_id' : 'produk_id';
+    try {
+      const rows = await executeQuery<WaThresholdRow>(
+        `SELECT * FROM wa_thresholds WHERE level = ? AND ${column} = ? LIMIT 1`,
+        [level, targetId]
+      );
+      if (rows && rows.length > 0) return rows[0];
+    } catch {
+      // Fallback to undefined when threshold table isn't populated
+    }
+    return undefined;
   }
 
   /**
    * 4. Resolusi Ambang Berjenjang: tipe > produk > global (Katalog tidak dipakai)
    */
   static async resolveThreshold(produkId?: number, tipeId?: number): Promise<ThresholdResolution> {
-    const config = await this.getConfig();
+    const config = await this.getInternalConfig();
     let lowStockThreshold = config.globalLowStockThreshold;
     let lowStockSource: 'dari tipe' | 'dari produk' | 'dari global' = 'dari global';
     let earlyWarningThreshold = config.globalEarlyWarningThreshold;
@@ -236,14 +337,7 @@ export class WhatsappAlertService {
 
     // 1. Cek level tipe (paling spesifik)
     if (tipeId) {
-      let tipeRow: any = localThresholds.get(`tipe_${tipeId}`);
-      if (!tipeRow) {
-        try {
-          const rows = await executeQuery<any>('SELECT * FROM wa_thresholds WHERE level = "tipe" AND tipe_id = ? LIMIT 1', [tipeId]);
-          if (rows && rows.length > 0) tipeRow = rows[0];
-        } catch {}
-      }
-
+      const tipeRow = await this.findThresholdRow('tipe', tipeId);
       if (tipeRow) {
         if (tipeRow.low_stock_threshold !== null && tipeRow.low_stock_threshold !== undefined) {
           lowStockThreshold = Number(tipeRow.low_stock_threshold);
@@ -261,14 +355,7 @@ export class WhatsappAlertService {
 
     // 2. Cek level produk (jika belum ditentukan dari tipe)
     if (produkId) {
-      let prodRow: any = localThresholds.get(`produk_${produkId}`);
-      if (!prodRow) {
-        try {
-          const rows = await executeQuery<any>('SELECT * FROM wa_thresholds WHERE level = "produk" AND produk_id = ? LIMIT 1', [produkId]);
-          if (rows && rows.length > 0) prodRow = rows[0];
-        } catch {}
-      }
-
+      const prodRow = await this.findThresholdRow('produk', produkId);
       if (prodRow) {
         if (lowStockSource === 'dari global' && prodRow.low_stock_threshold !== null && prodRow.low_stock_threshold !== undefined) {
           lowStockThreshold = Number(prodRow.low_stock_threshold);
@@ -305,9 +392,9 @@ export class WhatsappAlertService {
       isWatchlist?: boolean;
     },
     operator: { id: string; name: string }
-  ): Promise<any> {
+  ): Promise<WaThresholdRow> {
     const id = `thresh_${payload.level}_${payload.targetId}`;
-    const row = {
+    const row: WaThresholdRow = {
       id,
       level: payload.level,
       produk_id: payload.level === 'produk' ? payload.targetId : null,
@@ -344,19 +431,37 @@ export class WhatsappAlertService {
         'INSERT INTO audit_logs (user_id, action, table_name, record_id, after_state) VALUES (?, ?, ?, ?, ?)',
         [operator.id, 'SET_WA_THRESHOLD', 'wa_thresholds', row.id, JSON.stringify(row)]
       );
-    } catch {}
+    } catch {
+      // Memory store fallback
+    }
 
     return row;
   }
 
   /**
-   * 6. Hitung Stok Tersedia (Item Rusak Dikecualikan!)
+   * 6. Hitung Stok Tersedia (Item Rusak Dikecualikan, Konsisten dengan Tabel item & stok_jumlah)
    */
-  static async getAvailableStockForTipe(tipeId: number): Promise<number> {
+  static async getAvailableStockForTipe(tipeId: number, modeStok?: 'per_id' | 'jumlah'): Promise<number> {
+    if (modeStok === 'jumlah') {
+      try {
+        const sjRows = await executeQuery<CountRow>(
+          'SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?',
+          [tipeId]
+        );
+        if (sjRows && sjRows.length > 0 && sjRows[0].total !== undefined) {
+          return Number(sjRows[0].total);
+        }
+      } catch {
+        // Fallback below
+      }
+      return Array.from(memoryStore.stok_jumlah.values())
+        .filter((sj) => sj.tipe_id === tipeId)
+        .reduce((acc, sj) => acc + Number(sj.jumlah || 0), 0);
+    }
+
     try {
-      // Kueri item_v2: abaikan item berkondisi 'Rusak' dan status selain 'aktif'
-      const rows = await executeQuery<any>(
-        `SELECT COUNT(*) as count FROM item_v2 
+      const rows = await executeQuery<CountRow>(
+        `SELECT COUNT(*) as count FROM item 
          WHERE tipe_id = ? AND status = 'aktif' AND kondisi != 'Rusak'`,
         [tipeId]
       );
@@ -369,83 +474,76 @@ export class WhatsappAlertService {
           return Math.max(0, Number(row.total) - Number(row.rusak));
         }
       }
-    } catch {}
+    } catch {
+      // Fallback below
+    }
 
-    // Fallback kueri memoryStore
     const items = Array.from(memoryStore.item_v2.values()).filter(
-      (it: any) => it.tipe_id === tipeId && it.status === 'aktif' && it.kondisi !== 'Rusak'
+      (it) => it.tipe_id === tipeId && it.status === 'aktif' && it.kondisi !== 'Rusak'
     );
     return items.length;
+  }
+
+  private static computeAlertStatus(availableStock: number, res: ThresholdResolution): StockAlertStatus {
+    if (availableStock === 0) return 'HABIS';
+    if (availableStock <= res.lowStockThreshold) return 'MENIPIS';
+    if (res.isWatchlist && availableStock <= res.earlyWarningThreshold) return 'PERINGATAN_DINI';
+    return 'NORMAL';
+  }
+
+  private static async buildThresholdMatrixEntry(
+    prod: ProdukSummaryRow,
+    tipe: TipeSummaryRow
+  ): Promise<ThresholdMatrixEntry> {
+    const res = await this.resolveThreshold(prod.id, tipe.id);
+    const availableStock = await this.getAvailableStockForTipe(tipe.id, tipe.mode_stok);
+    const currentStatus = this.computeAlertStatus(availableStock, res);
+
+    return {
+      produkId: prod.id,
+      produkNama: prod.nama,
+      kategoriBarang: prod.kategori_barang || 'Barang Habis Pakai',
+      tipeId: tipe.id,
+      tipeNama: tipe.nama_tipe,
+      kodeTipe: tipe.kode_tipe || `T-${tipe.id}`,
+      availableStock,
+      lowStockThreshold: res.lowStockThreshold,
+      lowStockSource: res.lowStockSource,
+      earlyWarningThreshold: res.earlyWarningThreshold,
+      earlyWarningSource: res.earlyWarningSource,
+      isWatchlist: res.isWatchlist,
+      currentStatus
+    };
   }
 
   /**
    * 7. Ambil Seluruh Data Resolusi Ambang untuk Seluruh Tipe & Produk
    * (Menampilkan sumber: "dari tipe", "dari produk", "dari global")
    */
-  static async getDetailedThresholdMatrix(): Promise<any[]> {
-    const list: any[] = [];
+  static async getDetailedThresholdMatrix(): Promise<ThresholdMatrixEntry[]> {
+    const list: ThresholdMatrixEntry[] = [];
     try {
-      const prodRows = await executeQuery<any>('SELECT id, nama, kategori_barang, tipe_stok FROM produk WHERE status != "dihapus"');
+      const prodRows = await executeQuery<ProdukSummaryRow>(
+        'SELECT id, nama, kategori_barang, tipe_stok FROM produk WHERE status != "dihapus"'
+      );
       for (const p of prodRows) {
-        const tipeRows = await executeQuery<any>('SELECT id, nama_tipe, kode_tipe, mode_stok FROM tipe WHERE produk_id = ? AND status != "dihapus"', [p.id]);
+        const tipeRows = await executeQuery<TipeSummaryRow>(
+          'SELECT id, nama_tipe, kode_tipe, mode_stok FROM tipe WHERE produk_id = ? AND status != "dihapus"',
+          [p.id]
+        );
         for (const t of tipeRows) {
-          const res = await this.resolveThreshold(p.id, t.id);
-          const availableStock = await this.getAvailableStockForTipe(t.id);
-
-          let currentStatus: 'NORMAL' | 'PERINGATAN_DINI' | 'MENIPIS' | 'HABIS' = 'NORMAL';
-          if (availableStock === 0) {
-            currentStatus = 'HABIS';
-          } else if (availableStock <= res.lowStockThreshold) {
-            currentStatus = 'MENIPIS';
-          } else if (res.isWatchlist && availableStock <= res.earlyWarningThreshold) {
-            currentStatus = 'PERINGATAN_DINI';
-          }
-
-          list.push({
-            produkId: p.id,
-            produkNama: p.nama,
-            kategoriBarang: p.kategori_barang,
-            tipeId: t.id,
-            tipeNama: t.nama_tipe,
-            kodeTipe: t.kode_tipe,
-            availableStock,
-            lowStockThreshold: res.lowStockThreshold,
-            lowStockSource: res.lowStockSource,
-            earlyWarningThreshold: res.earlyWarningThreshold,
-            earlyWarningSource: res.earlyWarningSource,
-            isWatchlist: res.isWatchlist,
-            currentStatus
-          });
+          list.push(await this.buildThresholdMatrixEntry(p, t));
         }
       }
+      return list;
     } catch {
-      // Memory fallback from memoryStore.produk & tipe
-      const prods = Array.from(memoryStore.produk.values()).filter(p => p.status !== 'dihapus');
+      const prods = Array.from(memoryStore.produk.values()).filter((p) => p.status !== 'dihapus');
       for (const p of prods) {
-        const tipes = Array.from(memoryStore.tipe.values()).filter(t => t.produk_id === p.id && t.status !== 'dihapus');
+        const tipes = Array.from(memoryStore.tipe.values()).filter(
+          (t) => t.produk_id === p.id && t.status !== 'dihapus'
+        );
         for (const t of tipes) {
-          const res = await this.resolveThreshold(p.id, t.id);
-          const availableStock = await this.getAvailableStockForTipe(t.id);
-          let currentStatus: 'NORMAL' | 'PERINGATAN_DINI' | 'MENIPIS' | 'HABIS' = 'NORMAL';
-          if (availableStock === 0) currentStatus = 'HABIS';
-          else if (availableStock <= res.lowStockThreshold) currentStatus = 'MENIPIS';
-          else if (res.isWatchlist && availableStock <= res.earlyWarningThreshold) currentStatus = 'PERINGATAN_DINI';
-
-          list.push({
-            produkId: p.id,
-            produkNama: p.nama,
-            kategoriBarang: p.kategori_barang || 'Barang Habis Pakai',
-            tipeId: t.id,
-            tipeNama: t.nama_tipe,
-            kodeTipe: t.kode_tipe || `T-${t.id}`,
-            availableStock,
-            lowStockThreshold: res.lowStockThreshold,
-            lowStockSource: res.lowStockSource,
-            earlyWarningThreshold: res.earlyWarningThreshold,
-            earlyWarningSource: res.earlyWarningSource,
-            isWatchlist: res.isWatchlist,
-            currentStatus
-          });
+          list.push(await this.buildThresholdMatrixEntry(p, t));
         }
       }
     }
@@ -463,11 +561,11 @@ export class WhatsappAlertService {
     newAlertsCount: number;
   }> {
     const matrix = await this.getDetailedThresholdMatrix();
-    const config = await this.getConfig();
+    const config = await this.getInternalConfig();
 
-    const outOfStock: any[] = [];
-    const lowStock: any[] = [];
-    const earlyWarning: any[] = [];
+    const outOfStock: Array<{ sku: string; name: string; unit?: string }> = [];
+    const lowStock: Array<{ sku: string; name: string; quantity: number; unit?: string; threshold: number; source?: string }> = [];
+    const earlyWarning: Array<{ sku: string; name: string; quantity: number; unit?: string; threshold: number; source?: string }> = [];
     let newAlertsCount = 0;
 
     for (const item of matrix) {
@@ -527,6 +625,7 @@ export class WhatsappAlertService {
     force?: boolean;
     triggerSource?: string;
     operator?: { id: string; name: string };
+    provider?: WhatsAppProvider;
   }): Promise<{
     sent: boolean;
     reason?: string;
@@ -535,7 +634,7 @@ export class WhatsappAlertService {
     message?: string;
     log?: WaDeliveryLogRecord;
   }> {
-    const config = await this.getConfig();
+    const config = await this.getInternalConfig();
 
     if (!config.isEnabled && !options?.force) {
       return { sent: false, reason: 'ALERT_DISABLED', message: 'Sistem WA Alert sedang dinonaktifkan di konfigurasi.' };
@@ -588,19 +687,18 @@ export class WhatsappAlertService {
       return { sent: false, reason: 'NO_RECIPIENTS', message: 'Daftar penerima WhatsApp belum diisi.' };
     }
 
-    // Kirim via Fonnte Provider
-    const provider = new FonnteProvider(config.apiUrl, config.apiToken);
+    // Kirim via WhatsAppProvider (default: FonnteProvider dengan token internal asli)
+    const provider = options?.provider || new FonnteProvider(config.apiUrl, config.apiToken);
     let sendSuccess = false;
     let fonnteResponse = '';
 
     try {
-      // Fonnte bisa menerima multi-target dipisahkan koma atau pengiriman iteratif
       const targetStr = uniqueRecipients.join(',');
       const res = await provider.sendMessage(targetStr, formattedMessage);
       sendSuccess = res.success;
       fonnteResponse = res.details;
-    } catch (err: any) {
-      fonnteResponse = `Error: ${err.message}`;
+    } catch (err: unknown) {
+      fonnteResponse = `Error: ${getErrorMessage(err)}`;
     }
 
     const logRecord: WaDeliveryLogRecord = {
@@ -639,10 +737,12 @@ export class WhatsappAlertService {
           logRecord.operator_id
         ]
       );
-    } catch {}
+    } catch {
+      // Memory store fallback
+    }
 
     // Tandai status alert telah terkirim (Anti-Duplikat)
-    for (const [key, record] of localAlertStatuses.entries()) {
+    for (const record of localAlertStatuses.values()) {
       if (record.pending) {
         record.lastSent = record.current;
         record.pending = false;
@@ -661,9 +761,10 @@ export class WhatsappAlertService {
    */
   static async sendTestMessage(
     targetPhone?: string,
-    operator?: { id: string; name: string }
+    operator?: { id: string; name: string },
+    customProvider?: WhatsAppProvider
   ): Promise<{ success: boolean; message: string; remainingSeconds?: number; details?: string }> {
-    const config = await this.getConfig();
+    const config = await this.getInternalConfig();
     const nowMs = Date.now();
     const cooldownMs = config.cooldownMinutes * 60 * 1000;
 
@@ -679,8 +780,8 @@ export class WhatsappAlertService {
       }
     }
 
-    const targets = targetPhone 
-      ? this.deduplicateRecipients([targetPhone]) 
+    const targets = targetPhone
+      ? this.deduplicateRecipients([targetPhone])
       : this.deduplicateRecipients(config.recipients);
 
     if (targets.length === 0) {
@@ -689,14 +790,16 @@ export class WhatsappAlertService {
 
     const targetStr = targets.join(',');
     const testMessage = formatTestConnectionMessage(targetStr);
-    const provider = new FonnteProvider(config.apiUrl, config.apiToken);
+    const provider = customProvider || new FonnteProvider(config.apiUrl, config.apiToken);
     const result = await provider.sendMessage(targetStr, testMessage);
 
     // Update cooldown
     localWaConfig.lastSentAt = new Date().toISOString();
     try {
       await executeQuery('UPDATE wa_config SET last_sent_at = CURRENT_TIMESTAMP WHERE id = "main"');
-    } catch {}
+    } catch {
+      // Memory store fallback
+    }
 
     const logRecord: WaDeliveryLogRecord = {
       id: `walog_test_${Date.now()}`,
@@ -713,8 +816,8 @@ export class WhatsappAlertService {
 
     return {
       success: true,
-      message: result.success 
-        ? `Uji koneksi WhatsApp berhasil dikirim ke ${targets.length} penerima!` 
+      message: result.success
+        ? `Uji koneksi WhatsApp berhasil dikirim ke ${targets.length} penerima!`
         : `Pesan uji dikirim dalam mode simulasi backend (${result.details}).`,
       details: result.details
     };
@@ -725,12 +828,14 @@ export class WhatsappAlertService {
    */
   static async getLogs(limit: number = 50): Promise<WaDeliveryLogRecord[]> {
     try {
-      const rows = await executeQuery<any>(
+      const rows = await executeQuery<WaDeliveryLogRecord>(
         'SELECT * FROM wa_delivery_logs ORDER BY sent_at DESC LIMIT ?',
         [limit]
       );
       if (rows && rows.length > 0) return rows;
-    } catch {}
+    } catch {
+      // Memory store fallback
+    }
 
     return localLogs.slice(0, limit);
   }

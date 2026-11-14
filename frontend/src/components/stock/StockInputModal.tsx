@@ -3,7 +3,7 @@
  * Pemindaian Kamera Barcode/QR, Scan Beruntun, & Input Massal N-Unit
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Camera,
   QrCode,
@@ -23,13 +23,9 @@ import {
 import { stockApi, Box } from '../../services/stockApi';
 import { catalogApi, Produk, Tipe } from '../../services/catalogApi';
 import { useInventory } from '../../context/InventoryContext';
-import { 
-  UniversalBarcodeScanner, 
-  startCameraStream, 
-  diagnoseCameraError, 
-  extractSNFromBarcode,
-  scanBarcodeFromImageFile
-} from '../../utils/scannerUtils';
+import { extractSNFromBarcode } from '../../utils/scannerUtils';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface StockInputModalProps {
   isOpen: boolean;
@@ -66,10 +62,7 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
   const [catatanInput, setCatatanInput] = useState<string>('');
 
   // Camera & Photo Scan State
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-  const [isPhotoScanning, setIsPhotoScanning] = useState<boolean>(false);
   const [cameraErrorNotice, setCameraErrorNotice] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Memuat data produk & box
   const loadInitialData = useCallback(async () => {
@@ -83,8 +76,8 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
       setBoxes(bList);
       if (prods.length > 0) setSelectedProductId(prods[0].id);
       if (bList.length > 0) setSelectedBoxId(bList[0].id);
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
     } finally {
       setLoadingInitial(false);
     }
@@ -129,126 +122,67 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
     }
   };
 
-  const scannerRef = useRef<UniversalBarcodeScanner | null>(null);
+  const isScanSn = currentTipe?.sumber_id === 'scan_sn';
+  const tipePolaRegex = isScanSn ? (currentTipe?.pola_id || '') : undefined;
 
-  // Switch camera scanner
-  const stopCamera = useCallback(() => {
-    if (scannerRef.current) {
-      scannerRef.current.stopScanning();
-      scannerRef.current = null;
+  const queueScannedSN = async (cleanSN: string, source: 'camera' | 'photo') => {
+    if (!cleanSN) return;
+
+    if (scannedList.includes(cleanSN)) {
+      showToast(`ID [${cleanSN}] sudah ada di antrean scan.`, 'warning');
+      return;
     }
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(t => t.stop());
-      videoRef.current.srcObject = null;
-    }
-    setIsCameraActive(false);
-  }, []);
-
-  const startCamera = async () => {
-    try {
-      setCameraErrorNotice(null);
-      setIsCameraActive(true);
-      if (!videoRef.current) return;
-
-      await startCameraStream(videoRef.current);
-
-      const isScanSn = currentTipe?.sumber_id === 'scan_sn';
-      const tipePolaRegex = isScanSn ? (currentTipe?.pola_id || '') : undefined;
-
-      scannerRef.current = new UniversalBarcodeScanner(
-        videoRef.current,
-        async (filter) => {
-          const cleanSN = filter.cleanValue.trim();
-          if (!cleanSN) return;
-
-          // Process scanned SN automatically into queue
-          if (scannedList.includes(cleanSN)) {
-            showToast(`ID [${cleanSN}] sudah ada di antrean scan.`, 'warning');
-            return;
-          }
-
-          try {
-            const dupCheck = await stockApi.checkDuplicateId(cleanSN);
-            if (dupCheck.exists) {
-              const it = dupCheck.item;
-              showToast(`ID [${cleanSN}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box}).`, 'error');
-              return;
-            }
-
-            setScannedList(prev => [...prev, cleanSN]);
-            showToast(`[${cleanSN}] berhasil discan dari kamera!`, 'success');
-          } catch (err: any) {
-            showToast(err.message, 'error');
-          }
-        },
-        (ignored) => {
-          if (isScanSn) {
-            setCameraErrorNotice('SN tidak terdeteksi, coba foto ulang');
-            showToast('SN tidak terdeteksi, coba foto ulang', 'warning');
-          } else {
-            showToast(`Abaikan Barcode ${ignored.rawType} (${ignored.cleanValue}). Arahkan ke Barcode SN...`, 'warning');
-          }
-        },
-        undefined,
-        tipePolaRegex
-      );
-
-      scannerRef.current.startScanning();
-    } catch (err: any) {
-      const diag = diagnoseCameraError(err);
-      setCameraErrorNotice(diag.message);
-      showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
-      setIsCameraActive(false);
-    }
-  };
-
-  // Handler Scan dari Foto / Galeri (Opsi A: Decode Sisi Klien Tanpa Server Upload)
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsPhotoScanning(true);
-    setCameraErrorNotice(null);
-    const isScanSn = currentTipe?.sumber_id === 'scan_sn';
-    const tipePolaRegex = isScanSn ? (currentTipe?.pola_id || '') : undefined;
 
     try {
-      const filter = await scanBarcodeFromImageFile(file, undefined, tipePolaRegex);
-      const cleanSN = filter.cleanValue.trim();
-      if (!filter.isSN || !cleanSN) {
-        throw new Error('SN tidak terdeteksi, coba foto ulang');
-      }
-
-      if (scannedList.includes(cleanSN)) {
-        showToast(`ID [${cleanSN}] sudah ada di antrean scan.`, 'warning');
-        return;
-      }
-
       const dupCheck = await stockApi.checkDuplicateId(cleanSN);
-      if (dupCheck.exists) {
+      if (dupCheck.exists && dupCheck.item) {
         const it = dupCheck.item;
-        showToast(`ID [${cleanSN}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box}).`, 'error');
+        showToast(`ID [${cleanSN}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box || it.box_id}).`, 'error');
         return;
       }
 
       setScannedList(prev => [...prev, cleanSN]);
-      showToast(`SN [${cleanSN}] berhasil diekstrak dari foto!`, 'success');
-    } catch (err: any) {
-      const msg = err.message || 'SN tidak terdeteksi, coba foto ulang';
-      showToast(msg, 'error');
-      setCameraErrorNotice(isScanSn ? msg : `Gagal scan foto: ${msg}`);
-    } finally {
-      setIsPhotoScanning(false);
-      e.target.value = '';
+      showToast(
+        source === 'photo'
+          ? `SN [${cleanSN}] berhasil diekstrak dari foto!`
+          : `[${cleanSN}] berhasil discan dari kamera!`,
+        'success'
+      );
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
     }
   };
 
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, [stopCamera]);
+  const {
+    videoRef,
+    isCameraActive,
+    isPhotoScanning,
+    startCamera,
+    stopCamera,
+    handlePhotoUpload
+  } = useBarcodeScanner({
+    tipePolaRegex,
+    onCameraStart: () => setCameraErrorNotice(null),
+    onDetected: (filter) => queueScannedSN(filter.cleanValue.trim(), 'camera'),
+    onIgnored: (ignored) => {
+      if (isScanSn) {
+        setCameraErrorNotice('SN tidak terdeteksi, coba foto ulang');
+        showToast('SN tidak terdeteksi, coba foto ulang', 'warning');
+      } else {
+        showToast(`Abaikan Barcode ${ignored.rawType} (${ignored.cleanValue}). Arahkan ke Barcode SN...`, 'warning');
+      }
+    },
+    onCameraError: (diag) => {
+      setCameraErrorNotice(diag.message);
+      showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
+    },
+    onPhotoStart: () => setCameraErrorNotice(null),
+    onPhotoDetected: (filter) => queueScannedSN(filter.cleanValue.trim(), 'photo'),
+    onPhotoError: (msg) => {
+      showToast(msg, 'error');
+      setCameraErrorNotice(isScanSn ? msg : `Gagal scan foto: ${msg}`);
+    }
+  });
 
   if (!isOpen) return null;
 
@@ -266,9 +200,9 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
     // Cek duplikasi di database
     try {
       const dupCheck = await stockApi.checkDuplicateId(clean);
-      if (dupCheck.exists) {
+      if (dupCheck.exists && dupCheck.item) {
         const it = dupCheck.item;
-        showToast(`ID [${clean}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box}).`, 'error');
+        showToast(`ID [${clean}] sudah terdaftar pada ${it.nama_produk} (Box ${it.kode_box || it.box_id}).`, 'error');
         return;
       }
 
@@ -289,8 +223,8 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
       setScannedList(prev => [...prev, clean]);
       setSingleKodeInput('');
       showToast(`[${clean}] ditambahkan ke antrean scan.`, 'success');
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
     }
   };
 
@@ -364,8 +298,8 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
       stopCamera();
       onClose();
       if (onSuccess) onSuccess();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
     }
   };
 

@@ -7,7 +7,7 @@
 import { executeQuery, runTransaction } from '../db/database';
 import { ActivityLogService } from './activityLogService';
 import { TrashService } from './trashService';
-import { WhatsappAlertService } from './whatsappAlertService';
+import { ThresholdResolution, WhatsappAlertService } from './whatsappAlertService';
 
 export interface AtributOpsi {
   id: number;
@@ -69,6 +69,50 @@ export interface NilaiAtributInput {
   nilai_teks?: string | null;
 }
 
+export interface TipeStockBreakdown {
+  baru: number;
+  baik: number;
+  perlu_perbaikan: number;
+  rusak: number;
+}
+
+export interface TipeStockSummary {
+  stok_tersedia: number;
+  stok_rusak: number;
+  stok_total: number;
+  stok_per_kondisi: TipeStockBreakdown;
+}
+
+export interface TipeBoxDistribution {
+  box_id: string;
+  box_kode: string;
+  box_keterangan?: string;
+  jumlah: number;
+}
+
+export interface TipeHistoryEntry {
+  id_aktivitas: string;
+  aksi: string;
+  waktu: string;
+  catatan?: string;
+  nama_pelaku?: string;
+  jumlah?: number;
+  kode_id?: string;
+  status_sebelum?: string;
+  status_sesudah?: string;
+}
+
+export interface TipeNilaiView {
+  atribut_id: number;
+  atribut_nama: string;
+  tipe_isian: string;
+  satuan?: string;
+  nilai_tampil: string;
+  nilai_angka?: number;
+  opsi_id?: number;
+  nilai_teks?: string;
+}
+
 export interface Tipe {
   id: number;
   produk_id: number;
@@ -86,45 +130,121 @@ export interface Tipe {
   stok_total?: number;
   stok_tersedia?: number;
   stok_rusak?: number;
-  stok_per_kondisi?: {
-    baru: number;
-    baik: number;
-    perlu_perbaikan: number;
-    rusak: number;
-  };
-  sebaran_box?: Array<{ box_id: string; box_kode: string; box_keterangan?: string; jumlah: number }>;
-  riwayat_terakhir?: Array<{
-    id_aktivitas: string;
-    aksi: string;
-    waktu: string;
-    catatan?: string;
-    nama_pelaku?: string;
-    jumlah?: number;
-    kode_id?: string;
-    status_sebelum?: string;
-    status_sesudah?: string;
-  }>;
-  nilai_atribut?: Array<{
-    atribut_id: number;
-    atribut_nama: string;
-    tipe_isian: string;
-    satuan?: string;
-    nilai_tampil: string;
-    nilai_angka?: number;
-    opsi_id?: number;
-    nilai_teks?: string;
-  }>;
+  stok_per_kondisi?: TipeStockBreakdown;
+  sebaran_box?: TipeBoxDistribution[];
+  riwayat_terakhir?: TipeHistoryEntry[];
+  nilai_atribut?: TipeNilaiView[];
   status_stok?: 'aman' | 'menipis' | 'habis';
-  threshold?: any;
+  threshold?: ThresholdResolution;
+}
+
+export interface ListTipeOptions {
+  includeHistory?: boolean;
+  includeBoxDistribution?: boolean;
+  includeAttributes?: boolean;
+  includeStock?: boolean;
+}
+
+interface PhysicalCountRow {
+  total?: number | string;
+  rusak?: number | string;
+  baru?: number | string;
+  baik?: number | string;
+  perlu_perbaikan?: number | string;
+}
+
+interface TotalCountRow {
+  total?: number | string;
+}
+
+interface InsertResultRow {
+  insertId?: number;
+  id?: number;
+}
+
+interface TipeNilaiRow {
+  atribut_id: number;
+  atribut_nama: string;
+  tipe_isian: string;
+  satuan?: string;
+  nilai_angka?: number;
+  opsi_id?: number;
+  opsi_nilai?: string;
+  nilai_teks?: string;
 }
 
 export class CatalogService {
+  /**
+   * Helper tunggal untuk memformat nilai atribut sesuai tipe isiannya
+   */
+  private static formatAttributeValue(
+    tipeIsian: string,
+    params: {
+      nilai_angka?: number | null;
+      satuan?: string | null;
+      opsi_nilai?: string | null;
+      nilai_teks?: string | null;
+    }
+  ): string {
+    if (tipeIsian === 'angka' && typeof params.nilai_angka === 'number') {
+      return `${params.nilai_angka}${params.satuan || ''}`;
+    }
+    if (tipeIsian === 'pilihan') {
+      return (params.opsi_nilai || '').trim();
+    }
+    if (tipeIsian === 'teks') {
+      return (params.nilai_teks || '').trim();
+    }
+    return '';
+  }
+
+  /**
+   * Helper tunggal untuk menghitung stok fisik, rusak, dan breakdown kondisi per tipe
+   */
+  private static async computeTipeStockSummary(tipeId: number): Promise<TipeStockSummary> {
+    const physicalRows = await executeQuery<PhysicalCountRow>(
+      `SELECT
+         COUNT(id) as total,
+         SUM(CASE WHEN kondisi = 'Rusak' THEN 1 ELSE 0 END) as rusak,
+         SUM(CASE WHEN kondisi = 'Baru' THEN 1 ELSE 0 END) as baru,
+         SUM(CASE WHEN kondisi = 'Baik' OR kondisi IS NULL THEN 1 ELSE 0 END) as baik,
+         SUM(CASE WHEN kondisi = 'Perlu Perbaikan' THEN 1 ELSE 0 END) as perlu_perbaikan
+       FROM item
+       WHERE tipe_id = ? AND status = 'aktif'`,
+      [tipeId]
+    );
+
+    const row = physicalRows[0] || {};
+    const countPhysicalTotal = Number(row.total || 0);
+    const countRusakItem = Number(row.rusak || 0);
+    const countAvailableItem = Math.max(0, countPhysicalTotal - countRusakItem);
+
+    const sjStok = await executeQuery<TotalCountRow>(
+      `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
+      [tipeId]
+    );
+    const countSj = Number(sjStok[0]?.total || 0);
+
+    const stokTersedia = countAvailableItem + countSj;
+    return {
+      stok_tersedia: stokTersedia,
+      stok_rusak: countRusakItem,
+      stok_total: stokTersedia + countRusakItem,
+      stok_per_kondisi: {
+        baru: Number(row.baru || 0),
+        baik: Number(row.baik || 0),
+        perlu_perbaikan: Number(row.perlu_perbaikan || 0),
+        rusak: countRusakItem
+      }
+    };
+  }
+
   // ============================================================================
   // 1. JENIS
   // ============================================================================
 
   static async listJenis(): Promise<Jenis[]> {
-    const list = await executeQuery<any>(
+    const list = await executeQuery<Jenis>(
       `SELECT j.*, COUNT(p.id) as total_produk
        FROM jenis j
        LEFT JOIN produk p ON j.id = p.jenis_id AND p.aktif = 1
@@ -141,7 +261,7 @@ export class CatalogService {
   }
 
   static async getJenisById(id: number): Promise<Jenis | null> {
-    const rows = await executeQuery<any>('SELECT * FROM jenis WHERE id = ?', [id]);
+    const rows = await executeQuery<Jenis>('SELECT * FROM jenis WHERE id = ?', [id]);
     if (!rows || rows.length === 0) return null;
     const j = rows[0];
     j.atributs = await this.listAtributByJenis(id);
@@ -168,18 +288,18 @@ export class CatalogService {
     const prefixId = input.prefix_id_bawaan ? input.prefix_id_bawaan.trim() : null;
 
     return await runTransaction(async (conn) => {
-      const res = await conn.query(
+      const res = (await conn.query(
         `INSERT INTO jenis (nama, sumber_id_bawaan, prefix_id_bawaan, aktif)
          VALUES (?, ?, ?, 1)`,
         [cleanNama, sumberId, prefixId]
-      );
+      )) as InsertResultRow;
 
-      const jenisId = res.insertId || res.id;
+      const jenisId = Number(res.insertId || res.id);
 
       if (input.atributs && input.atributs.length > 0) {
         for (let i = 0; i < input.atributs.length; i++) {
           const a = input.atributs[i];
-          const aRes = await conn.query(
+          const aRes = (await conn.query(
             `INSERT INTO atribut (jenis_id, kode, nama, tipe_isian, satuan, wajib, urutan, masuk_nama)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -192,9 +312,9 @@ export class CatalogService {
               typeof a.urutan === 'number' ? a.urutan : i,
               a.masuk_nama !== false ? 1 : 0
             ]
-          );
+          )) as InsertResultRow;
 
-          const atributId = aRes.insertId || aRes.id;
+          const atributId = Number(aRes.insertId || aRes.id);
           if (a.tipe_isian === 'pilihan' && a.opsi && a.opsi.length > 0) {
             for (let j = 0; j < a.opsi.length; j++) {
               await conn.query(
@@ -244,8 +364,7 @@ export class CatalogService {
       return { success: false, message: 'Jenis tidak ditemukan.' };
     }
 
-    // Blokir jika masih punya produk aktif
-    const prods = await executeQuery<any>('SELECT id FROM produk WHERE jenis_id = ? AND aktif = 1', [id]);
+    const prods = await executeQuery<{ id: number }>('SELECT id FROM produk WHERE jenis_id = ? AND aktif = 1', [id]);
     if (prods && prods.length > 0) {
       return {
         success: false,
@@ -253,7 +372,6 @@ export class CatalogService {
       };
     }
 
-    // Pindahkan ke sampah hapus permanen 14 hari
     await TrashService.moveToTrash({
       jenis_objek: 'jenis',
       objek_id: String(id),
@@ -271,14 +389,14 @@ export class CatalogService {
   // ============================================================================
 
   static async listAtributByJenis(jenisId: number): Promise<Atribut[]> {
-    const atributs = await executeQuery<any>(
+    const atributs = await executeQuery<Atribut>(
       `SELECT * FROM atribut WHERE jenis_id = ? ORDER BY urutan ASC, id ASC`,
       [jenisId]
     );
 
     for (const a of atributs) {
       if (a.tipe_isian === 'pilihan') {
-        a.opsi = await executeQuery<any>(
+        a.opsi = await executeQuery<AtributOpsi>(
           `SELECT * FROM atribut_opsi WHERE atribut_id = ? ORDER BY urutan ASC, id ASC`,
           [a.id]
         );
@@ -305,7 +423,7 @@ export class CatalogService {
     const nama = input.nama.trim();
 
     return await runTransaction(async (conn) => {
-      const res = await conn.query(
+      const res = (await conn.query(
         `INSERT INTO atribut (jenis_id, kode, nama, tipe_isian, satuan, wajib, urutan, masuk_nama)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -318,20 +436,20 @@ export class CatalogService {
           typeof input.urutan === 'number' ? input.urutan : 0,
           input.masuk_nama !== false ? 1 : 0
         ]
-      );
+      )) as InsertResultRow;
 
-      const atributId = res.insertId || res.id;
+      const atributId = Number(res.insertId || res.id);
       const opsiList: AtributOpsi[] = [];
 
       if (input.tipe_isian === 'pilihan' && input.opsi && input.opsi.length > 0) {
         for (let i = 0; i < input.opsi.length; i++) {
           const val = input.opsi[i].trim();
           if (val) {
-            const oRes = await conn.query(
+            const oRes = (await conn.query(
               `INSERT INTO atribut_opsi (atribut_id, nilai, urutan) VALUES (?, ?, ?)`,
               [atributId, val, i]
-            );
-            opsiList.push({ id: oRes.insertId || oRes.id, atribut_id: atributId, nilai: val, urutan: i });
+            )) as InsertResultRow;
+            opsiList.push({ id: Number(oRes.insertId || oRes.id), atribut_id: atributId, nilai: val, urutan: i });
           }
         }
       }
@@ -353,8 +471,7 @@ export class CatalogService {
 
   static async addAtributOpsi(atributId: number, nilai: string): Promise<AtributOpsi> {
     const cleanNilai = nilai.trim();
-    // Cek apakah opsi sudah ada
-    const existing = await executeQuery<any>(
+    const existing = await executeQuery<AtributOpsi>(
       'SELECT * FROM atribut_opsi WHERE atribut_id = ? AND LOWER(nilai) = LOWER(?)',
       [atributId, cleanNilai]
     );
@@ -363,13 +480,13 @@ export class CatalogService {
       return existing[0];
     }
 
-    const res: any = await executeQuery(
+    const res = (await executeQuery<InsertResultRow>(
       `INSERT INTO atribut_opsi (atribut_id, nilai, urutan) VALUES (?, ?, 0)`,
       [atributId, cleanNilai]
-    );
+    )) as unknown as InsertResultRow;
 
     return {
-      id: res.insertId || res.id,
+      id: Number(res.insertId || res.id),
       atribut_id: atributId,
       nilai: cleanNilai,
       urutan: 0
@@ -388,7 +505,7 @@ export class CatalogService {
       LEFT JOIN tipe t ON p.id = t.produk_id AND t.aktif = 1
       WHERE p.aktif = 1
     `;
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (filters?.jenis_id) {
       sql += ' AND p.jenis_id = ?';
@@ -412,47 +529,26 @@ export class CatalogService {
 
     sql += ' GROUP BY p.id ORDER BY p.nama ASC';
 
-    const prods = await executeQuery<any>(sql, params);
+    const prods = await executeQuery<Produk>(sql, params);
 
     for (const p of prods) {
       const pId = Number(p.id);
       p.kategori_barang = p.kategori_barang || 'Barang Habis Pakai';
       p.tipe_stok = p.tipe_stok || 'unit';
 
-      const tipes = await executeQuery<any>('SELECT id FROM tipe WHERE produk_id = ? AND aktif = 1', [pId]);
-      let totalItemCount = 0;
-      let totalSjCount = 0;
-      let totalRusakCount = 0;
+      const tipes = await executeQuery<{ id: number }>('SELECT id FROM tipe WHERE produk_id = ? AND aktif = 1', [pId]);
+      let totalAvailable = 0;
+      let totalRusak = 0;
 
-      if (tipes && tipes.length > 0) {
-        for (const t of tipes) {
-          const tId = Number(t.id);
-
-          // Stok aktif & kondisi bukan Rusak = stok tersedia
-          const itemStok = await executeQuery<any>(
-            `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND (kondisi IS NULL OR kondisi != 'Rusak')`,
-            [tId]
-          );
-          totalItemCount += Number(itemStok[0]?.total || 0);
-
-          // Stok rusak
-          const itemRusak = await executeQuery<any>(
-            `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND kondisi = 'Rusak'`,
-            [tId]
-          );
-          totalRusakCount += Number(itemRusak[0]?.total || 0);
-
-          const sjStok = await executeQuery<any>(
-            `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
-            [tId]
-          );
-          totalSjCount += Number(sjStok[0]?.total || 0);
-        }
+      for (const t of tipes) {
+        const summary = await this.computeTipeStockSummary(Number(t.id));
+        totalAvailable += summary.stok_tersedia;
+        totalRusak += summary.stok_rusak;
       }
 
-      p.total_stok = totalItemCount + totalSjCount;
-      p.stok_rusak = totalRusakCount;
-      p.total_tipe = Number(p.total_tipe || (tipes ? tipes.length : 0));
+      p.total_stok = totalAvailable;
+      p.stok_rusak = totalRusak;
+      p.total_tipe = Number(p.total_tipe || tipes.length);
     }
 
     return prods;
@@ -483,7 +579,6 @@ export class CatalogService {
     for (const p of prods) {
       const tipes = await this.listTipeByProduk(p.id);
 
-      // Evaluasi status setiap varian berdasarkan ambang batas WA Alert (tipe > produk > global)
       let allOutOfStock = true;
       let hasLowStockOrOutOfStock = false;
 
@@ -512,8 +607,6 @@ export class CatalogService {
         productStatus = 'habis';
       } else if (hasLowStockOrOutOfStock) {
         productStatus = 'menipis';
-      } else {
-        productStatus = 'aman';
       }
 
       p.tipes = tipes;
@@ -521,7 +614,6 @@ export class CatalogService {
       p.kategori_id = p.jenis_id;
       p.kategori_nama = p.jenis_nama;
 
-      // Filter status jika diminta di parameter
       if (filters?.status && filters.status !== 'ALL') {
         const targetStatus = filters.status.toLowerCase();
         if (productStatus !== targetStatus) {
@@ -536,7 +628,7 @@ export class CatalogService {
   }
 
   static async getProdukById(id: number): Promise<Produk | null> {
-    const rows = await executeQuery<any>(
+    const rows = await executeQuery<Produk>(
       `SELECT p.*, j.nama as jenis_nama
        FROM produk p
        JOIN jenis j ON p.jenis_id = j.id
@@ -566,11 +658,11 @@ export class CatalogService {
     const tipeStok = (input.tipe_stok || 'unit').trim().toLowerCase();
     const stokAwal = Math.max(0, parseInt(String(input.stok_awal || 0), 10));
 
-    const res: any = await executeQuery(
+    const res = (await executeQuery<InsertResultRow>(
       `INSERT INTO produk (jenis_id, nama, kategori, kategori_barang, tipe_stok, catatan, aktif, dibuat_oleh)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
       [input.jenis_id, cleanNama, input.kategori, kategoriBarang, tipeStok, input.catatan || null, userId]
-    );
+    )) as unknown as InsertResultRow;
 
     const prodId = Number(res.insertId || res.id);
 
@@ -581,25 +673,21 @@ export class CatalogService {
     });
 
     if (stokAwal > 0) {
-      // Buat varian default Tipe
-      const tRes: any = await executeQuery(
+      const tRes = (await executeQuery<InsertResultRow>(
         `INSERT INTO tipe (produk_id, nama_tipe, mode_stok, sumber_id, id_dikunci, aktif)
          VALUES (?, 'Standar', 'jumlah', 'tanpa_id', 0, 1)`,
         [prodId]
-      );
+      )) as unknown as InsertResultRow;
       const tipeId = Number(tRes.insertId || tRes.id);
 
-      // Cari atau gunakan box default
-      const boxes = await executeQuery<any>('SELECT id FROM box WHERE kode = "BOX-A-01"');
+      const boxes = await executeQuery<{ id: string }>('SELECT id FROM box WHERE kode = "BOX-A-01"');
       const boxId = boxes && boxes.length > 0 ? boxes[0].id : 'box-1';
 
-      // Insert stok_jumlah
       await executeQuery(
         `INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)`,
         [tipeId, boxId, stokAwal]
       );
 
-      // Catat transaksi mutasi SALDO_AWAL dengan snapshot
       const txId = `tx-saldo-awal-${prodId}-${Date.now()}`;
       await executeQuery(
         `INSERT INTO transactions (
@@ -660,11 +748,12 @@ export class CatalogService {
   }
 
   static async getTipeStokSuggestions(): Promise<string[]> {
-    const rows = await executeQuery<any>('SELECT DISTINCT tipe_stok FROM produk WHERE tipe_stok IS NOT NULL AND tipe_stok != ""');
-    const existing = rows.map((r: any) => String(r.tipe_stok).toLowerCase().trim());
+    const rows = await executeQuery<{ tipe_stok: string }>(
+      'SELECT DISTINCT tipe_stok FROM produk WHERE tipe_stok IS NOT NULL AND tipe_stok != ""'
+    );
+    const existing = rows.map(r => String(r.tipe_stok).toLowerCase().trim());
     const defaults = ['unit', 'roll', 'pcs', 'meter', 'box', 'pack', 'set'];
-    const combined = Array.from(new Set([...defaults, ...existing]));
-    return combined;
+    return Array.from(new Set([...defaults, ...existing]));
   }
 
   static async deleteProduk(id: number, userId: string): Promise<{ success: boolean; message: string }> {
@@ -673,7 +762,6 @@ export class CatalogService {
       return { success: false, message: 'Produk tidak ditemukan.' };
     }
 
-    // Pindahkan ke tempat sampah hapus permanen 14 hari
     await TrashService.moveToTrash({
       jenis_objek: 'produk',
       objek_id: String(id),
@@ -695,8 +783,6 @@ export class CatalogService {
    */
   static generateTipeName(atributs: Atribut[], values: NilaiAtributInput[]): string {
     const nameParts: string[] = [];
-
-    // Urutkan atribut berdasarkan 'urutan' ASC
     const sortedAtributs = [...atributs].sort((a, b) => a.urutan - b.urutan);
 
     for (const a of sortedAtributs) {
@@ -705,28 +791,75 @@ export class CatalogService {
       const val = values.find(v => v.atribut_id === a.id);
       if (!val) continue;
 
-      if (a.tipe_isian === 'angka' && typeof val.nilai_angka === 'number') {
-        const satuan = a.satuan ? `${a.satuan}` : '';
-        nameParts.push(`${val.nilai_angka}${satuan}`);
-      } else if (a.tipe_isian === 'pilihan') {
-        if (val.opsi_baru) {
-          nameParts.push(val.opsi_baru.trim());
-        } else if (val.opsi_id && a.opsi) {
-          const matchedOpsi = a.opsi.find(o => o.id === val.opsi_id);
-          if (matchedOpsi) {
-            nameParts.push(matchedOpsi.nilai.trim());
-          }
-        }
-      } else if (a.tipe_isian === 'teks' && val.nilai_teks) {
-        nameParts.push(val.nilai_teks.trim());
+      const opsiNilai = val.opsi_baru
+        || (val.opsi_id && a.opsi ? a.opsi.find(o => o.id === val.opsi_id)?.nilai : undefined)
+        || null;
+
+      const formatted = this.formatAttributeValue(a.tipe_isian, {
+        nilai_angka: val.nilai_angka,
+        satuan: a.satuan,
+        opsi_nilai: opsiNilai,
+        nilai_teks: val.nilai_teks
+      });
+      if (formatted) {
+        nameParts.push(formatted);
       }
     }
 
     return nameParts.length > 0 ? nameParts.join(' / ') : 'Standar';
   }
 
-  static async listTipeByProduk(produkId: number): Promise<Tipe[]> {
-    const tipes = await executeQuery<any>(
+  private static async getBoxDistributionForTipe(tipeId: number): Promise<TipeBoxDistribution[]> {
+    const itemBoxes = await executeQuery<TipeBoxDistribution>(
+      `SELECT b.id as box_id, b.kode as box_kode, b.keterangan as box_keterangan, COUNT(i.id) as jumlah
+       FROM item i
+       JOIN box b ON i.box_id = b.id
+       WHERE i.tipe_id = ? AND i.status = 'aktif'
+       GROUP BY b.id, b.kode, b.keterangan`,
+      [tipeId]
+    );
+
+    const sjBoxes = await executeQuery<TipeBoxDistribution>(
+      `SELECT b.id as box_id, b.kode as box_kode, b.keterangan as box_keterangan, sj.jumlah
+       FROM stok_jumlah sj
+       JOIN box b ON sj.box_id = b.id
+       WHERE sj.tipe_id = ? AND sj.jumlah > 0`,
+      [tipeId]
+    );
+
+    const boxMap: Record<string, TipeBoxDistribution> = {};
+    for (const ib of itemBoxes) {
+      boxMap[ib.box_id] = {
+        box_id: ib.box_id,
+        box_kode: ib.box_kode,
+        box_keterangan: ib.box_keterangan,
+        jumlah: Number(ib.jumlah)
+      };
+    }
+    for (const sb of sjBoxes) {
+      if (boxMap[sb.box_id]) {
+        boxMap[sb.box_id].jumlah += Number(sb.jumlah);
+      } else {
+        boxMap[sb.box_id] = {
+          box_id: sb.box_id,
+          box_kode: sb.box_kode,
+          box_keterangan: sb.box_keterangan,
+          jumlah: Number(sb.jumlah)
+        };
+      }
+    }
+    return Object.values(boxMap);
+  }
+
+  static async listTipeByProduk(produkId: number, options: ListTipeOptions = {}): Promise<Tipe[]> {
+    const {
+      includeHistory = true,
+      includeBoxDistribution = true,
+      includeAttributes = true,
+      includeStock = true
+    } = options;
+
+    const tipes = await executeQuery<Tipe>(
       `SELECT t.*, p.nama as produk_nama, j.nama as jenis_nama
        FROM tipe t
        JOIN produk p ON t.produk_id = p.id
@@ -737,97 +870,41 @@ export class CatalogService {
     );
 
     for (const t of tipes) {
-      t.nilai_atribut = await this.getNilaiAtributTipe(t.id);
-
-      // Hitung total stok (item fisik per kondisi + stok jumlah)
-      const itemStokAvailable = await executeQuery<any>(
-        `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND (kondisi IS NULL OR kondisi != 'Rusak')`,
-        [t.id]
-      );
-      const countAvailableItem = Number(itemStokAvailable[0]?.total || 0);
-
-      const itemStokRusak = await executeQuery<any>(
-        `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'aktif' AND kondisi = 'Rusak'`,
-        [t.id]
-      );
-      const countRusakItem = Number(itemStokRusak[0]?.total || 0);
-
-      const itemConditionBreakdown = await executeQuery<any>(
-        `SELECT COALESCE(kondisi, 'Baik') as kondisi_name, COUNT(id) as total
-         FROM item WHERE tipe_id = ? AND status = 'aktif'
-         GROUP BY COALESCE(kondisi, 'Baik')`,
-        [t.id]
-      );
-
-      const breakdown = { baru: 0, baik: 0, perlu_perbaikan: 0, rusak: 0 };
-      itemConditionBreakdown.forEach((r: any) => {
-        const k = String(r.kondisi_name).toLowerCase().replace(/ /g, '_');
-        if (k in breakdown) {
-          (breakdown as any)[k] = Number(r.total || 0);
-        }
-      });
-
-      const sjStok = await executeQuery<any>(
-        `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
-        [t.id]
-      );
-      const countSj = Number(sjStok[0]?.total || 0);
-
-      t.stok_tersedia = countAvailableItem + countSj;
-      t.stok_rusak = countRusakItem;
-      t.stok_total = t.stok_tersedia + t.stok_rusak;
-      t.stok_per_kondisi = breakdown;
-
-      // Sebaran box per tipe
-      const itemBoxes = await executeQuery<any>(
-        `SELECT b.id as box_id, b.kode as box_kode, b.keterangan as box_keterangan, COUNT(i.id) as jumlah
-         FROM item i
-         JOIN box b ON i.box_id = b.id
-         WHERE i.tipe_id = ? AND i.status = 'aktif'
-         GROUP BY b.id, b.kode, b.keterangan`,
-        [t.id]
-      );
-
-      const sjBoxes = await executeQuery<any>(
-        `SELECT b.id as box_id, b.kode as box_kode, b.keterangan as box_keterangan, sj.jumlah
-         FROM stok_jumlah sj
-         JOIN box b ON sj.box_id = b.id
-         WHERE sj.tipe_id = ? AND sj.jumlah > 0`,
-        [t.id]
-      );
-
-      const boxMap: { [boxId: string]: { box_id: string; box_kode: string; box_keterangan?: string; jumlah: number } } = {};
-      for (const ib of itemBoxes) {
-        boxMap[ib.box_id] = { box_id: ib.box_id, box_kode: ib.box_kode, box_keterangan: ib.box_keterangan, jumlah: Number(ib.jumlah) };
+      if (includeAttributes) {
+        t.nilai_atribut = await this.getNilaiAtributTipe(t.id);
       }
-      for (const sb of sjBoxes) {
-        if (boxMap[sb.box_id]) {
-          boxMap[sb.box_id].jumlah += Number(sb.jumlah);
-        } else {
-          boxMap[sb.box_id] = { box_id: sb.box_id, box_kode: sb.box_kode, box_keterangan: sb.box_keterangan, jumlah: Number(sb.jumlah) };
-        }
-      }
-      t.sebaran_box = Object.values(boxMap);
 
-      // Riwayat transaksi terakhir (dibaca langsung dari log transaksi)
-      const historyLogs = await executeQuery<any>(
-        `SELECT tr.id_aktivitas, tr.aksi, tr.waktu, tr.catatan, u.name as nama_pelaku, td.jumlah, td.kode_id, td.status_sebelum, td.status_sesudah
-         FROM transaksi_detail td
-         JOIN transaksi tr ON td.transaksi_id = tr.id
-         LEFT JOIN users u ON tr.pelaku_id = u.id
-         WHERE td.tipe_id = ?
-         ORDER BY tr.waktu DESC
-         LIMIT 5`,
-        [t.id]
-      );
-      t.riwayat_terakhir = historyLogs;
+      if (includeStock) {
+        const stockSummary = await this.computeTipeStockSummary(t.id);
+        t.stok_tersedia = stockSummary.stok_tersedia;
+        t.stok_rusak = stockSummary.stok_rusak;
+        t.stok_total = stockSummary.stok_total;
+        t.stok_per_kondisi = stockSummary.stok_per_kondisi;
+      }
+
+      if (includeBoxDistribution) {
+        t.sebaran_box = await this.getBoxDistributionForTipe(t.id);
+      }
+
+      if (includeHistory) {
+        t.riwayat_terakhir = await executeQuery<TipeHistoryEntry>(
+          `SELECT tr.id_aktivitas, tr.aksi, tr.waktu, tr.catatan, u.name as nama_pelaku, td.jumlah, td.kode_id, td.status_sebelum, td.status_sesudah
+           FROM transaksi_detail td
+           JOIN transaksi tr ON td.transaksi_id = tr.id
+           LEFT JOIN users u ON tr.pelaku_id = u.id
+           WHERE td.tipe_id = ?
+           ORDER BY tr.waktu DESC
+           LIMIT 5`,
+          [t.id]
+        );
+      }
     }
 
     return tipes;
   }
 
   static async getTipeById(id: number): Promise<Tipe | null> {
-    const rows = await executeQuery<any>(
+    const rows = await executeQuery<Tipe>(
       `SELECT t.*, p.nama as produk_nama, j.nama as jenis_nama
        FROM tipe t
        JOIN produk p ON t.produk_id = p.id
@@ -840,46 +917,17 @@ export class CatalogService {
     const t = rows[0];
     t.nilai_atribut = await this.getNilaiAtributTipe(id);
 
-    // Hitung stok fisik dan breakdown kondisi (Paket 4)
-    const physicalRows = await executeQuery<any>(
-      `SELECT
-         COUNT(id) as total,
-         SUM(CASE WHEN kondisi = 'Rusak' THEN 1 ELSE 0 END) as rusak,
-         SUM(CASE WHEN kondisi = 'Baru' THEN 1 ELSE 0 END) as baru,
-         SUM(CASE WHEN kondisi = 'Baik' THEN 1 ELSE 0 END) as baik,
-         SUM(CASE WHEN kondisi = 'Perlu Perbaikan' THEN 1 ELSE 0 END) as perlu_perbaikan
-       FROM item
-       WHERE tipe_id = ? AND status = 'aktif'`,
-      [t.id]
-    );
-
-    const countPhysicalTotal = Number(physicalRows[0]?.total || 0);
-    const countRusakItem = Number(physicalRows[0]?.rusak || 0);
-    const countAvailableItem = countPhysicalTotal - countRusakItem;
-
-    const breakdown = {
-      baru: Number(physicalRows[0]?.baru || 0),
-      baik: Number(physicalRows[0]?.baik || 0),
-      perlu_perbaikan: Number(physicalRows[0]?.perlu_perbaikan || 0),
-      rusak: countRusakItem
-    };
-
-    const sjStok = await executeQuery<any>(
-      `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
-      [t.id]
-    );
-    const countSj = Number(sjStok[0]?.total || 0);
-
-    t.stok_tersedia = countAvailableItem + countSj;
-    t.stok_rusak = countRusakItem;
-    t.stok_total = t.stok_tersedia + t.stok_rusak;
-    t.stok_per_kondisi = breakdown;
+    const stockSummary = await this.computeTipeStockSummary(t.id);
+    t.stok_tersedia = stockSummary.stok_tersedia;
+    t.stok_rusak = stockSummary.stok_rusak;
+    t.stok_total = stockSummary.stok_total;
+    t.stok_per_kondisi = stockSummary.stok_per_kondisi;
 
     return t;
   }
 
-  static async getNilaiAtributTipe(tipeId: number) {
-    const rows = await executeQuery<any>(
+  static async getNilaiAtributTipe(tipeId: number): Promise<TipeNilaiView[]> {
+    const rows = await executeQuery<TipeNilaiRow>(
       `SELECT tn.*, a.nama as atribut_nama, a.tipe_isian, a.satuan, ao.nilai as opsi_nilai
        FROM tipe_nilai tn
        JOIN atribut a ON tn.atribut_id = a.id
@@ -889,26 +937,21 @@ export class CatalogService {
       [tipeId]
     );
 
-    return rows.map(r => {
-      let nilaiTampil = '';
-      if (r.tipe_isian === 'angka') {
-        nilaiTampil = `${r.nilai_angka}${r.satuan || ''}`;
-      } else if (r.tipe_isian === 'pilihan') {
-        nilaiTampil = r.opsi_nilai || '';
-      } else {
-        nilaiTampil = r.nilai_teks || '';
-      }
-      return {
-        atribut_id: r.atribut_id,
-        atribut_nama: r.atribut_nama,
-        tipe_isian: r.tipe_isian,
-        satuan: r.satuan,
-        nilai_tampil: nilaiTampil,
+    return rows.map(r => ({
+      atribut_id: r.atribut_id,
+      atribut_nama: r.atribut_nama,
+      tipe_isian: r.tipe_isian,
+      satuan: r.satuan,
+      nilai_tampil: this.formatAttributeValue(r.tipe_isian, {
         nilai_angka: r.nilai_angka,
-        opsi_id: r.opsi_id,
+        satuan: r.satuan,
+        opsi_nilai: r.opsi_nilai,
         nilai_teks: r.nilai_teks
-      };
-    });
+      }),
+      nilai_angka: r.nilai_angka,
+      opsi_id: r.opsi_id,
+      nilai_teks: r.nilai_teks
+    }));
   }
 
   static async createTipe(input: {
@@ -931,9 +974,9 @@ export class CatalogService {
       if (a.wajib) {
         const val = input.nilai_atribut.find(v => v.atribut_id === a.id);
         const hasVal = val && (
-          val.nilai_angka !== undefined || 
-          val.opsi_id !== undefined || 
-          (val.opsi_baru && val.opsi_baru.trim().length > 0) || 
+          val.nilai_angka !== undefined ||
+          val.opsi_id !== undefined ||
+          (val.opsi_baru && val.opsi_baru.trim().length > 0) ||
           (val.nilai_teks && val.nilai_teks.trim().length > 0)
         );
         if (!hasVal) {
@@ -954,7 +997,7 @@ export class CatalogService {
     const autoName = this.generateTipeName(atributs, input.nilai_atribut);
 
     // Cek duplikasi nama tipe di produk yang sama
-    const duplicate = await executeQuery<any>(
+    const duplicate = await executeQuery<{ id: number }>(
       'SELECT id FROM tipe WHERE produk_id = ? AND nama_tipe = ? AND aktif = 1',
       [input.produk_id, autoName]
     );
@@ -962,12 +1005,11 @@ export class CatalogService {
       throw new Error(`Tipe "${autoName}" sudah terdaftar untuk produk "${prod.nama}".`);
     }
 
-    // Tentukan sumber_id dan mode_stok
     const sumberId = input.sumber_id || 'manual';
     const modeStok = sumberId === 'tanpa_id' ? 'jumlah' : 'per_id';
 
     return await runTransaction(async (conn) => {
-      const res = await conn.query(
+      const res = (await conn.query(
         `INSERT INTO tipe (produk_id, nama_tipe, catatan, sumber_id, mode_stok, prefix_id, pola_id, id_dikunci, aktif)
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)`,
         [
@@ -979,11 +1021,10 @@ export class CatalogService {
           input.prefix_id || null,
           input.pola_id || null
         ]
-      );
+      )) as InsertResultRow;
 
-      const tipeId = res.insertId || res.id;
+      const tipeId = Number(res.insertId || res.id);
 
-      // Masukkan baris tipe_nilai
       for (const v of input.nilai_atribut) {
         await conn.query(
           `INSERT INTO tipe_nilai (tipe_id, atribut_id, nilai_angka, opsi_id, nilai_teks)
@@ -1057,7 +1098,12 @@ export class CatalogService {
       const pItems: Array<[string, string]> = [];
 
       for (const p of prods) {
-        const tipes = await this.listTipeByProduk(p.id);
+        const tipes = await this.listTipeByProduk(p.id, {
+          includeAttributes: false,
+          includeStock: false,
+          includeBoxDistribution: false,
+          includeHistory: false
+        });
         for (const t of tipes) {
           pItems.push([p.nama, t.nama_tipe]);
         }
@@ -1075,4 +1121,3 @@ export class CatalogService {
     return result;
   }
 }
-

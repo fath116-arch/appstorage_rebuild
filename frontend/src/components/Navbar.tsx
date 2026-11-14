@@ -4,15 +4,16 @@
  */
 
 import React, { useState } from 'react';
-import { useInventory } from '../context/InventoryContext';
+import { TabType, useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
-import { 
-  Package, 
-  ArrowLeftRight, 
-  FileText, 
-  Boxes, 
-  Webhook, 
-  ChevronDown, 
+import { useToast } from '../context/ToastContext';
+import {
+  Package,
+  ArrowLeftRight,
+  FileText,
+  Boxes,
+  Webhook,
+  ChevronDown,
   ChevronRight,
   RotateCcw,
   Download,
@@ -25,15 +26,15 @@ import {
   Wrench,
   Database,
   LogOut,
-  Sun,
-  Moon,
-  Monitor,
   MessageSquare,
-  Printer
+  Printer,
+  LucideIcon
 } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
 import { exportInventoryToExcel } from '../utils/excelExporter';
 import { PWAInstallButton } from './PWAInstallButton';
+import { ThemeSelector } from './ThemeSelector';
+import { isAdminOrDev } from '../utils/permissions';
+import { getErrorMessage } from '../utils/errorUtils';
 
 interface NavbarProps {
   onOpenChecklist: () => void;
@@ -48,9 +49,38 @@ interface NavbarProps {
   onOpenSNPatterns?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ 
-  onOpenChecklist, 
-  onOpenUserModal, 
+interface NavTabConfig {
+  id: TabType;
+  label: string;
+  mobileLabel: string;
+  icon: LucideIcon;
+  showOnDesktop: boolean;
+  showOnMobile: boolean;
+}
+
+interface ToolsItemConfig {
+  id: string;
+  label: string;
+  masterLabel?: string;
+  icon: LucideIcon;
+  iconColorClass: string;
+  masterTextClass: string;
+  adminOnly?: boolean;
+  onClick: () => void;
+  visible?: boolean;
+}
+
+const PRIMARY_TABS: NavTabConfig[] = [
+  { id: 'dashboard', label: 'Dashboard', mobileLabel: 'Dashboard', icon: LayoutDashboard, showOnDesktop: true, showOnMobile: true },
+  { id: 'catalog', label: 'Katalog', mobileLabel: 'Katalog', icon: Package, showOnDesktop: true, showOnMobile: true },
+  { id: 'inout', label: 'Masuk/Keluar', mobileLabel: 'Masuk/Keluar', icon: ArrowLeftRight, showOnDesktop: true, showOnMobile: true },
+  { id: 'weekly-report', label: 'Laporan', mobileLabel: 'Laporan', icon: FileText, showOnDesktop: true, showOnMobile: true },
+  { id: 'integration', label: 'Integrasi', mobileLabel: 'Integrasi', icon: Webhook, showOnDesktop: false, showOnMobile: true },
+];
+
+export const Navbar: React.FC<NavbarProps> = ({
+  onOpenChecklist,
+  onOpenUserModal,
   onOpenDownload,
   onOpenGoLive,
   onOpenMobileAccess,
@@ -60,25 +90,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenLabelPrint,
   onOpenSNPatterns
 }) => {
-  const { 
-    activeTab, 
-    setActiveTab, 
-    items,
-    refreshData,
-    showToast,
-    VERSION,
-  } = useInventory();
+  const { activeTab, setActiveTab, items, refreshData, VERSION } = useInventory();
+  const { showToast } = useToast();
   const { user, logout } = useAuth();
-  const { themeMode, setThemeMode } = useTheme();
 
-  const isDevOrAdmin = user?.role === 'developer' || user?.role === 'admin';
+  const isDevOrAdmin = isAdminOrDev(user?.role);
 
-  // Dropdown states
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
-  // Expanded sub-dropdown sections in master menu
   const [expandedSections, setExpandedSections] = useState<{ [key: string]: boolean }>({
     stok: true,
     laporan: true,
@@ -93,7 +114,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     }));
   };
 
-  // Calculate low & out of stock
   const lowOrOutCount = items.filter(i => i.quantity <= (i.min_stock_alert ?? i.minStockAlert ?? 0)).length;
 
   const closeAllDropdowns = () => {
@@ -111,10 +131,110 @@ export const Navbar: React.FC<NavbarProps> = ({
     try {
       await refreshData();
       showToast('Data inventori berhasil disinkronkan dari MariaDB.', 'success');
-    } catch (e: any) {
-      showToast('Gagal menyinkronkan data: ' + e.message, 'error');
+    } catch (e: unknown) {
+      showToast('Gagal menyinkronkan data: ' + getErrorMessage(e), 'error');
     }
   };
+
+  const stockGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string; showBadge?: boolean }> = [
+    { id: 'catalog', label: 'Katalog Inventaris', icon: Package, iconClass: 'text-blue-600 dark:text-blue-400', showBadge: true },
+    { id: 'inout', label: 'Barang Masuk / Keluar', icon: ArrowLeftRight, iconClass: 'text-emerald-600 dark:text-emerald-400' },
+    { id: 'categories', label: 'Kategori & Lokasi Rak', icon: Boxes, iconClass: 'text-purple-600 dark:text-purple-400' },
+  ];
+
+  const reportGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string }> = [
+    { id: 'weekly-report', label: 'Laporan Pergerakan Mingguan', icon: FileText, iconClass: 'text-indigo-600 dark:text-indigo-400' },
+    { id: 'integration', label: 'Integrasi Tiket Lapangan', icon: Webhook, iconClass: 'text-teal-600 dark:text-teal-400' },
+  ];
+
+  const toolsItems: ToolsItemConfig[] = [
+    {
+      id: 'restore',
+      label: 'Database & Restore',
+      masterLabel: 'Data Backup & Restore',
+      icon: Database,
+      iconColorClass: 'text-blue-600 dark:text-blue-400',
+      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
+      adminOnly: true,
+      visible: Boolean(onOpenRestore),
+      onClick: () => onOpenRestore?.()
+    },
+    {
+      id: 'audit',
+      label: 'Laporan Keamanan Audit',
+      icon: ShieldCheck,
+      iconColorClass: 'text-amber-600 dark:text-amber-400',
+      masterTextClass: 'text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-slate-700/60',
+      adminOnly: true,
+      onClick: () => onOpenSecurityReport?.()
+    },
+    {
+      id: 'whatsapp',
+      label: 'Notifikasi WA Alert',
+      masterLabel: 'Notifikasi WA Stok Menipis',
+      icon: MessageSquare,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
+      onClick: () => onOpenWhatsApp?.()
+    },
+    {
+      id: 'mobile',
+      label: 'Akses HP & Cloudflare',
+      masterLabel: 'Panduan Cloudflare & Akses HP',
+      icon: Smartphone,
+      iconColorClass: 'text-teal-600 dark:text-teal-400',
+      masterTextClass: 'text-teal-800 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-slate-700/60',
+      onClick: onOpenMobileAccess
+    },
+    {
+      id: 'excel',
+      label: 'Ekspor Katalog Excel (.xlsx)',
+      icon: FileSpreadsheet,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
+      onClick: handleExportExcelQuick
+    },
+    {
+      id: 'label',
+      label: 'Cetak Label Batch A4',
+      icon: Printer,
+      iconColorClass: 'text-indigo-600 dark:text-indigo-400',
+      masterTextClass: 'text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700/60',
+      onClick: () => onOpenLabelPrint?.()
+    },
+    {
+      id: 'sn-patterns',
+      label: 'Pengaturan Pola SN',
+      icon: Package,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
+      onClick: () => onOpenSNPatterns?.()
+    }
+  ];
+
+  const visibleToolsItems = toolsItems.filter(item => {
+    if (item.adminOnly && !isDevOrAdmin) return false;
+    if (item.visible === false) return false;
+    return true;
+  });
+
+  const masterAlatItems = [
+    ...visibleToolsItems.filter(t => t.id !== 'sn-patterns' && t.id !== 'restore'),
+    {
+      id: 'download',
+      label: 'Download Source Code (.ZIP)',
+      masterLabel: 'Download Source Code (.ZIP)',
+      icon: Download,
+      iconColorClass: 'text-blue-600 dark:text-blue-400',
+      masterTextClass: 'text-blue-800 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-700/60',
+      onClick: onOpenDownload
+    },
+    ...visibleToolsItems.filter(t => t.id === 'restore').map(item => ({
+      ...item,
+      icon: RotateCcw,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400'
+    }))
+  ];
 
   return (
     <>
@@ -122,7 +242,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       <header className="no-print sticky top-0 z-30 glass border-b border-slate-200/60 dark:border-slate-800/80 shadow-xs transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
-            
+
             {/* Zone 1: Interactive Brand Logo & Full Name (Triggers Master Dropdown Menu on Click) */}
             <div className="relative">
               <button
@@ -135,21 +255,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 aria-label="Buka Menu Dropdown Aplikasi FieldOps IT"
                 title="Klik untuk membuka Menu Navigasi & Kelompok Fitur"
               >
-                {/* Kotak Logo: Persegi bersudut membulat dengan latar terang agar logo kubus kontras di tema gelap & terang */}
                 <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white dark:bg-slate-100 border border-slate-200/90 dark:border-slate-300/50 shadow-xs flex items-center justify-center p-1 overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
-                  <img 
-                    src="/logo.webp" 
-                    alt="FieldOps IT Logo" 
-                    className="w-full h-full object-contain" 
+                  <img
+                    src="/logo.webp"
+                    alt="FieldOps IT Logo"
+                    className="w-full h-full object-contain"
                   />
                 </div>
 
-                {/* Teks FieldOps IT (Tebal, disembunyikan di layar sempit / HP) */}
                 <span className="hidden sm:inline-block font-extrabold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight leading-none font-display">
                   FieldOps IT
                 </span>
 
-                {/* Ikon panah dropdown (chevron abu-abu di kanannya) */}
                 <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${appMenuOpen ? 'rotate-180 text-slate-900 dark:text-white' : 'group-hover:text-slate-700 dark:group-hover:text-slate-300'}`} />
               </button>
 
@@ -158,7 +275,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <>
                   <div className="fixed inset-0 z-40" onClick={closeAllDropdowns} />
                   <div className="absolute left-0 mt-2 w-80 sm:w-88 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 transition-colors">
-                    
+
                     {/* Header Banner inside Dropdown */}
                     <div className="bg-slate-900 text-white p-3.5 flex flex-col gap-2">
                       <div className="flex items-center justify-between">
@@ -179,7 +296,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                     {/* Scrollable Sub-dropdown List */}
                     <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1 divide-y divide-slate-200 dark:divide-slate-700/60">
-                      
+
                       {/* Direct Link: Dashboard Utama */}
                       <div className="pb-1">
                         <button
@@ -226,42 +343,29 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                         {expandedSections.stok && (
                           <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1 animate-in fade-in duration-150">
-                            <button
-                              onClick={() => { setActiveTab('catalog'); closeAllDropdowns(); }}
-                              className={`w-full text-left p-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                                activeTab === 'catalog' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <Package className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                                <span>Katalog Inventaris</span>
-                              </div>
-                              {lowOrOutCount > 0 && (
-                                <span className="text-[10px] font-mono font-bold bg-amber-500 text-white px-1.5 py-0.2 rounded-full">
-                                  {lowOrOutCount} alert
-                                </span>
-                              )}
-                            </button>
-
-                            <button
-                              onClick={() => { setActiveTab('inout'); closeAllDropdowns(); }}
-                              className={`w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 transition-colors ${
-                                activeTab === 'inout' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
-                              }`}
-                            >
-                              <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Barang Masuk / Keluar</span>
-                            </button>
-
-                            <button
-                              onClick={() => { setActiveTab('categories'); closeAllDropdowns(); }}
-                              className={`w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 transition-colors ${
-                                activeTab === 'categories' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
-                              }`}
-                            >
-                              <Boxes className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                              <span>Kategori &amp; Lokasi Rak</span>
-                            </button>
+                            {stockGroupLinks.map((link) => {
+                              const Icon = link.icon;
+                              const isActive = activeTab === link.id;
+                              return (
+                                <button
+                                  key={link.id}
+                                  onClick={() => { setActiveTab(link.id); closeAllDropdowns(); }}
+                                  className={`w-full text-left p-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                                    isActive ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Icon className={`w-3.5 h-3.5 ${link.iconClass}`} />
+                                    <span>{link.label}</span>
+                                  </div>
+                                  {link.showBadge && lowOrOutCount > 0 && (
+                                    <span className="text-[10px] font-mono font-bold bg-amber-500 text-white px-1.5 py-0.2 rounded-full">
+                                      {lowOrOutCount} alert
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -285,25 +389,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                         {expandedSections.laporan && (
                           <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1 animate-in fade-in duration-150">
-                            <button
-                              onClick={() => { setActiveTab('weekly-report'); closeAllDropdowns(); }}
-                              className={`w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 transition-colors ${
-                                activeTab === 'weekly-report' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
-                              }`}
-                            >
-                              <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                              <span>Laporan Pergerakan Mingguan</span>
-                            </button>
-
-                            <button
-                              onClick={() => { setActiveTab('integration'); closeAllDropdowns(); }}
-                              className={`w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 transition-colors ${
-                                activeTab === 'integration' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
-                              }`}
-                            >
-                              <Webhook className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                              <span>Integrasi Tiket Lapangan</span>
-                            </button>
+                            {reportGroupLinks.map((link) => {
+                              const Icon = link.icon;
+                              const isActive = activeTab === link.id;
+                              return (
+                                <button
+                                  key={link.id}
+                                  onClick={() => { setActiveTab(link.id); closeAllDropdowns(); }}
+                                  className={`w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 transition-colors ${
+                                    isActive ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                                  }`}
+                                >
+                                  <Icon className={`w-3.5 h-3.5 ${link.iconClass}`} />
+                                  <span>{link.label}</span>
+                                </button>
+                              );
+                            })}
 
                             <button
                               onClick={() => { closeAllDropdowns(); onOpenChecklist(); }}
@@ -335,65 +436,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                         {expandedSections.alat && (
                           <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1 animate-in fade-in duration-150">
-                            {isDevOrAdmin && (
-                              <button
-                                onClick={() => { closeAllDropdowns(); onOpenSecurityReport?.(); }}
-                                className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-slate-700/60 font-medium"
-                              >
-                                <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                                <span>Laporan Keamanan Audit</span>
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => { closeAllDropdowns(); onOpenWhatsApp?.(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60 font-medium"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Notifikasi WA Stok Menipis</span>
-                            </button>
-
-                            <button
-                              onClick={() => { closeAllDropdowns(); handleExportExcelQuick(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60 font-medium"
-                            >
-                              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Ekspor Katalog Excel (.xlsx)</span>
-                            </button>
-
-                            <button
-                              onClick={() => { closeAllDropdowns(); onOpenLabelPrint?.(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700/60 font-medium"
-                            >
-                              <Printer className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                              <span>Cetak Label Batch A4</span>
-                            </button>
-
-                            <button
-                              onClick={() => { closeAllDropdowns(); onOpenMobileAccess(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-teal-800 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-slate-700/60 font-medium"
-                            >
-                              <Smartphone className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                              <span>Panduan Cloudflare &amp; Akses HP</span>
-                            </button>
-
-                            <button
-                              onClick={() => { closeAllDropdowns(); onOpenDownload(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-blue-800 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-700/60 font-medium"
-                            >
-                              <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                              <span>Download Source Code (.ZIP)</span>
-                            </button>
-
-                            {isDevOrAdmin && onOpenRestore && (
-                              <button
-                                onClick={() => { closeAllDropdowns(); onOpenRestore(); }}
-                                className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60 font-medium"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                <span>Data Backup &amp; Restore</span>
-                              </button>
-                            )}
+                            {masterAlatItems.map((item) => {
+                              const Icon = item.icon;
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => { closeAllDropdowns(); item.onClick(); }}
+                                  className={`w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 font-medium ${item.masterTextClass}`}
+                                >
+                                  <Icon className={`w-3.5 h-3.5 ${item.iconColorClass}`} />
+                                  <span>{item.masterLabel || item.label}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -457,53 +512,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
 
                     {/* Theme Selector Section inside Dropdown */}
-                    <div className="px-3 py-2 bg-slate-50/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-700">
-                      <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                        <span>Pilih Mode Tampilan (Theme)</span>
-                        <span className="font-mono text-[9px] text-slate-500 dark:text-slate-400 bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 rounded font-semibold capitalize">{themeMode}</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1 bg-slate-200/80 dark:bg-slate-950 p-1 rounded-xl text-xs font-medium">
-                        <button
-                          type="button"
-                          onClick={() => setThemeMode('light')}
-                          className={`py-1 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                            themeMode === 'light'
-                              ? 'bg-white text-slate-900 font-bold shadow-xs'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                          }`}
-                          title="Mode Terang (Light Mode)"
-                        >
-                          <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                          <span>Terang</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setThemeMode('dark')}
-                          className={`py-1 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                            themeMode === 'dark'
-                              ? 'bg-slate-900 text-white font-bold shadow-xs'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                          }`}
-                          title="Mode Gelap (Dark Mode)"
-                        >
-                          <Moon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                          <span>Gelap</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setThemeMode('system')}
-                          className={`py-1 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                            themeMode === 'system'
-                              ? 'bg-white text-slate-900 font-bold shadow-xs'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                          }`}
-                          title="Ikuti Sistem Perangkat (System)"
-                        >
-                          <Monitor className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                          <span>Sistem</span>
-                        </button>
-                      </div>
-                    </div>
+                    <ThemeSelector variant="default" />
 
                     {/* Sub Dropdown Footer Area: VERSION INFO AT THE VERY BOTTOM */}
                     <div className="bg-slate-50 dark:bg-slate-900 p-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
@@ -536,64 +545,35 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Zone 2: Quick Desktop Nav Links */}
             <nav className="hidden xl:flex items-center gap-2 text-xs font-semibold">
-              <button
-                onClick={() => { setActiveTab('dashboard'); closeAllDropdowns(); }}
-                className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all ${
-                  activeTab === 'dashboard'
-                    ? 'bg-slate-900 text-white dark:bg-emerald-600 shadow-sm font-bold'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-900/10 dark:hover:bg-slate-800'
-                }`}
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>Dashboard</span>
-              </button>
-
-              <button
-                onClick={() => { setActiveTab('catalog'); closeAllDropdowns(); }}
-                className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all ${
-                  activeTab === 'catalog'
-                    ? 'bg-slate-900 text-white dark:bg-emerald-600 shadow-sm font-bold'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-900/10 dark:hover:bg-slate-800'
-                }`}
-              >
-                <Package className="w-3.5 h-3.5" />
-                <span>Katalog</span>
-                {lowOrOutCount > 0 && (
-                  <span className="text-[10px] font-mono font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
-                    {lowOrOutCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => { setActiveTab('inout'); closeAllDropdowns(); }}
-                className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all ${
-                  activeTab === 'inout'
-                    ? 'bg-slate-900 text-white dark:bg-emerald-600 shadow-sm font-bold'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-900/10 dark:hover:bg-slate-800'
-                }`}
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" />
-                <span>Masuk/Keluar</span>
-              </button>
-
-              <button
-                onClick={() => { setActiveTab('weekly-report'); closeAllDropdowns(); }}
-                className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all ${
-                  activeTab === 'weekly-report'
-                    ? 'bg-slate-900 text-white dark:bg-emerald-600 shadow-sm font-bold'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-900/10 dark:hover:bg-slate-800'
-                }`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Laporan</span>
-              </button>
+              {PRIMARY_TABS.filter(tab => tab.showOnDesktop).map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => { setActiveTab(tab.id); closeAllDropdowns(); }}
+                    className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all ${
+                      isActive
+                        ? 'bg-slate-900 text-white dark:bg-emerald-600 shadow-sm font-bold'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-900/10 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                    {tab.id === 'catalog' && lowOrOutCount > 0 && (
+                      <span className="text-[10px] font-mono font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
+                        {lowOrOutCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </nav>
 
             {/* Zone 3: Quick Action Buttons & User Profile */}
             <div className="flex items-center gap-2 shrink-0">
               {/* Single Office Badge */}
-              <div 
+              <div
                 className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 dark:text-emerald-300 bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800 rounded-lg whitespace-nowrap shrink-0"
                 title="Satu Kantor Tunggal: MariaDB 11.x Server Lokal"
               >
@@ -613,7 +593,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     setToolsMenuOpen(next);
                   }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg transition-colors shrink-0 shadow-2xs"
-                  title="Menu Peralatan &amp; Tools System"
+                  title="Menu Peralatan & Tools System"
                 >
                   <Wrench className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                   <span>Tools</span>
@@ -628,72 +608,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                         Menu Tools &amp; Utilitas
                       </div>
 
-                      {/* Database: Developer & Admin ONLY */}
-                      {isDevOrAdmin && (
-                        <button
-                          onClick={() => { closeAllDropdowns(); onOpenRestore?.(); }}
-                          className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                        >
-                          <Database className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                          <span>Database &amp; Restore</span>
-                        </button>
-                      )}
-
-                      {/* Audit: Developer & Admin ONLY */}
-                      {isDevOrAdmin && (
-                        <button
-                          onClick={() => { closeAllDropdowns(); onOpenSecurityReport?.(); }}
-                          className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                          <span>Laporan Keamanan Audit</span>
-                        </button>
-                      )}
-
-                      {/* WA Alert: All roles */}
-                      <button
-                        onClick={() => { closeAllDropdowns(); onOpenWhatsApp?.(); }}
-                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        <span>Notifikasi WA Alert</span>
-                      </button>
-
-                      {/* Akses HP: All roles */}
-                      <button
-                        onClick={() => { closeAllDropdowns(); onOpenMobileAccess?.(); }}
-                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                      >
-                        <Smartphone className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                        <span>Akses HP &amp; Cloudflare</span>
-                      </button>
-
-                      {/* Ekspor Excel: All roles */}
-                      <button
-                        onClick={() => { closeAllDropdowns(); handleExportExcelQuick(); }}
-                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                      >
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        <span>Ekspor Katalog Excel (.xlsx)</span>
-                      </button>
-
-                      {/* Cetak Label Quick Access: All roles */}
-                      <button
-                        onClick={() => { closeAllDropdowns(); onOpenLabelPrint?.(); }}
-                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                      >
-                        <Printer className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>Cetak Label Batch A4</span>
-                      </button>
-
-                      {/* Pola SN: All roles read, Admin/Dev edit */}
-                      <button
-                        onClick={() => { closeAllDropdowns(); onOpenSNPatterns?.(); }}
-                        className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
-                      >
-                        <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        <span>Pengaturan Pola SN</span>
-                      </button>
+                      {visibleToolsItems.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => { closeAllDropdowns(); item.onClick(); }}
+                            className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors font-medium text-slate-800 dark:text-slate-200"
+                          >
+                            <Icon className={`w-3.5 h-3.5 ${item.iconColorClass}`} />
+                            <span>{item.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -728,9 +655,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   {userDropdownOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-40" 
-                        onClick={closeAllDropdowns} 
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={closeAllDropdowns}
                       />
                       <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-150 transition-colors">
                         <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
@@ -758,44 +685,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
 
                         {/* Theme Selector inside User Dropdown */}
-                        <div className="px-3 py-2 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700">
-                          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-                            <span>Tema Tampilan</span>
-                            <span className="font-mono text-[9px] text-slate-500 dark:text-slate-400 bg-slate-200 dark:bg-slate-700 px-1 rounded capitalize">{themeMode}</span>
-                          </div>
-                          <div className="grid grid-cols-3 gap-1 bg-slate-200/70 dark:bg-slate-950 p-1 rounded-lg text-[11px] font-medium">
-                            <button
-                              type="button"
-                              onClick={() => setThemeMode('light')}
-                              className={`py-0.5 px-1.5 rounded flex items-center justify-center gap-1 transition-all ${
-                                themeMode === 'light' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <Sun className="w-3 h-3 text-amber-500" />
-                              <span>Terang</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setThemeMode('dark')}
-                              className={`py-0.5 px-1.5 rounded flex items-center justify-center gap-1 transition-all ${
-                                themeMode === 'dark' ? 'bg-slate-900 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <Moon className="w-3 h-3 text-indigo-400" />
-                              <span>Gelap</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setThemeMode('system')}
-                              className={`py-0.5 px-1.5 rounded flex items-center justify-center gap-1 transition-all ${
-                                themeMode === 'system' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <Monitor className="w-3 h-3 text-blue-500" />
-                              <span>Sistem</span>
-                            </button>
-                          </div>
-                        </div>
+                        <ThemeSelector variant="compact" />
 
                         <div className="py-1 px-1">
                           <button
@@ -831,7 +721,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             <Download className="w-3.5 h-3.5" />
                             <span>Download ZIP Project</span>
                           </button>
-                          
+
                           <div className="border-t border-slate-200 dark:border-slate-700 pt-1.5 mt-1">
                             <button
                               onClick={() => {
@@ -860,62 +750,31 @@ export const Navbar: React.FC<NavbarProps> = ({
       </header>
 
       {/* NATIVE MOBILE BOTTOM NAVIGATION BAR */}
-      <nav 
+      <nav
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around py-1 px-1 shadow-lg no-print transition-colors"
         aria-label="Navigasi Bawah Smartphone"
       >
-        <button
-          onClick={() => setActiveTab('dashboard')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 text-[11px] font-medium transition-colors ${
-            activeTab === 'dashboard' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <LayoutDashboard className={`w-5 h-5 mb-0.5 ${activeTab === 'dashboard' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`} />
-          <span>Dashboard</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('catalog')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 text-[11px] font-medium relative transition-colors ${
-            activeTab === 'catalog' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Package className={`w-5 h-5 mb-0.5 ${activeTab === 'catalog' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`} />
-          <span>Katalog</span>
-          {lowOrOutCount > 0 && (
-            <span className="absolute top-1 right-3.5 w-2 h-2 rounded-full bg-amber-500"></span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('inout')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 text-[11px] font-medium transition-colors ${
-            activeTab === 'inout' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <ArrowLeftRight className={`w-5 h-5 mb-0.5 ${activeTab === 'inout' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`} />
-          <span>Masuk/Keluar</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('weekly-report')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 text-[11px] font-medium transition-colors ${
-            activeTab === 'weekly-report' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <FileText className={`w-5 h-5 mb-0.5 ${activeTab === 'weekly-report' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`} />
-          <span>Laporan</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('integration')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 text-[11px] font-medium transition-colors ${
-            activeTab === 'integration' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Webhook className={`w-5 h-5 mb-0.5 ${activeTab === 'integration' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`} />
-          <span>Integrasi</span>
-        </button>
+        {PRIMARY_TABS.filter(tab => tab.showOnMobile).map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 text-[11px] font-medium transition-colors ${
+                tab.id === 'catalog' ? 'relative ' : ''
+              }${
+                isActive ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Icon className={`w-5 h-5 mb-0.5 ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`} />
+              <span>{tab.mobileLabel}</span>
+              {tab.id === 'catalog' && lowOrOutCount > 0 && (
+                <span className="absolute top-1 right-3.5 w-2 h-2 rounded-full bg-amber-500"></span>
+              )}
+            </button>
+          );
+        })}
       </nav>
     </>
   );

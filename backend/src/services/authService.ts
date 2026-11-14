@@ -17,8 +17,30 @@ export interface UserProfile {
   status: string;
 }
 
-// In-memory rate limiter for login brute force prevention
-const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+interface UserRecordRow {
+  id: string;
+  username: string;
+  name: string;
+  email: string;
+  role: UserProfile['role'];
+  department: string;
+  phone?: string | null;
+  status: string;
+  password_hash?: string | null;
+  salt?: string | null;
+}
+
+interface LegacySessionRow {
+  session_id: string;
+  user_id: string;
+  expires_at: string;
+}
+
+function normalizeUserRole(rawRole: UserRecordRow['role']): UserProfile['role'] {
+  if (rawRole === 'superadmin') return 'developer';
+  if (rawRole === 'supervisor') return 'admin';
+  return rawRole;
+}
 
 export class AuthService {
   /**
@@ -76,9 +98,9 @@ export class AuthService {
     const cleanPassword = String(passwordAttempt).trim();
 
     // Ambil data user dari database (toleran huruf besar/kecil)
-    let users = await executeQuery<any>('SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?)', [cleanUsername]);
+    let users = await executeQuery<UserRecordRow>('SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?)', [cleanUsername]);
     if (!users || users.length === 0) {
-      users = await executeQuery<any>('SELECT * FROM users WHERE username = ?', [cleanUsername]);
+      users = await executeQuery<UserRecordRow>('SELECT * FROM users WHERE username = ?', [cleanUsername]);
     }
     const user = users && users[0];
 
@@ -130,15 +152,12 @@ export class AuthService {
       [sessionId, user.id, clientIp, userAgent, expiresAt.toISOString()]
     );
 
-    const rawRole = user.role;
-    const effectiveRole = rawRole === 'superadmin' ? 'developer' : (rawRole === 'supervisor' ? 'admin' : rawRole);
-
     const profile: UserProfile = {
       id: user.id,
       username: user.username,
       name: user.name,
       email: user.email,
-      role: effectiveRole,
+      role: normalizeUserRole(user.role),
       department: user.department,
       phone: user.phone || '',
       status: user.status
@@ -153,24 +172,12 @@ export class AuthService {
   }
 
   /**
-   * Catat kegagalan login untuk proteksi brute force (5 kali gagal = kunci 15 menit)
-   */
-  private static recordFailedAttempt(key: string) {
-    const current = loginAttempts.get(key) || { count: 0, lockedUntil: 0 };
-    current.count += 1;
-    if (current.count >= 5) {
-      current.lockedUntil = Date.now() + 15 * 60 * 1000; // 15 menit lockout
-    }
-    loginAttempts.set(key, current);
-  }
-
-  /**
    * Validasi token sesi dari cookie HTTP
    */
   static async validateSession(sessionId: string): Promise<UserProfile | null> {
     if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 32) return null;
 
-    const sessions = await executeQuery<any>('SELECT * FROM sessions WHERE session_id = ?', [sessionId]);
+    const sessions = await executeQuery<LegacySessionRow>('SELECT * FROM sessions WHERE session_id = ?', [sessionId]);
     const session = sessions[0];
     if (!session) return null;
 
@@ -179,19 +186,16 @@ export class AuthService {
       return null;
     }
 
-    const users = await executeQuery<any>('SELECT * FROM users WHERE id = ?', [session.user_id]);
+    const users = await executeQuery<UserRecordRow>('SELECT * FROM users WHERE id = ?', [session.user_id]);
     const user = users[0];
     if (!user || user.status !== 'ACTIVE') return null;
-
-    const rawRole = user.role;
-    const effectiveRole = rawRole === 'superadmin' ? 'developer' : (rawRole === 'supervisor' ? 'admin' : rawRole);
 
     return {
       id: user.id,
       username: user.username,
       name: user.name,
       email: user.email,
-      role: effectiveRole,
+      role: normalizeUserRole(user.role),
       department: user.department,
       phone: user.phone || '',
       status: user.status

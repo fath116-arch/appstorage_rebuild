@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { UserProfile } from '../services/authService';
 import { SessionService } from '../services/sessionService';
 import { ConfirmationService } from '../services/confirmationService';
+import { isRoleAllowed, UserRole } from '../utils/permissions';
 
 export interface AuthenticatedRequest extends Request {
   user?: UserProfile;
@@ -78,7 +79,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 /**
  * Middleware penegakan hak akses peran (RBAC) di sisi server
  */
-export function requireRole(allowedRoles: Array<'technician' | 'warehouse_admin' | 'admin' | 'supervisor' | 'developer' | 'superadmin'>) {
+export function requireRole(allowedRoles: UserRole[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
@@ -87,12 +88,7 @@ export function requireRole(allowedRoles: Array<'technician' | 'warehouse_admin'
       });
     }
 
-    // Role Developer dan Admin (Boss) mempunyai hak akses penuh ke seluruh rute & fitur sistem!
-    if (req.user.role === 'developer' || req.user.role === 'admin' || (req.user.role as any) === 'superadmin') {
-      return next();
-    }
-
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!isRoleAllowed(req.user.role, allowedRoles)) {
       return res.status(403).json({
         success: false,
         message: `Hak akses tidak memadai: Diperlukan peran [${allowedRoles.join('/')}], peran Anda adalah ${req.user.role}.`

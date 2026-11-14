@@ -4,6 +4,19 @@
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
 
+## 🔧 [v1.2.5.3-refactor] - Refaktor Prinsip SOLID, Modularisasi & Type Safety
+- **1. Klien HTTP Terpusat & Perbaikan Kontrak WA Alert**: Menambahkan `httpClient.ts` (`requestJson` dengan penanganan `res.ok`, `credentials: 'include'`, dan `getErrorMessage`) pada `api.ts`, `catalogApi.ts`, `stockApi.ts`, serta `whatsappService.ts`; memisahkan `getInternalConfig()` dari `getConfig()` yang disanitasi di `whatsappAlertService.ts`, menginjeksikan `WhatsAppProvider`, dan memperbaiki kueri tabel `item`/`stok_jumlah`.
+- **2. Pemecahan Internal `database.ts`**: Memisahkan `memoryStore.ts`, `migrator.ts`, `memorySeed.ts`, dan handler memori terpisah (`legacyMemory`, `authMemory`, `catalogMemory`, `stockMemory`) di balik fasad `database.ts` yang kompatibel mundur.
+- **3. Konsolidasi Logika Transaksi & Katalog**: Menyatukan `syncLegacyItemStock` dan `recordStockTransaction` di `transactionService.ts` / `ticketIntegration.ts`, serta mengekstrak helper status & ambang berjenjang pada `catalogService.ts`.
+- **4. Pemusatan RBAC, Pemisahan `ToastContext`, Hook Scanner & Modularisasi UI**:
+  - Menambahkan helper peran terpusat di `backend/src/utils/permissions.ts` dan `frontend/src/utils/permissions.ts`.
+  - Mengekstrak `ToastContext.tsx` dari `InventoryContext.tsx`.
+  - Mengekstrak `useBarcodeScanner.ts` untuk `StockInOutModal.tsx` dan `StockInputModal.tsx`.
+  - Memecah `Navbar.tsx` (`ThemeSelector.tsx`), `WhatsAppConfigModal.tsx` (`whatsapp/*.tsx`), dan `UserRoleSwitcher.tsx` (`users/*.tsx`).
+- **5. Pembersihan Kode Mati, Type Safety & Penghapusan `alert()`**: Menghapus kode mati brute-force di `authService.ts`, mengganti tipe `any` dan `catch (err: any)` di `activityLogService.ts`, `sessionService.ts`, `stockService.ts`, `auth.ts`, serta `TicketIntegrationHub.tsx` (mengganti `alert()` dengan `useToast()` dan integrasi endpoint `/api/tickets/keys`).
+
+---
+
 ## 🚀 [v1.2.5.3] - Restrukturisasi Sub-tab Katalog, Agregasi Status WhatsApp Alert & Audit Trail Terpadu - 2026-11-10
 - **1. Pencatatan Transaksi Terpadu**: Fungsi sentral `recordStockTransaction` di `transactionService.ts` memastikan setiap mutasi stok (masuk, keluar, alokasi tiket) menyimpan snapshot lengkap (`nama_barang`, `sku`, `satuan`, `tipe_id`, `tipe_mutasi`, `alasan`) tanpa ketergantungan wajib pada tabel lama `items`.
 - **2. Pelepasan Foreign Key `item_id`**: Menghapus kekakuan relasi kunci asing `transactions.item_id` ke tabel `items` via migrasi `11_drop_transactions_item_id_fk.sql` sehingga transaksi v2 berbasis varian dan tipe dapat dicatat mulus.

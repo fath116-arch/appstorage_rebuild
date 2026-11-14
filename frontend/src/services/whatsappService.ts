@@ -4,6 +4,9 @@
  * Handles communication with Express backend /api/whatsapp endpoints
  */
 
+import { getErrorMessage } from '../utils/errorUtils';
+import { requestJson } from './httpClient';
+
 export interface WhatsAppConfigData {
   id?: string;
   isEnabled: boolean;
@@ -50,25 +53,15 @@ export interface WaLogItem {
   operator_id?: string;
 }
 
-const getHeaders = () => ({
-  'Content-Type': 'application/json',
-});
-
 export class WhatsAppService {
   /**
    * Load stored config from Express backend
    */
   async getConfig(): Promise<WhatsAppConfigData> {
     try {
-      const res = await fetch('/api/whatsapp/config', {
-        headers: getHeaders(),
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) {
-          return data.config;
-        }
+      const { ok, data } = await requestJson<{ config?: WhatsAppConfigData }>('/api/whatsapp/config');
+      if (ok && data.config) {
+        return data.config;
       }
     } catch (err) {
       console.warn('Failed to fetch WA config:', err);
@@ -93,22 +86,19 @@ export class WhatsAppService {
    */
   async updateConfig(config: Partial<WhatsAppConfigData>): Promise<{ success: boolean; message: string; config?: WhatsAppConfigData }> {
     try {
-      const res = await fetch('/api/whatsapp/config', {
+      const { ok, data } = await requestJson<{ message?: string; config?: WhatsAppConfigData }>('/api/whatsapp/config', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
         body: JSON.stringify(config),
       });
-      const data = await res.json();
       return {
-        success: res.ok,
-        message: data.message || (res.ok ? 'Konfigurasi tersimpan' : 'Gagal menyimpan konfigurasi'),
+        success: ok,
+        message: data.message || (ok ? 'Konfigurasi tersimpan' : 'Gagal menyimpan konfigurasi'),
         config: data.config
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         success: false,
-        message: err.message || 'Gagal menghubungi server backend.'
+        message: getErrorMessage(err, 'Gagal menghubungi server backend.')
       };
     }
   }
@@ -118,12 +108,8 @@ export class WhatsAppService {
    */
   async getThresholds(): Promise<ThresholdMatrixItem[]> {
     try {
-      const res = await fetch('/api/whatsapp/thresholds', {
-        headers: getHeaders(),
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const { ok, data } = await requestJson<{ thresholds?: ThresholdMatrixItem[] }>('/api/whatsapp/thresholds');
+      if (ok) {
         return data.thresholds || [];
       }
     } catch (err) {
@@ -143,21 +129,18 @@ export class WhatsAppService {
     isWatchlist?: boolean;
   }): Promise<{ success: boolean; message: string }> {
     try {
-      const res = await fetch('/api/whatsapp/thresholds', {
+      const { ok, data } = await requestJson<{ message?: string }>('/api/whatsapp/thresholds', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
       return {
-        success: res.ok,
-        message: data.message || (res.ok ? 'Ambang berhasil diperbarui' : 'Gagal mengubah ambang')
+        success: ok,
+        message: data.message || (ok ? 'Ambang berhasil diperbarui' : 'Gagal mengubah ambang')
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         success: false,
-        message: err.message || 'Gagal menyimpan ambang khusus.'
+        message: getErrorMessage(err, 'Gagal menyimpan ambang khusus.')
       };
     }
   }
@@ -167,23 +150,25 @@ export class WhatsAppService {
    */
   async testConnection(targetPhone?: string): Promise<{ success: boolean; message: string; remainingSeconds?: number; details?: string }> {
     try {
-      const res = await fetch('/api/whatsapp/test', {
+      const { ok, status, data } = await requestJson<{
+        success?: boolean;
+        message?: string;
+        remainingSeconds?: number;
+        details?: string;
+      }>('/api/whatsapp/test', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
         body: JSON.stringify({ targetPhone }),
       });
-      const data = await res.json();
       return {
-        success: res.ok && data.success !== false,
-        message: data.message || (res.ok ? 'Uji koneksi terkirim' : `Gagal HTTP ${res.status}`),
+        success: ok && data.success !== false,
+        message: data.message || (ok ? 'Uji koneksi terkirim' : `Gagal HTTP ${status}`),
         remainingSeconds: data.remainingSeconds,
         details: data.details,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         success: false,
-        message: `Gagal menghubungi server backend: ${err.message || err}`,
+        message: `Gagal menghubungi server backend: ${getErrorMessage(err, 'Unknown error')}`,
       };
     }
   }
@@ -199,18 +184,21 @@ export class WhatsAppService {
     log?: WaLogItem;
   }> {
     try {
-      const res = await fetch('/api/whatsapp/send', {
+      const { data } = await requestJson<{
+        sent: boolean;
+        message?: string;
+        inCooldown?: boolean;
+        remainingSeconds?: number;
+        log?: WaLogItem;
+      }>('/api/whatsapp/send', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
         body: JSON.stringify({ force }),
       });
-      const data = await res.json();
       return data;
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         sent: false,
-        message: err.message || 'Gagal memicu pengiriman alert ringkasan.'
+        message: getErrorMessage(err, 'Gagal memicu pengiriman alert ringkasan.')
       };
     }
   }
@@ -220,12 +208,8 @@ export class WhatsAppService {
    */
   async getLogs(limit: number = 50): Promise<WaLogItem[]> {
     try {
-      const res = await fetch(`/api/whatsapp/logs?limit=${limit}`, {
-        headers: getHeaders(),
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const { ok, data } = await requestJson<{ logs?: WaLogItem[] }>(`/api/whatsapp/logs?limit=${limit}`);
+      if (ok) {
         return data.logs || [];
       }
     } catch (err) {

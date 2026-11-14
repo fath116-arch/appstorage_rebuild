@@ -4,7 +4,7 @@
  * Uses navigator.mediaDevices.getUserMedia via scannerUtils
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { InventoryItem, ReferenceType } from '../types/inventory';
 import { 
@@ -23,13 +23,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api';
-import { 
-  UniversalBarcodeScanner, 
-  startCameraStream, 
-  diagnoseCameraError, 
-  extractSNFromBarcode,
-  scanBarcodeFromImageFile
-} from '../utils/scannerUtils';
+import { extractSNFromBarcode } from '../utils/scannerUtils';
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 
 interface StockInOutModalProps {
   isOpen: boolean;
@@ -69,17 +64,13 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
   const [recipientOrDestination, setRecipientOrDestination] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
 
-  // Camera & Scan States (Reusing scanner logic from StockInputModal)
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  // Camera & Scan States
   const [scanInput, setScanInput] = useState<string>('');
   const [scanFeedback, setScanFeedback] = useState<{
     type: 'success' | 'error' | 'warning';
     message: string;
   } | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
-
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scanIntervalRef = useRef<number | null>(null);
 
   // Initialize selected item
   useEffect(() => {
@@ -111,26 +102,7 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     setScanFeedback(null);
   }, [mode, user, isOpen]);
 
-  // Refs for scanner
-  const scannerRef = useRef<UniversalBarcodeScanner | null>(null);
 
-  // Stop camera function
-  const stopCamera = useCallback(() => {
-    if (scannerRef.current) {
-      scannerRef.current.stopScanning();
-      scannerRef.current = null;
-    }
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(t => t.stop());
-      videoRef.current.srcObject = null;
-    }
-    setIsCameraActive(false);
-  }, []);
 
   // Handle scanned code (from camera or barcode scanner input)
   const handleProcessCode = useCallback(async (rawCode: string) => {
@@ -149,12 +121,15 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
 
     try {
       // 1. Cek langsung pada koleksi items lokal
-      let matched = items.find(it => 
-        it.sku.toLowerCase() === code.toLowerCase() ||
-        (it.barcode && it.barcode.toLowerCase() === code.toLowerCase()) ||
-        it.id.toLowerCase() === code.toLowerCase() ||
-        ((it as any).kode_id && String((it as any).kode_id).toLowerCase() === code.toLowerCase())
-      );
+      let matched = items.find(it => {
+        const kodeId = (it as InventoryItem & { kode_id?: string }).kode_id;
+        return (
+          it.sku.toLowerCase() === code.toLowerCase() ||
+          (it.barcode && it.barcode.toLowerCase() === code.toLowerCase()) ||
+          it.id.toLowerCase() === code.toLowerCase() ||
+          (kodeId && String(kodeId).toLowerCase() === code.toLowerCase())
+        );
+      });
 
       // 2. Jika tidak ditemukan lokal, panggil API scan backend
       if (!matched) {
@@ -205,73 +180,40 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     }
   }, [items, mode, showToast]);
 
-  const [isPhotoScanning, setIsPhotoScanning] = useState<boolean>(false);
-
-  // Start camera scanner
-  const startCamera = async () => {
-    try {
-      setIsCameraActive(true);
-      setScanFeedback(null);
-
-      if (!videoRef.current) return;
-
-      await startCameraStream(videoRef.current);
-
-      scannerRef.current = new UniversalBarcodeScanner(
-        videoRef.current,
-        (filter) => {
-          stopCamera();
-          handleProcessCode(filter.cleanValue);
-        },
-        () => {
-          setScanFeedback({
-            type: 'error',
-            message: 'SN tidak terdeteksi, coba foto ulang'
-          });
-        },
-        undefined,
-        ''
-      );
-
-      scannerRef.current.startScanning();
-    } catch (err: any) {
-      const diag = diagnoseCameraError(err);
+  const {
+    videoRef,
+    isCameraActive,
+    isPhotoScanning,
+    startCamera,
+    stopCamera,
+    handlePhotoUpload
+  } = useBarcodeScanner({
+    tipePolaRegex: '',
+    stopOnDetect: true,
+    onCameraStart: () => setScanFeedback(null),
+    onDetected: (filter) => {
+      handleProcessCode(filter.cleanValue);
+    },
+    onIgnored: () => {
+      setScanFeedback({
+        type: 'error',
+        message: 'SN tidak terdeteksi, coba foto ulang'
+      });
+    },
+    onCameraError: (diag) => {
       showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
       setScanFeedback({ type: 'error', message: diag.message });
-      setIsCameraActive(false);
-    }
-  };
-
-  // Scan dari Foto / Galeri Fallback (Opsi A: Client-side decode tanpa server upload)
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsPhotoScanning(true);
-    setScanFeedback(null);
-    try {
-      const filter = await scanBarcodeFromImageFile(file, undefined, '');
-      if (!filter.isSN || !filter.cleanValue.trim()) {
-        throw new Error('SN tidak terdeteksi, coba foto ulang');
-      }
+    },
+    onPhotoStart: () => setScanFeedback(null),
+    onPhotoDetected: (filter) => {
       showToast(`SN [${filter.cleanValue}] berhasil diekstrak dari foto!`, 'success');
       handleProcessCode(filter.cleanValue);
-    } catch (err: any) {
-      const msg = err.message || 'SN tidak terdeteksi, coba foto ulang';
+    },
+    onPhotoError: (msg) => {
       showToast(msg, 'error');
       setScanFeedback({ type: 'error', message: msg });
-    } finally {
-      setIsPhotoScanning(false);
-      e.target.value = '';
     }
-  };
-
-  // Cleanup camera on close or unmount
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, [stopCamera]);
+  });
 
   if (!isOpen) return null;
 

@@ -4,11 +4,11 @@
  */
 
 import React from 'react';
-import { useInventory } from '../context/InventoryContext';
+import { useToast } from '../context/ToastContext';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 export const ToastContainer: React.FC = () => {
-  const { toasts, removeToast } = useInventory();
+  const { toasts, removeToast } = useToast();
 
   if (toasts.length === 0) return null;
 

@@ -13,6 +13,20 @@ import { ActivityLogService } from '../services/activityLogService';
 import { TrashService } from '../services/trashService';
 import { executeQuery } from '../db/database';
 import { createRateLimiter } from '../middleware/rateLimitMiddleware';
+import { getErrorMessage } from '../utils/errorUtils';
+import { isDeveloperRole } from '../utils/permissions';
+
+interface AuthUserRow {
+  id: string;
+  username: string;
+  name: string;
+  email: string;
+  role: string;
+  department: string;
+  phone?: string | null;
+  status: string;
+  created_at?: string;
+}
 
 const router = express.Router();
 
@@ -89,7 +103,7 @@ router.post('/login', loginRateLimiter, async (req: AuthenticatedRequest, res: e
       deviceId: sessionRes.deviceId,
       expiresInSeconds: sessionRes.expiresInSeconds
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Auth Login Error]:', err);
     return res.status(500).json({ success: false, message: 'Terjadi kesalahan sistem saat proses autentikasi.' });
   }
@@ -132,7 +146,7 @@ router.post('/register', async (req: express.Request, res: express.Response) => 
     // Role yang diizinkan untuk registrasi mandiri adalah role di bawah admin & developer
     const validRole = ['warehouse_admin', 'technician'].includes(requestedRole) ? requestedRole : 'technician';
 
-    const existing = await executeQuery<any>(
+    const existing = await executeQuery<{ id: string }>(
       'SELECT id FROM users WHERE LOWER(TRIM(username)) = LOWER(?) OR LOWER(TRIM(email)) = LOWER(?)',
       [cleanUsername, cleanEmail]
     );
@@ -164,7 +178,7 @@ router.post('/register', async (req: express.Request, res: express.Response) => 
       message: `Pendaftaran berhasil! Akun "${cleanUsername}" sedang menunggu persetujuan dari Admin sebelum dapat masuk.`,
       user: { id: userId, username: cleanUsername, name: cleanName, role: validRole, status: 'PENDING_APPROVAL' }
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Register User Error]:', err);
     return res.status(500).json({ success: false, message: 'Gagal mengajukan pendaftaran akun pengguna baru.' });
   }
@@ -224,8 +238,8 @@ router.post('/refresh', async (req: AuthenticatedRequest, res: express.Response)
       refreshToken: result.newRefreshToken,
       user: result.user
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -257,17 +271,17 @@ router.post('/logout', async (req: AuthenticatedRequest, res: express.Response) 
  */
 router.get('/users', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
   try {
-    const users = await executeQuery<any>(
+    const users = await executeQuery<AuthUserRow>(
       'SELECT id, username, name, email, role, department, phone, status, created_at FROM users ORDER BY created_at DESC'
     );
     // Normalisasi role superadmin ke developer jika ada
-    const normalized = (users || []).map((u: any) => ({
+    const normalized = (users || []).map((u) => ({
       ...u,
       role: u.role === 'superadmin' ? 'developer' : u.role
     }));
     return res.json({ success: true, users: normalized });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -278,7 +292,10 @@ router.get('/users', requireAuth, requireRole(['developer', 'admin']), async (_r
 router.post('/users/:id/approve', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const userId = req.params.id;
-    const users = await executeQuery<any>('SELECT id, username, name, role, status FROM users WHERE id = ?', [userId]);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role' | 'status'>>(
+      'SELECT id, username, name, role, status FROM users WHERE id = ?',
+      [userId]
+    );
     const targetUser = users && users[0];
 
     if (!targetUser) {
@@ -291,8 +308,8 @@ router.post('/users/:id/approve', requireAuth, requireRole(['developer', 'admin'
       success: true,
       message: `Akun "${targetUser.username}" (${targetUser.name}) berhasil disetujui dan kini AKTIF.`
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -303,7 +320,10 @@ router.post('/users/:id/approve', requireAuth, requireRole(['developer', 'admin'
 router.post('/users/:id/reject', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const userId = req.params.id;
-    const users = await executeQuery<any>('SELECT id, username, name FROM users WHERE id = ?', [userId]);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name'>>(
+      'SELECT id, username, name FROM users WHERE id = ?',
+      [userId]
+    );
     const targetUser = users && users[0];
 
     if (!targetUser) {
@@ -316,8 +336,8 @@ router.post('/users/:id/reject', requireAuth, requireRole(['developer', 'admin']
       success: true,
       message: `Pendaftaran akun "${targetUser.username}" telah ditolak.`
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -344,8 +364,8 @@ router.post('/users/:id/status', requireAuth, requireRole(['developer', 'admin']
       success: true,
       message: `Status pengguna berhasil diperbarui menjadi ${status}.`
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -361,14 +381,17 @@ router.delete('/users/:id', requireAuth, requireRole(['developer', 'admin']), as
       return res.status(400).json({ success: false, message: 'Dilarang menghapus akun Anda sendiri saat sedang login.' });
     }
 
-    const users = await executeQuery<any>('SELECT id, username, role FROM users WHERE id = ?', [userId]);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'role'>>(
+      'SELECT id, username, role FROM users WHERE id = ?',
+      [userId]
+    );
     const target = users && users[0];
     if (!target) {
       return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
     }
 
     // Admin tidak boleh menghapus akun Developer
-    if (target.role === 'developer' && req.user?.role !== 'developer') {
+    if (isDeveloperRole(target.role) && !isDeveloperRole(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Hanya peran Developer yang dapat mengelola akun Developer.' });
     }
 
@@ -378,8 +401,8 @@ router.delete('/users/:id', requireAuth, requireRole(['developer', 'admin']), as
       success: true,
       message: `Akun "${target.username}" berhasil dihapus secara permanen.`
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -403,7 +426,7 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
     let targetRole = role || 'technician';
 
     // Pembatasan: Hanya Developer yang bisa membuat akun Developer lain dari UI
-    if (targetRole === 'developer' && req.user?.role !== 'developer') {
+    if (targetRole === 'developer' && !isDeveloperRole(req.user?.role)) {
       return res.status(403).json({
         success: false,
         message: 'Hanya Developer yang dapat membuat akun dengan peran Developer.'
@@ -415,7 +438,7 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
       targetRole = 'technician';
     }
 
-    const existing = await executeQuery<any>('SELECT id FROM users WHERE username = ? OR email = ?', [cleanUsername, cleanEmail]);
+    const existing = await executeQuery<{ id: string }>('SELECT id FROM users WHERE username = ? OR email = ?', [cleanUsername, cleanEmail]);
     if (existing && existing.length > 0) {
       return res.status(400).json({
         success: false,
@@ -438,7 +461,7 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
       message: `Akun "${cleanUsername}" (${targetRole}) berhasil dibuat.`,
       user: { id: userId, username: cleanUsername, name: name.trim(), email: cleanEmail, role: targetRole, department, phone, status: initialStatus }
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Create User Error]:', err);
     return res.status(500).json({ success: false, message: 'Gagal membuat akun pengguna.' });
   }
@@ -463,7 +486,10 @@ router.post('/reset-password', resetPasswordRateLimiter, async (req: express.Req
     const cleanEmail = email ? String(email).trim() : '';
 
     // Cari user berdasarkan username
-    let users = await executeQuery<any>('SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?)', [cleanUsername]);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'email' | 'status'>>(
+      'SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?)',
+      [cleanUsername]
+    );
     if (!users || users.length === 0) {
       return res.status(404).json({
         success: false,
@@ -502,7 +528,7 @@ router.post('/reset-password', resetPasswordRateLimiter, async (req: express.Req
       success: true,
       message: `Kata sandi akun "@${targetUser.username}" berhasil diperbarui! Silakan masuk menggunakan kata sandi baru Anda.`
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Reset Password Error]:', err);
     return res.status(500).json({ success: false, message: 'Gagal memperbarui kata sandi akun.' });
   }
@@ -521,7 +547,10 @@ router.post('/users/:id/reset-password', requireAuth, requireRole(['developer', 
       return res.status(400).json({ success: false, message: 'Kata sandi baru wajib diisi.' });
     }
 
-    const users = await executeQuery<any>('SELECT id, username, name, role FROM users WHERE id = ?', [userId]);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role'>>(
+      'SELECT id, username, name, role FROM users WHERE id = ?',
+      [userId]
+    );
     const target = users && users[0];
 
     if (!target) {
@@ -529,7 +558,7 @@ router.post('/users/:id/reset-password', requireAuth, requireRole(['developer', 
     }
 
     // Admin biasa tidak boleh mereset password akun Developer
-    if (target.role === 'developer' && req.user?.role !== 'developer') {
+    if (isDeveloperRole(target.role) && !isDeveloperRole(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Hanya peran Developer yang dapat mereset kata sandi akun Developer.' });
     }
 
@@ -545,8 +574,8 @@ router.post('/users/:id/reset-password', requireAuth, requireRole(['developer', 
       success: true,
       message: `Kata sandi akun "${target.username}" (${target.name}) berhasil direset!`
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -573,8 +602,8 @@ router.post('/confirm-token', requireAuth, async (req: AuthenticatedRequest, res
     });
 
     return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -590,8 +619,8 @@ router.post('/users/:id/revoke-sessions', requireAuth, requireRole(['developer',
       success: true,
       message: `Berhasil mencabut ${revokedCount} sesi aktif untuk pengguna tersebut.`
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -603,8 +632,8 @@ router.get('/settings', requireAuth, requireRole(['developer', 'admin']), async 
   try {
     const settings = await SettingService.getAll();
     return res.json({ success: true, settings });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -629,8 +658,8 @@ router.put('/settings/:key', requireAuth, requireRole(['developer', 'admin']), a
     });
 
     return res.json({ success: true, message: `Pengaturan "${key}" berhasil diperbarui.` });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -652,8 +681,8 @@ router.get('/activity-logs', requireAuth, async (req: AuthenticatedRequest, res:
     });
 
     return res.json({ success: true, logs });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -666,8 +695,8 @@ router.get('/activity-logs/:id/details', requireAuth, async (req: AuthenticatedR
     const id = String(req.params.id);
     const details = await ActivityLogService.getActivityDetails(id);
     return res.json({ success: true, details });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -679,8 +708,8 @@ router.get('/trash', requireAuth, requireRole(['developer', 'admin']), async (_r
   try {
     const list = await TrashService.listTrash();
     return res.json({ success: true, trash: list });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -692,8 +721,8 @@ router.post('/trash/purge', requireAuth, requireRole(['developer', 'admin']), as
   try {
     const result = await TrashService.purgeExpiredTrash();
     return res.json({ success: true, purgedCount: result.purgedCount });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 

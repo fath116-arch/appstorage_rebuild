@@ -4,7 +4,7 @@
  */
 
 import { executeQuery, runTransaction } from '../db/database';
-import { ActivityLogService } from './activityLogService';
+import { ActivityDetailInput, ActivityLogService } from './activityLogService';
 import { CatalogService } from './catalogService';
 import { ConfirmationService } from './confirmationService';
 import { TransactionService } from './transactionService';
@@ -42,17 +42,57 @@ export interface StokJumlah {
   kode_box?: string;
 }
 
+interface TotalCountRow {
+  total: number | string;
+}
+
+interface BoxItemDetailRow extends ItemFisik {
+  nama_tipe: string;
+  nama_produk: string;
+  jenis_nama: string;
+}
+
+interface BoxStokJumlahDetailRow extends StokJumlah {
+  nama_tipe: string;
+  nama_produk: string;
+  jenis_nama: string;
+}
+
+interface DuplicateItemRow extends ItemFisik {
+  kode_box: string;
+  nama_tipe: string;
+  nama_produk: string;
+}
+
+interface ArchiveItemRow extends DuplicateItemRow {
+  jenis_nama: string;
+}
+
+interface TipeItemRow extends ItemFisik {
+  box_kode: string;
+  box_keterangan?: string | null;
+}
+
+interface TipeStokJumlahRow extends StokJumlah {
+  box_kode: string;
+  box_keterangan?: string | null;
+}
+
+interface KodeIdRow {
+  kode_id: string;
+}
+
 export class StockService {
   /**
    * Mengambil stok fisik berwenang tunggal (Single Source of Truth) untuk satu Tipe v2.
    * Rumus: Stok = SUM(stok_jumlah) + COUNT(item fisik ber-ID yang aktif)
    */
   static async getStock(tipeId: number): Promise<number> {
-    const sjRows = await executeQuery<any>(
+    const sjRows = await executeQuery<TotalCountRow>(
       'SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?',
       [tipeId]
     );
-    const itemRows = await executeQuery<any>(
+    const itemRows = await executeQuery<TotalCountRow>(
       'SELECT COUNT(*) as total FROM item WHERE tipe_id = ? AND status = "aktif"',
       [tipeId]
     );
@@ -66,7 +106,7 @@ export class StockService {
   // ============================================================================
 
   static async listBoxes(): Promise<Box[]> {
-    const list = await executeQuery<any>(
+    const list = await executeQuery<Box>(
       `SELECT b.*, 
         (SELECT COUNT(i.id) FROM item i WHERE i.box_id = b.id AND i.status = 'aktif') +
         (SELECT COALESCE(SUM(sj.jumlah), 0) FROM stok_jumlah sj WHERE sj.box_id = b.id) as total_item
@@ -78,14 +118,14 @@ export class StockService {
   }
 
   static async getBoxById(id: string): Promise<Box | null> {
-    const rows = await executeQuery<any>('SELECT * FROM box WHERE id = ?', [id]);
+    const rows = await executeQuery<Box>('SELECT * FROM box WHERE id = ?', [id]);
     if (!rows || rows.length === 0) return null;
     return rows[0];
   }
 
   static async getBoxByKode(kode: string): Promise<Box | null> {
     const cleanKode = kode.trim().toUpperCase();
-    const rows = await executeQuery<any>('SELECT * FROM box WHERE UPPER(kode) = ?', [cleanKode]);
+    const rows = await executeQuery<Box>('SELECT * FROM box WHERE UPPER(kode) = ?', [cleanKode]);
     if (!rows || rows.length === 0) return null;
     return rows[0];
   }
@@ -129,7 +169,7 @@ export class StockService {
     }
 
     // Ambil item fisik ber-ID di box ini
-    const items = await executeQuery<any>(
+    const items = await executeQuery<BoxItemDetailRow>(
       `SELECT i.*, t.nama_tipe, p.nama as nama_produk, j.nama as jenis_nama
        FROM item i
        JOIN tipe t ON i.tipe_id = t.id
@@ -141,7 +181,7 @@ export class StockService {
     );
 
     // Ambil stok jumlah di box ini
-    const stokJumlahList = await executeQuery<any>(
+    const stokJumlahList = await executeQuery<BoxStokJumlahDetailRow>(
       `SELECT sj.*, t.nama_tipe, p.nama as nama_produk, j.nama as jenis_nama
        FROM stok_jumlah sj
        JOIN tipe t ON sj.tipe_id = t.id
@@ -153,7 +193,7 @@ export class StockService {
     );
 
     // Kelompokkan per produk
-    const grouped: { [produkNama: string]: { [tipeNama: string]: { items: any[]; stokJumlah: number } } } = {};
+    const grouped: { [produkNama: string]: { [tipeNama: string]: { items: BoxItemDetailRow[]; stokJumlah: number } } } = {};
 
     for (const it of items) {
       if (!grouped[it.nama_produk]) grouped[it.nama_produk] = {};
@@ -170,7 +210,7 @@ export class StockService {
     return {
       box,
       total_items: items.length,
-      total_stok_jumlah: stokJumlahList.reduce((acc: number, cur: any) => acc + cur.jumlah, 0),
+      total_stok_jumlah: stokJumlahList.reduce((acc, cur) => acc + cur.jumlah, 0),
       contents: grouped,
       raw_items: items,
       raw_stok_jumlah: stokJumlahList
@@ -268,7 +308,9 @@ export class StockService {
           {
             tipe_id: tipeId!,
             item_id: input.itemId || null,
-            kode_id: input.itemId ? (await conn.query('SELECT kode_id FROM item WHERE id = ?', [input.itemId]))[0]?.kode_id : null,
+            kode_id: input.itemId
+              ? (await conn.query<KodeIdRow[]>('SELECT kode_id FROM item WHERE id = ?', [input.itemId]))[0]?.kode_id
+              : null,
             nama_snapshot: namaSnapshot,
             jumlah: movedCount,
             status_sebelum: boxAsal.kode,
@@ -280,7 +322,7 @@ export class StockService {
       return {
         success: true,
         message: `Berhasil memindahkan ${movedCount} unit dari ${boxAsal.kode} ke ${boxTujuan.kode}.`,
-        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        activityId: txLog.idAktivitas
       };
     });
   }
@@ -292,9 +334,9 @@ export class StockService {
   /**
    * Cek keberadaan kode_id di seluruh sistem untuk mencegah duplikasi
    */
-  static async checkDuplicateKodeId(kodeId: string): Promise<{ exists: boolean; item?: any }> {
+  static async checkDuplicateKodeId(kodeId: string): Promise<{ exists: boolean; item?: DuplicateItemRow }> {
     const cleanKode = kodeId.trim();
-    const rows = await executeQuery<any>(
+    const rows = await executeQuery<DuplicateItemRow>(
       `SELECT i.*, b.kode as kode_box, t.nama_tipe, p.nama as nama_produk
        FROM item i
        JOIN box b ON i.box_id = b.id
@@ -335,7 +377,7 @@ export class StockService {
 
     // 1. Cek Duplikasi Kode ID
     const dupCheck = await this.checkDuplicateKodeId(cleanKode);
-    if (dupCheck.exists) {
+    if (dupCheck.exists && dupCheck.item) {
       const it = dupCheck.item;
       throw new Error(
         `ID "${cleanKode}" sudah terdaftar pada produk "${it.nama_produk} - ${it.nama_tipe}" (Status: ${it.status}, Posisi: Box ${it.kode_box}).`
@@ -413,7 +455,7 @@ export class StockService {
         message: `Berhasil menambahkan item [${cleanKode}] ke ${box.kode}.`,
         itemId,
         kodeId: cleanKode,
-        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        activityId: txLog.idAktivitas
       };
     });
   }
@@ -467,7 +509,7 @@ export class StockService {
     // 1. Cek Duplikasi Seluruh Kode ID
     for (const kode of finalKodeIds) {
       const dupCheck = await this.checkDuplicateKodeId(kode);
-      if (dupCheck.exists) {
+      if (dupCheck.exists && dupCheck.item) {
         const it = dupCheck.item;
         throw new Error(
           `Gagal input massal: ID "${kode}" sudah ada di sistem (${it.nama_produk} - ${it.nama_tipe}, Box ${it.kode_box}).`
@@ -495,7 +537,7 @@ export class StockService {
 
     return await runTransaction(async (conn) => {
       const namaSnapshot = `${tipe.produk_nama} - ${tipe.nama_tipe}`;
-      const detailsPayload: any[] = [];
+      const detailsPayload: ActivityDetailInput[] = [];
       const insertedItemIds: string[] = [];
 
       for (const kode of finalKodeIds) {
@@ -553,7 +595,7 @@ export class StockService {
         success: true,
         message: `Berhasil menambahkan batch ${finalKodeIds.length} unit item ke ${box.kode}.`,
         totalCount: finalKodeIds.length,
-        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas,
+        activityId: txLog.idAktivitas,
         kodeIds: finalKodeIds
       };
     });
@@ -646,7 +688,7 @@ export class StockService {
       return {
         success: true,
         message: `Berhasil menambahkan +${input.jumlah} unit ke ${box.kode}.`,
-        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        activityId: txLog.idAktivitas
       };
     });
   }
@@ -666,9 +708,9 @@ export class StockService {
 
     itemQuery += ` ORDER BY i.kode_id ASC`;
 
-    const items = await executeQuery<any>(itemQuery, [tipeId]);
+    const items = await executeQuery<TipeItemRow>(itemQuery, [tipeId]);
 
-    const stokJumlah = await executeQuery<any>(
+    const stokJumlah = await executeQuery<TipeStokJumlahRow>(
       `SELECT sj.*, b.kode as box_kode, b.keterangan as box_keterangan
        FROM stok_jumlah sj
        JOIN box b ON sj.box_id = b.id
@@ -702,7 +744,7 @@ export class StockService {
       // Keluar Item Ber-ID
       const cleanKode = input.kodeId ? input.kodeId.trim() : '';
       const dupCheck = await this.checkDuplicateKodeId(cleanKode || input.itemId || '');
-      if (!dupCheck.exists) {
+      if (!dupCheck.exists || !dupCheck.item) {
         throw new Error(`Item dengan ID "${cleanKode || input.itemId}" tidak ditemukan di sistem.`);
       }
 
@@ -757,7 +799,7 @@ export class StockService {
         return {
           success: true,
           message: `Item "${item.kode_id}" (${namaSnapshot}) berhasil dikeluarkan ke Arsip.`,
-          activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+          activityId: txLog.idAktivitas
         };
       });
     } else if (input.tipeId && input.boxId && input.jumlah && input.jumlah > 0) {
@@ -828,7 +870,7 @@ export class StockService {
         return {
           success: true,
           message: `Stok jumlah -${outQty} unit (${namaSnapshot}) di ${box.kode} berhasil dikeluarkan.`,
-          activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+          activityId: txLog.idAktivitas
         };
       });
     }
@@ -861,14 +903,14 @@ export class StockService {
     }
 
     return await runTransaction(async (conn) => {
-      const detailsPayload: any[] = [];
+      const detailsPayload: ActivityDetailInput[] = [];
       let totalOutCount = 0;
 
       for (const itemInput of input.items) {
         if (itemInput.kodeId || itemInput.itemId) {
           const cleanKode = itemInput.kodeId ? itemInput.kodeId.trim() : '';
           const dupCheck = await this.checkDuplicateKodeId(cleanKode || itemInput.itemId || '');
-          if (dupCheck.exists && dupCheck.item.status === 'aktif') {
+          if (dupCheck.exists && dupCheck.item && dupCheck.item.status === 'aktif') {
             const item = dupCheck.item;
             await conn.query('UPDATE item SET status = "keluar" WHERE id = ?', [item.id]);
 
@@ -917,7 +959,7 @@ export class StockService {
         success: true,
         message: `Berhasil mengeluarkan batch ${totalOutCount} unit barang ke Arsip.`,
         totalCount: totalOutCount,
-        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        activityId: txLog.idAktivitas
       };
     });
   }
@@ -925,7 +967,7 @@ export class StockService {
   /**
    * Menampilkan Daftar Arsip Barang Keluar
    */
-  static async listArsip(filters?: { search?: string }) {
+  static async listArsip(filters?: { search?: string }): Promise<ArchiveItemRow[]> {
     let sql = `
       SELECT i.*, b.kode as kode_box, t.nama_tipe, p.nama as nama_produk, j.nama as jenis_nama
       FROM item i
@@ -935,7 +977,7 @@ export class StockService {
       JOIN jenis j ON p.jenis_id = j.id
       WHERE i.status = 'keluar'
     `;
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (filters?.search) {
       sql += ' AND (UPPER(i.kode_id) LIKE UPPER(?) OR UPPER(p.nama) LIKE UPPER(?) OR UPPER(t.nama_tipe) LIKE UPPER(?))';
@@ -944,8 +986,7 @@ export class StockService {
 
     sql += ' ORDER BY i.dibuat_pada DESC';
 
-    const items = await executeQuery<any>(sql, params);
-    return items;
+    return await executeQuery<ArchiveItemRow>(sql, params);
   }
 
   /**
@@ -970,7 +1011,7 @@ export class StockService {
     const checkRes = await this.checkDuplicateKodeId(cleanKode);
 
     // 1. Bila ID sudah berstatus AKTIF -> cegah duplikasi!
-    if (checkRes.exists && checkRes.item.status === 'aktif') {
+    if (checkRes.exists && checkRes.item?.status === 'aktif') {
       return {
         success: false,
         isAlreadyActive: true,
@@ -979,7 +1020,7 @@ export class StockService {
     }
 
     // 2. Bila ID tidak ada di Arsip maupun sistem -> tawarkan input stok baru
-    if (!checkRes.exists) {
+    if (!checkRes.exists || !checkRes.item) {
       return {
         success: false,
         isNotInArchive: true,
@@ -1036,7 +1077,7 @@ export class StockService {
       return {
         success: true,
         message: `Berhasil mengembalikan barang "${cleanKode}" (${namaSnapshot}) ke stok aktif di ${targetBox.kode} [Kondisi: ${targetKondisi}].`,
-        activityId: txLog.idAktivitas || (txLog as any).id_aktivitas
+        activityId: txLog.idAktivitas
       };
     });
   }
@@ -1050,7 +1091,7 @@ export class StockService {
     catatanKondisi?: string;
     userId: string;
   }) {
-    const rows = await executeQuery<any>('SELECT * FROM item WHERE id = ? OR kode_id = ?', [input.itemId, input.itemId]);
+    const rows = await executeQuery<ItemFisik>('SELECT * FROM item WHERE id = ? OR kode_id = ?', [input.itemId, input.itemId]);
     if (!rows || rows.length === 0) {
       throw new Error(`Item "${input.itemId}" tidak ditemukan.`);
     }

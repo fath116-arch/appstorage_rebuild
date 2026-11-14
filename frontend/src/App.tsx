@@ -6,6 +6,7 @@
 import React, { useState, lazy, Suspense } from 'react';
 import { InventoryProvider, useInventory } from './context/InventoryContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
@@ -17,6 +18,7 @@ import { ItemDetailModal } from './components/ItemDetailModal';
 import { ItemFormModal } from './components/ItemFormModal';
 import { LoginScreen } from './components/LoginScreen';
 import { ToastContainer } from './components/ToastContainer';
+import type { PrintDocumentData } from './components/PrintDocumentModal';
 import { InventoryItem, Transaction } from './types';
 
 // Lazy-loaded heavy modules and infrequent modals for performance & memory efficiency
@@ -68,7 +70,7 @@ const AppContent: React.FC = () => {
   const [isSNPatternsOpen, setIsSNPatternsOpen] = useState(false);
 
   const [isPrintOpen, setIsPrintOpen] = useState(false);
-  const [printData, setPrintData] = useState<any>(null);
+  const [printData, setPrintData] = useState<PrintDocumentData | null>(null);
 
   // Modal open helpers
   const handleOpenStockIn = (item?: InventoryItem) => {
@@ -100,16 +102,16 @@ const AppContent: React.FC = () => {
 
   const handlePrintTransaction = (tx: Transaction) => {
     setPrintData({
-      type: tx.type,
-      itemName: tx.itemName,
-      itemSku: tx.itemSku,
+      type: tx.type === 'OUT' ? 'OUT' : 'IN',
+      itemName: tx.itemName || tx.item_name || '-',
+      itemSku: tx.itemSku || tx.item_sku || '-',
       quantity: tx.quantity,
-      unit: tx.unit,
-      referenceNumber: tx.referenceNumber,
-      recipientOrDestination: tx.recipientOrDestination,
-      performedBy: tx.performedBy,
-      notes: tx.notes,
-      date: tx.date,
+      unit: tx.unit || tx.item_unit || 'unit',
+      referenceNumber: tx.referenceNumber || tx.reference_number || '-',
+      recipientOrDestination: tx.recipientOrDestination || tx.recipient_destination || '-',
+      performedBy: tx.performedBy || tx.performed_by || '-',
+      notes: tx.notes || '',
+      date: tx.date || tx.created_at || new Date().toISOString(),
     });
     setIsPrintOpen(true);
   };
@@ -356,11 +358,13 @@ const AppContent: React.FC = () => {
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <InventoryProvider>
-          <AppContent />
-        </InventoryProvider>
-      </AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <InventoryProvider>
+            <AppContent />
+          </InventoryProvider>
+        </AuthProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

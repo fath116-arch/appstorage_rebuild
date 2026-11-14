@@ -24,6 +24,20 @@ export interface SessionRecord {
   dicabut_pada: string | null;
 }
 
+interface SessionWithUserRow extends SessionRecord {
+  username: string;
+  name: string;
+  email: string;
+  role: UserProfile['role'];
+  department: string;
+  phone: string;
+  status: string;
+}
+
+interface DbUpdateResult {
+  affectedRows?: number;
+}
+
 export class SessionService {
   /**
    * Helper hash SHA-256 untuk token dan device ID
@@ -122,7 +136,7 @@ export class SessionService {
     // Format token: "sessionId.randomSecret" atau langsung "sessionId"
     const sessionId = tokenOrSessionId.split('.')[0].trim();
 
-    const sessions = await executeQuery<SessionRecord>(
+    const sessions = await executeQuery<SessionWithUserRow>(
       `SELECT s.*, u.username, u.name, u.email, u.role, u.department, u.phone, u.status
        FROM sesi s
        JOIN users u ON s.user_id = u.id
@@ -142,8 +156,8 @@ export class SessionService {
     }
 
     // Cek status akun pengguna
-    if ((session as any).status !== 'ACTIVE') {
-      return { valid: false, reason: `Akun berstatus ${(session as any).status}` };
+    if (session.status !== 'ACTIVE') {
+      return { valid: false, reason: `Akun berstatus ${session.status}` };
     }
 
     const now = Date.now();
@@ -177,13 +191,13 @@ export class SessionService {
 
     const user: UserProfile = {
       id: session.user_id,
-      username: (session as any).username,
-      name: (session as any).name,
-      email: (session as any).email,
-      role: (session as any).role,
-      department: (session as any).department,
-      phone: (session as any).phone,
-      status: (session as any).status
+      username: session.username,
+      name: session.name,
+      email: session.email,
+      role: session.role,
+      department: session.department,
+      phone: session.phone,
+      status: session.status
     };
 
     return {
@@ -217,7 +231,7 @@ export class SessionService {
 
     return await runTransaction(async (conn) => {
       // Cari sesi berdasarkan refresh_hash aktif
-      const rows = await conn.query(
+      const rows = await conn.query<SessionWithUserRow[] | { rows?: SessionWithUserRow[] }>(
         `SELECT s.*, u.username, u.name, u.email, u.role, u.department, u.phone, u.status
          FROM sesi s
          JOIN users u ON s.user_id = u.id
@@ -225,7 +239,7 @@ export class SessionService {
         [refreshHash]
       );
 
-      const sessions = Array.isArray(rows) ? rows : (rows as any).rows || [];
+      const sessions = Array.isArray(rows) ? rows : rows.rows || [];
 
       // Jika tidak ditemukan, cek apakah ini indikasi reuse / token copying
       if (!sessions || sessions.length === 0) {
@@ -310,10 +324,10 @@ export class SessionService {
    * Memaksa cabut seluruh sesi akun tertentu (Admin/Developer Force Logout)
    */
   static async revokeAllUserSessions(targetUserId: string, performedBy: string): Promise<number> {
-    const result: any = await executeQuery(
+    const result = (await executeQuery<never>(
       'UPDATE sesi SET dicabut_pada = NOW() WHERE user_id = ? AND dicabut_pada IS NULL',
       [targetUserId]
-    );
+    )) as unknown as DbUpdateResult;
 
     await ActivityLogService.recordActivity({
       aksi: 'cabut_seluruh_sesi_admin',

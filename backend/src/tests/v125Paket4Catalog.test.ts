@@ -181,7 +181,7 @@ async function runTestSuite() {
     itemRusakId = kodeItem2;
 
     const check1 = await StockService.checkDuplicateKodeId(kodeItem1);
-    if (!check1.exists || check1.item.kondisi !== 'Baru') {
+    if (!check1.exists || check1.item?.kondisi !== 'Baru') {
       throw new Error(`Kondisi item 1 harus 'Baru', didapat: ${check1.item?.kondisi}`);
     }
   });
@@ -200,10 +200,10 @@ async function runTestSuite() {
     }
 
     const check = await StockService.checkDuplicateKodeId(itemRusakId);
-    if (check.item.kondisi !== 'Rusak') {
+    if (check.item?.kondisi !== 'Rusak') {
       throw new Error(`Kondisi database belum diperbarui ke Rusak`);
     }
-    if (check.item.catatan_kondisi !== 'Gagang patah saat uji beban') {
+    if (check.item?.catatan_kondisi !== 'Gagang patah saat uji beban') {
       throw new Error(`Catatan kondisi tidak tersimpan`);
     }
   });
@@ -277,7 +277,7 @@ async function runTestSuite() {
     }
 
     const check = await StockService.checkDuplicateKodeId(itemBaikId);
-    if (check.item.status !== 'keluar') {
+    if (check.item?.status !== 'keluar') {
       throw new Error(`Item ${itemBaikId} harusnya berstatus 'keluar' setelah disetujui`);
     }
   });
@@ -298,13 +298,13 @@ async function runTestSuite() {
     }
 
     const check = await StockService.checkDuplicateKodeId(itemBaikId);
-    if (check.item.status !== 'aktif') {
+    if (check.item?.status !== 'aktif') {
       throw new Error(`Item ${itemBaikId} harusnya kembali berstatus 'aktif'`);
     }
-    if (check.item.kondisi !== 'Baik') {
-      throw new Error(`Item ${itemBaikId} kondisi harusnya 'Baik', didapat: ${check.item.kondisi}`);
+    if (check.item?.kondisi !== 'Baik') {
+      throw new Error(`Item ${itemBaikId} kondisi harusnya 'Baik', didapat: ${check.item?.kondisi}`);
     }
-    if (!check.item.catatan_kondisi?.includes('diperiksa kembali')) {
+    if (!check.item?.catatan_kondisi?.includes('diperiksa kembali')) {
       throw new Error(`Catatan kondisi saat restore tidak tersimpan`);
     }
   });

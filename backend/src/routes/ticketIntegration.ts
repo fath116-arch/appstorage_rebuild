@@ -9,13 +9,22 @@ import { executeQuery, runTransaction } from '../db/database';
 import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { ItemRecord } from '../repositories/inventoryRepository';
 import { TransactionService } from '../services/transactionService';
+import { getErrorMessage } from '../utils/errorUtils';
+
+interface ApiKeyRecord {
+  id: string;
+  name: string;
+  api_key_hash: string;
+  system_name: string;
+  is_active: boolean | number;
+}
 
 const router = express.Router();
 
 /**
  * Helper untuk verifikasi API Key eksternal (Jira / GLPI / Webhook)
  */
-async function authenticateApiKey(req: express.Request): Promise<{ valid: boolean; keyRecord?: any; error?: string }> {
+async function authenticateApiKey(req: express.Request): Promise<{ valid: boolean; keyRecord?: ApiKeyRecord; error?: string }> {
   const apiKeyHeader = req.headers['x-api-key'] || req.headers['x-app-api-key'];
   const authHeader = req.headers['authorization'];
   const bearerKey = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -28,14 +37,14 @@ async function authenticateApiKey(req: express.Request): Promise<{ valid: boolea
   // Hash key untuk dicocokkan dengan database
   const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
-  const rows = await executeQuery<any>(
+  const rows = await executeQuery<ApiKeyRecord>(
     'SELECT * FROM api_keys WHERE api_key_hash = ? AND is_active = TRUE',
     [keyHash]
   );
 
   if (rows.length === 0) {
     // Juga dukung demo key hash awal untuk integrasi
-    const demoRows = await executeQuery<any>('SELECT * FROM api_keys WHERE is_active = TRUE');
+    const demoRows = await executeQuery<ApiKeyRecord>('SELECT * FROM api_keys WHERE is_active = TRUE');
     const matched = demoRows.find(k => k.api_key_hash === rawKey || k.api_key_hash === keyHash);
     if (matched) {
       return { valid: true, keyRecord: matched };
@@ -80,8 +89,8 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
           throw new Error(`Item ${JSON.stringify(reqIt)} tidak valid. SKU dan kuantitas (> 0) wajib diisi.`);
         }
 
-        const rows = await conn.query('SELECT * FROM items WHERE sku = ? AND is_deleted = FALSE', [sku]);
-        const it: ItemRecord = rows[0];
+        const rows = (await conn.query('SELECT * FROM items WHERE sku = ? AND is_deleted = FALSE', [sku])) as ItemRecord[];
+        const it = rows[0];
 
         if (!it) {
           throw new Error(`SKU "${sku}" tidak ditemukan di master inventori.`);
@@ -95,20 +104,22 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
       }
 
       // Potong stok dan catat mutasi jika semua item lolos validasi
-      const processed: any[] = [];
-      const lowStockAlerts: any[] = [];
+      const processed: Array<{
+        sku: string;
+        name: string;
+        deductedQty: number;
+        remainingQty: number;
+        unit: string;
+        status: string;
+      }> = [];
+      const lowStockAlerts: string[] = [];
 
       for (const pair of resolvedItems) {
         const prev = pair.item.quantity;
         const next = prev - pair.requestedQty;
+        const updated = await TransactionService.syncLegacyItemStock(conn, pair.item, next);
 
-        let status: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'NORMAL';
-        if (next === 0) status = 'OUT_OF_STOCK';
-        else if (next <= pair.item.min_stock_alert) status = 'LOW_STOCK';
-
-        await conn.query('UPDATE items SET quantity = ?, status = ? WHERE id = ?', [next, status, pair.item.id]);
-
-        const txId = await TransactionService.recordStockTransaction({
+        await TransactionService.recordStockTransaction({
           type: 'OUT',
           tipe_mutasi: 'KELUAR',
           itemId: pair.item.id,
@@ -132,7 +143,7 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
           deductedQty: pair.requestedQty,
           remainingQty: next,
           unit: pair.item.unit,
-          status
+          status: updated.status
         });
 
         if (next <= pair.item.min_stock_alert) {
@@ -157,10 +168,10 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
     });
 
     return res.status(200).json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return res.status(400).json({
       success: false,
-      message: err.message
+      message: getErrorMessage(err, 'Gagal memproses pemotongan stok tiket.')
     });
   }
 });
@@ -168,10 +179,12 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
 // GET /api/tickets/keys (Manajemen API Key - Setting API)
 router.get('/keys', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
   try {
-    const keys = await executeQuery('SELECT id, name, system_name, is_active, created_at, last_used_at FROM api_keys ORDER BY created_at DESC');
+    const keys = await executeQuery<Omit<ApiKeyRecord, 'api_key_hash'>>(
+      'SELECT id, name, system_name, is_active, created_at, last_used_at FROM api_keys ORDER BY created_at DESC'
+    );
     res.json({ success: true, keys });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -201,8 +214,8 @@ router.post('/keys', requireAuth, requireRole(['developer', 'admin']), async (re
       name,
       systemName
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 

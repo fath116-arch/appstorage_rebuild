@@ -3,76 +3,144 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
+import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { isAdminOrDev } from '../utils/permissions';
+import { apiFetch } from '../services/httpClient';
+import { getErrorMessage } from '../utils/errorUtils';
 import { 
-  Webhook, 
-  Key, 
   Send, 
   CheckCircle2, 
   XCircle, 
   Copy, 
   Check, 
-  Code, 
   Plus, 
   Trash2, 
-  Server, 
-  Activity,
-  Layers,
-  ArrowRight
+  Server
 } from 'lucide-react';
 
-import { useAuth } from '../context/AuthContext';
+interface TicketApiKey {
+  id: string;
+  name: string;
+  system: string;
+  key: string;
+  allowedActions: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+  isActive: boolean;
+}
+
+interface BackendApiKeyRow {
+  id: string;
+  name: string;
+  system_name: string;
+  is_active: boolean | number;
+  created_at: string;
+  last_used_at?: string | null;
+}
+
+interface IntegrationLogItem {
+  id: string;
+  timestamp: string;
+  ticketId: string;
+  ticketTitle: string;
+  systemName: string;
+  technicianName: string;
+  itemsRequested: Array<{ name: string; quantity: number }>;
+  httpStatus: number;
+  message: string;
+}
+
+interface SimAffectedItem {
+  itemId: string;
+  quantity: number;
+  name: string;
+}
+
+type SimResponsePayload =
+  | {
+      ticket_id: string;
+      status: 'PROCESSED_AND_DEDUCTED';
+      auto_deducted: boolean;
+      timestamp: string;
+      items?: SimAffectedItem[];
+    }
+  | {
+      error: string;
+      ticket_id: string;
+      timestamp: string;
+      details: string;
+    };
+
+interface SimResponseState {
+  status: 'SUCCESS' | 'FAILED';
+  code: number;
+  message: string;
+  payload?: SimResponsePayload;
+}
+
+const DEFAULT_DEMO_KEYS: TicketApiKey[] = [
+  {
+    id: 'key-1',
+    name: 'Jira Service Management Webhook',
+    system: 'Jira Service Management',
+    key: 'fops_live_jira_prod_9843218739120',
+    allowedActions: ['inventory.read', 'tickets.consume'],
+    createdAt: '2026-01-15T08:00:00.000Z',
+    lastUsedAt: '2026-03-29T14:20:00.000Z',
+    isActive: true,
+  },
+  {
+    id: 'key-2',
+    name: 'Zendesk Helpdesk Connector',
+    system: 'Zendesk IT Support',
+    key: 'fops_live_zendesk_token_77182390123',
+    allowedActions: ['inventory.read', 'tickets.consume'],
+    createdAt: '2026-02-01T10:30:00.000Z',
+    lastUsedAt: '2026-03-28T09:15:00.000Z',
+    isActive: true,
+  }
+];
 
 export const TicketIntegrationHub: React.FC = () => {
   const { user } = useAuth();
   const { items, recordBatchStockOut } = useInventory();
+  const { showToast } = useToast();
+  const canManageKeys = isAdminOrDev(user?.role);
 
-  // Local state for API Keys
-  const [apiKeys, setApiKeys] = useState<Array<{
-    id: string;
-    name: string;
-    system: string;
-    key: string;
-    allowedActions: string[];
-    createdAt: string;
-    lastUsedAt?: string;
-    isActive: boolean;
-  }>>([
-    {
-      id: 'key-1',
-      name: 'Jira Service Management Webhook',
-      system: 'Jira Service Management',
-      key: 'fops_live_jira_prod_9843218739120',
-      allowedActions: ['inventory.read', 'tickets.consume'],
-      createdAt: '2026-01-15T08:00:00.000Z',
-      lastUsedAt: '2026-03-29T14:20:00.000Z',
-      isActive: true,
-    },
-    {
-      id: 'key-2',
-      name: 'Zendesk Helpdesk Connector',
-      system: 'Zendesk IT Support',
-      key: 'fops_live_zendesk_token_77182390123',
-      allowedActions: ['inventory.read', 'tickets.consume'],
-      createdAt: '2026-02-01T10:30:00.000Z',
-      lastUsedAt: '2026-03-28T09:15:00.000Z',
-      isActive: true,
-    }
-  ]);
+  const [apiKeys, setApiKeys] = useState<TicketApiKey[]>(DEFAULT_DEMO_KEYS);
+  const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canManageKeys) return;
+    let active = true;
+    apiFetch<{ success: boolean; keys?: BackendApiKeyRow[] }>('/api/tickets/keys')
+      .then((res) => {
+        if (!active || !res.success || !Array.isArray(res.keys) || res.keys.length === 0) return;
+        const mapped: TicketApiKey[] = res.keys.map((k) => ({
+          id: k.id,
+          name: k.name,
+          system: k.system_name,
+          key: 'fops_••••••••••••••••••••••••',
+          allowedActions: ['inventory.read', 'tickets.consume'],
+          createdAt: k.created_at,
+          lastUsedAt: k.last_used_at || undefined,
+          isActive: Boolean(k.is_active),
+        }));
+        setApiKeys(mapped);
+      })
+      .catch(() => {
+        // Fallback ke daftar lokal bila mode offline/non-server
+      });
+    return () => {
+      active = false;
+    };
+  }, [canManageKeys]);
 
   // Local state for Integration Audit Logs
-  const [integrationLogs, setIntegrationLogs] = useState<Array<{
-    id: string;
-    timestamp: string;
-    ticketId: string;
-    ticketTitle: string;
-    systemName: string;
-    technicianName: string;
-    itemsRequested: Array<{ name: string; quantity: number }>;
-    httpStatus: number;
-    message: string;
-  }>>([
+  const [integrationLogs, setIntegrationLogs] = useState<IntegrationLogItem[]>([
     {
       id: 'log-1',
       timestamp: new Date().toISOString(),
@@ -86,8 +154,40 @@ export const TicketIntegrationHub: React.FC = () => {
     }
   ]);
 
-  const generateApiKey = (name: string, system: string, allowedActions: string[]) => {
-    const newKey = {
+  const generateApiKey = async (name: string, system: string, allowedActions: string[]) => {
+    if (canManageKeys) {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          apiKey?: string;
+          keyId?: string;
+          message?: string;
+        }>('/api/tickets/keys', {
+          method: 'POST',
+          body: JSON.stringify({ name, systemName: system }),
+        });
+
+        if (res.success && res.apiKey) {
+          const newKey: TicketApiKey = {
+            id: res.keyId || `key-${Date.now()}`,
+            name,
+            system,
+            key: res.apiKey,
+            allowedActions,
+            createdAt: new Date().toISOString(),
+            isActive: true,
+          };
+          setApiKeys(prev => [newKey, ...prev]);
+          setNewlyCreatedKey(res.apiKey);
+          showToast('API Key server berhasil dibuat. Salin token sekarang.', 'success');
+          return;
+        }
+      } catch (err: unknown) {
+        showToast(getErrorMessage(err, 'Gagal membuat API Key server, menggunakan mode lokal.'), 'warning');
+      }
+    }
+
+    const fallbackKey: TicketApiKey = {
       id: `key-${Date.now()}`,
       name,
       system,
@@ -96,7 +196,8 @@ export const TicketIntegrationHub: React.FC = () => {
       createdAt: new Date().toISOString(),
       isActive: true,
     };
-    setApiKeys(prev => [newKey, ...prev]);
+    setApiKeys(prev => [fallbackKey, ...prev]);
+    setNewlyCreatedKey(fallbackKey.key);
   };
 
   const deleteApiKey = (id: string) => {
@@ -115,7 +216,7 @@ export const TicketIntegrationHub: React.FC = () => {
     items: Array<{ sku: string; quantity: number }>;
   }) => {
     try {
-      const mappedItems = data.items.map(s => {
+      const mappedItems: SimAffectedItem[] = data.items.map(s => {
         const found = items.find(it => it.sku === s.sku);
         return {
           itemId: found?.id || '',
@@ -136,7 +237,7 @@ export const TicketIntegrationHub: React.FC = () => {
         notes: data.ticketTitle,
       });
 
-      const newLog = {
+      const newLog: IntegrationLogItem = {
         id: `log-${Date.now()}`,
         timestamp: new Date().toISOString(),
         ticketId: data.ticketId,
@@ -154,8 +255,9 @@ export const TicketIntegrationHub: React.FC = () => {
         message: `Stok berhasil dikurangi untuk tiket ${data.ticketId}`,
         affectedItems: mappedItems,
       };
-    } catch (err: any) {
-      const failLog = {
+    } catch (err: unknown) {
+      const errMsg = getErrorMessage(err, 'Gagal memproses tiket.');
+      const failLog: IntegrationLogItem = {
         id: `log-${Date.now()}`,
         timestamp: new Date().toISOString(),
         ticketId: data.ticketId,
@@ -164,12 +266,12 @@ export const TicketIntegrationHub: React.FC = () => {
         technicianName: data.technicianName,
         itemsRequested: data.items.map(i => ({ name: i.sku, quantity: i.quantity })),
         httpStatus: 400,
-        message: err.message || 'Gagal memproses tiket.',
+        message: errMsg,
       };
       setIntegrationLogs(prev => [failLog, ...prev]);
       return {
         success: false,
-        message: err.message || 'Gagal memproses tiket.',
+        message: errMsg,
       };
     }
   };
@@ -189,12 +291,7 @@ export const TicketIntegrationHub: React.FC = () => {
   ]);
 
   // Simulation response banner
-  const [lastSimResponse, setLastSimResponse] = useState<{
-    status: 'SUCCESS' | 'FAILED';
-    code: number;
-    message: string;
-    payload?: any;
-  } | null>(null);
+  const [lastSimResponse, setLastSimResponse] = useState<SimResponseState | null>(null);
 
   // New API Key form state
   const [isAddingKey, setIsAddingKey] = useState(false);
@@ -217,10 +314,13 @@ export const TicketIntegrationHub: React.FC = () => {
     setSimSelectedItems(prev => prev.filter((_, idx) => idx !== index));
   };
 
-  const handleUpdateSimItem = (index: number, field: 'sku' | 'quantity', val: any) => {
+  const handleUpdateSimItem = (index: number, field: 'sku' | 'quantity', val: string | number) => {
     setSimSelectedItems(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: val };
+      copy[index] = {
+        ...copy[index],
+        [field]: field === 'quantity' ? Number(val) : String(val),
+      };
       return copy;
     });
   };
@@ -228,7 +328,7 @@ export const TicketIntegrationHub: React.FC = () => {
   const handleRunSimulation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (simSelectedItems.length === 0) {
-      alert('Pilih minimal 1 suku cadang yang digunakan untuk tiket ini.');
+      showToast('Pilih minimal 1 suku cadang yang digunakan untuk tiket ini.', 'warning');
       return;
     }
 
@@ -276,15 +376,18 @@ export const TicketIntegrationHub: React.FC = () => {
     setTimeout(() => setCopiedKeyId(null), 2500);
   };
 
-  const handleCreateApiKey = (e: React.FormEvent) => {
+  const handleCreateApiKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKeyName.trim()) return;
-    generateApiKey(newKeyName.trim(), newKeySystem, ['inventory.read', 'tickets.consume']);
+    await generateApiKey(newKeyName.trim(), newKeySystem, ['inventory.read', 'tickets.consume']);
     setNewKeyName('');
     setIsAddingKey(false);
   };
 
-  const sampleActiveKey = apiKeys.find((k: any) => k.isActive)?.key || 'fops_live_sample_token_abc123';
+  const sampleActiveKey =
+    newlyCreatedKey ||
+    apiKeys.find((k) => k.isActive && !k.key.includes('••••'))?.key ||
+    'fops_live_sample_token_abc123';
 
   return (
     <div className="space-y-6">
@@ -649,7 +752,7 @@ export const TicketIntegrationHub: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                {apiKeys.map((key: any) => (
+                {apiKeys.map((key) => (
                   <tr key={key.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="py-3 px-4">
                       <div className="font-semibold text-slate-900 dark:text-white">{key.name}</div>
@@ -675,7 +778,7 @@ export const TicketIntegrationHub: React.FC = () => {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1 flex-wrap">
-                        {key.allowedActions.map((act: any) => (
+                        {key.allowedActions.map((act) => (
                           <span key={act} className="font-mono text-[10px] bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded">
                             {act}
                           </span>
@@ -867,7 +970,7 @@ print(response.status_code, response.json())`}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                {integrationLogs.map((log: any) => (
+                {integrationLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="py-3 px-4 text-slate-500 dark:text-slate-400 font-mono text-[11px] whitespace-nowrap">
                       {new Date(log.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
@@ -883,7 +986,7 @@ print(response.status_code, response.json())`}
                       {log.technicianName}
                     </td>
                     <td className="py-3 px-4 max-w-xs">
-                      {log.itemsRequested.map((ir: any, i: number) => (
+                      {log.itemsRequested.map((ir, i) => (
                         <div key={i} className="text-[11px] text-slate-700 dark:text-slate-300 truncate">
                           <span className="font-mono font-bold">{ir.quantity}x</span> {ir.name}
                         </div>

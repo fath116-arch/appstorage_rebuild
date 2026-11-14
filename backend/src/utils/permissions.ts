@@ -3,12 +3,18 @@
  * FieldOps IT Inventory - v1.2.5 Paket 1
  */
 
-export type UserRole = 'developer' | 'admin' | 'warehouse_admin' | 'technician' | 'superadmin';
+export type UserRole =
+  | 'developer'
+  | 'admin'
+  | 'warehouse_admin'
+  | 'technician'
+  | 'supervisor'
+  | 'superadmin';
 
 export const PERMISSION_GROUPS = {
   // Katalog: Read & box content view -> ALL ROLES
   CATALOG_READ: ['developer', 'admin', 'warehouse_admin', 'technician'] as UserRole[],
-  
+
   // Katalog: Create product, storage box, attribute kinds -> developer, admin, warehouse_admin
   CATALOG_WRITE: ['developer', 'admin', 'warehouse_admin'] as UserRole[],
 
@@ -28,8 +34,20 @@ export const PERMISSION_GROUPS = {
   TOOLS_LABEL_PRINT: ['developer', 'admin', 'warehouse_admin', 'technician'] as UserRole[],
 } as const;
 
+export function isDeveloperRole(userRole?: string | null): boolean {
+  return userRole === 'developer' || userRole === 'superadmin';
+}
+
+export function isAdminOrDev(userRole?: string | null): boolean {
+  return isDeveloperRole(userRole) || userRole === 'admin';
+}
+
+export function isWarehouseManager(userRole?: string | null): boolean {
+  return isAdminOrDev(userRole) || userRole === 'warehouse_admin';
+}
+
 export function isRoleAllowed(userRole: string, allowedRoles: readonly UserRole[]): boolean {
-  if (userRole === 'developer' || userRole === 'admin' || (userRole as any) === 'superadmin') {
+  if (isAdminOrDev(userRole)) {
     return true;
   }
   return allowedRoles.includes(userRole as UserRole);

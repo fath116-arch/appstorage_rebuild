@@ -6,7 +6,7 @@
 import React from 'react';
 import { X, Printer } from 'lucide-react';
 
-interface PrintDocumentData {
+export interface PrintDocumentData {
   type: 'IN' | 'OUT';
   itemName: string;
   itemSku: string;

@@ -4,17 +4,14 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { api, InventoryItem, Category, Transaction } from '../services/api';
+import { api, InventoryItem, Category, Transaction, StockMutationResponse } from '../services/api';
 import { useAuth } from './AuthContext';
+import { ToastMessage, ToastType, useToast } from './ToastContext';
 import { APP_VERSION } from '../constants/version';
+import { getErrorMessage } from '../utils/errorUtils';
 
+export type { ToastMessage };
 export type TabType = 'dashboard' | 'catalog' | 'inout' | 'weekly-report' | 'categories' | 'integration';
-
-export interface ToastMessage {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info' | 'warning';
-}
 
 interface InventoryContextType {
   activeTab: TabType;
@@ -31,11 +28,11 @@ interface InventoryContextType {
   restoreItem: (id: string) => Promise<void>;
   permanentDeleteItem: (id: string) => Promise<void>;
   createCategory: (code: string, name: string, description?: string) => Promise<void>;
-  recordStockIn: (payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }) => Promise<any>;
-  recordStockOut: (payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => Promise<any>;
-  recordBatchStockOut: (payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => Promise<any>;
+  recordStockIn: (payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }) => Promise<StockMutationResponse>;
+  recordStockOut: (payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => Promise<StockMutationResponse>;
+  recordBatchStockOut: (payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => Promise<StockMutationResponse>;
   toasts: ToastMessage[];
-  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  showToast: (message: string, type?: ToastType) => void;
   removeToast: (id: string) => void;
   itemMap: Map<string, InventoryItem>;
   categoryMap: Map<string, Category>;
@@ -46,27 +43,15 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
+  const { toasts, showToast, removeToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [trashItems, setTrashItems] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const VERSION = APP_VERSION;
-
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
-    const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
-  }, []);
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
 
   // Memuat data dari backend
   const refreshData = useCallback(async () => {
@@ -82,8 +67,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setItems(activeIt);
       setTrashItems(deletedIt);
       setTransactions(allTxs);
-    } catch (err: any) {
-      showToast(err.message || 'Gagal menyinkronkan data dengan server.', 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err, 'Gagal menyinkronkan data dengan server.'), 'error');
     } finally {
       setIsLoading(false);
     }
@@ -100,8 +85,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await api.createItem(itemData);
       showToast('Barang berhasil ditambahkan ke inventori.', 'success');
       await refreshData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -111,8 +96,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await api.updateItem(id, updates);
       showToast('Data barang berhasil diperbarui.', 'success');
       await refreshData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -122,8 +107,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await api.deleteItem(id);
       showToast('Barang dipindahkan ke kotak sampah.', 'info');
       await refreshData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -133,8 +118,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await api.restoreItem(id);
       showToast('Barang berhasil dipulihkan dari kotak sampah.', 'success');
       await refreshData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -144,8 +129,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await api.permanentDeleteItem(id);
       showToast('Barang telah dihapus permanen dari sistem.', 'info');
       await refreshData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -155,8 +140,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await api.createCategory({ code, name, description });
       showToast('Kategori baru berhasil dibuat.', 'success');
       await refreshData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -167,8 +152,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       showToast(res.message, 'success');
       await refreshData();
       return res;
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -179,8 +164,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       showToast(res.message, res.lowStockAlertTriggered ? 'warning' : 'success');
       await refreshData();
       return res;
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };
@@ -191,8 +176,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       showToast(res.message, res.lowStockAlertTriggered ? 'warning' : 'success');
       await refreshData();
       return res;
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
       throw err;
     }
   };

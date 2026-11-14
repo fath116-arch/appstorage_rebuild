@@ -2,6 +2,8 @@
  * Stock & Box API Client (FieldOps Inventory v2 - Tahap 3)
  */
 
+import { apiFetch } from './httpClient';
+
 export interface Box {
   id: string;
   kode: string;
@@ -9,6 +11,20 @@ export interface Box {
   aktif: boolean | number;
   dibuat_pada: string;
   total_item?: number;
+}
+
+export interface BoxContentItem {
+  id: string;
+  kode_id: string;
+  tipe_id: number;
+  box_id: string;
+  kode_box?: string;
+  status: string;
+  dibuat_pada: string;
+  nama_tipe: string;
+  nama_produk: string;
+  kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+  catatan_kondisi?: string | null;
 }
 
 export interface BoxContentsResponse {
@@ -19,50 +35,35 @@ export interface BoxContentsResponse {
   contents: {
     [produkNama: string]: {
       [tipeNama: string]: {
-        items: Array<{
-          id: string;
-          kode_id: string;
-          tipe_id: number;
-          box_id: string;
-          status: string;
-          dibuat_pada: string;
-          nama_tipe: string;
-          nama_produk: string;
-          kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
-          catatan_kondisi?: string | null;
-        }>;
+        items: BoxContentItem[];
         stokJumlah: number;
       };
     };
   };
-  raw_items: any[];
-  raw_stok_jumlah: any[];
+  raw_items: BoxContentItem[];
+  raw_stok_jumlah: Array<{ tipe_id: number; box_id: string; jumlah: number; nama_tipe?: string; nama_produk?: string }>;
 }
 
 export const stockApi = {
   async listBoxes(): Promise<Box[]> {
-    const res = await fetch('/api/boxes', { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat daftar box.');
+    const data = await apiFetch<{ boxes?: Box[] }>('/api/boxes', {}, 'Gagal memuat daftar box.');
     return data.boxes || [];
   },
 
   async getBoxContents(boxIdOrKode: string): Promise<BoxContentsResponse> {
-    const res = await fetch(`/api/boxes/${encodeURIComponent(boxIdOrKode)}`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat isi box.');
-    return data;
+    return apiFetch<BoxContentsResponse>(
+      `/api/boxes/${encodeURIComponent(boxIdOrKode)}`,
+      {},
+      'Gagal memuat isi box.'
+    );
   },
 
   async createBox(kode: string, keterangan?: string): Promise<Box> {
-    const res = await fetch('/api/boxes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ kode, keterangan })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal membuat box baru.');
+    const data = await apiFetch<{ box: Box }>(
+      '/api/boxes',
+      { method: 'POST', body: JSON.stringify({ kode, keterangan }) },
+      'Gagal membuat box baru.'
+    );
     return data.box;
   },
 
@@ -74,22 +75,19 @@ export const stockApi = {
     jumlah?: number;
     catatan?: string;
   }): Promise<{ success: boolean; message: string; activityId: string }> {
-    const res = await fetch('/api/boxes/move', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memindahkan barang antar box.');
-    return data;
+    return apiFetch<{ success: boolean; message: string; activityId: string }>(
+      '/api/boxes/move',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal memindahkan barang antar box.'
+    );
   },
 
-  async checkDuplicateId(kodeId: string): Promise<{ exists: boolean; item?: any }> {
-    const res = await fetch(`/api/stock/check-id/${encodeURIComponent(kodeId)}`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memeriksa ID.');
-    return data;
+  async checkDuplicateId(kodeId: string): Promise<{ exists: boolean; item?: BoxContentItem }> {
+    return apiFetch<{ exists: boolean; item?: BoxContentItem }>(
+      `/api/stock/check-id/${encodeURIComponent(kodeId)}`,
+      {},
+      'Gagal memeriksa ID.'
+    );
   },
 
   async inputSingleStock(payload: {
@@ -98,15 +96,11 @@ export const stockApi = {
     kode_id: string;
     catatan?: string;
   }) {
-    const res = await fetch('/api/stock/single', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal input stok tunggal.');
-    return data;
+    return apiFetch<{ success: boolean; message: string; itemId?: string; kodeId?: string; activityId?: string }>(
+      '/api/stock/single',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal input stok tunggal.'
+    );
   },
 
   async inputBulkStock(payload: {
@@ -117,15 +111,11 @@ export const stockApi = {
     catatan?: string;
     confirmation_token?: string;
   }) {
-    const res = await fetch('/api/stock/bulk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal input stok massal.');
-    return data;
+    return apiFetch<{ success: boolean; message: string; totalCount?: number; activityId?: string }>(
+      '/api/stock/bulk',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal input stok massal.'
+    );
   },
 
   async inputQuantityStock(payload: {
@@ -134,14 +124,10 @@ export const stockApi = {
     jumlah: number;
     catatan?: string;
   }) {
-    const res = await fetch('/api/stock/quantity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal input stok jumlah.');
-    return data;
+    return apiFetch<{ success: boolean; message: string; activityId?: string }>(
+      '/api/stock/quantity',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal input stok jumlah.'
+    );
   }
 };

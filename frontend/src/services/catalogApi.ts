@@ -3,6 +3,8 @@
  * Client-side communication for Jenis, Atribut, Produk, and Tipe
  */
 
+import { apiFetch, requestJson } from './httpClient';
+
 export interface AtributOpsi {
   id: number;
   atribut_id: number;
@@ -45,6 +47,14 @@ export interface NilaiAtributView {
   nilai_teks?: string;
 }
 
+export interface TipeThresholdInfo {
+  lowStockThreshold?: number;
+  earlyWarningThreshold?: number;
+  lowStockSource?: string;
+  earlyWarningSource?: string;
+  isWatchlist?: boolean;
+}
+
 export interface Tipe {
   id: number;
   produk_id: number;
@@ -82,7 +92,7 @@ export interface Tipe {
   }>;
   nilai_atribut?: NilaiAtributView[];
   status_stok?: 'aman' | 'menipis' | 'habis';
-  threshold?: any;
+  threshold?: TipeThresholdInfo;
 }
 
 export interface Produk {
@@ -109,16 +119,12 @@ export interface Produk {
 export const catalogApi = {
   // JENIS
   async listJenis(): Promise<Jenis[]> {
-    const res = await fetch('/api/catalog/jenis', { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat jenis katalog.');
+    const data = await apiFetch<{ jenis?: Jenis[] }>('/api/catalog/jenis', {}, 'Gagal memuat jenis katalog.');
     return data.jenis || [];
   },
 
   async getJenis(id: number): Promise<Jenis> {
-    const res = await fetch(`/api/catalog/jenis/${id}`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mengambil detail jenis.');
+    const data = await apiFetch<{ jenis: Jenis }>(`/api/catalog/jenis/${id}`, {}, 'Gagal mengambil detail jenis.');
     return data.jenis;
   },
 
@@ -137,36 +143,32 @@ export const catalogApi = {
       opsi?: string[];
     }>;
   }): Promise<Jenis> {
-    const res = await fetch('/api/catalog/jenis', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal membuat Jenis baru.');
+    const data = await apiFetch<{ jenis: Jenis }>(
+      '/api/catalog/jenis',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal membuat Jenis baru.'
+    );
     return data.jenis;
   },
 
   async deleteJenis(id: number, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/catalog/jenis/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {})
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/catalog/jenis/${id}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
       },
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menghapus jenis.');
-    return data;
+      'Gagal menghapus jenis.'
+    );
   },
 
   // ATRIBUT
   async listAtributByJenis(jenisId: number): Promise<Atribut[]> {
-    const res = await fetch(`/api/catalog/jenis/${jenisId}/attributes`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat atribut.');
+    const data = await apiFetch<{ atributs?: Atribut[] }>(
+      `/api/catalog/jenis/${jenisId}/attributes`,
+      {},
+      'Gagal memuat atribut.'
+    );
     return data.atributs || [];
   },
 
@@ -181,26 +183,20 @@ export const catalogApi = {
     masuk_nama?: boolean;
     opsi?: string[];
   }): Promise<Atribut> {
-    const res = await fetch('/api/catalog/attributes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menambahkan atribut.');
+    const data = await apiFetch<{ atribut: Atribut }>(
+      '/api/catalog/attributes',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal menambahkan atribut.'
+    );
     return data.atribut;
   },
 
   async addAtributOpsi(atributId: number, nilai: string): Promise<AtributOpsi> {
-    const res = await fetch(`/api/catalog/attributes/${atributId}/options`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ nilai })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menambahkan opsi atribut.');
+    const data = await apiFetch<{ option: AtributOpsi }>(
+      `/api/catalog/attributes/${atributId}/options`,
+      { method: 'POST', body: JSON.stringify({ nilai }) },
+      'Gagal menambahkan opsi atribut.'
+    );
     return data.option;
   },
 
@@ -214,16 +210,16 @@ export const catalogApi = {
     if (filters?.search) params.append('search', filters.search);
     if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
 
-    const res = await fetch(`/api/catalog/products-v2?${params.toString()}`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat daftar produk.');
+    const data = await apiFetch<{ products?: Produk[] }>(
+      `/api/catalog/products-v2?${params.toString()}`,
+      {},
+      'Gagal memuat daftar produk.'
+    );
     return data.products || [];
   },
 
   async getProduk(id: number): Promise<Produk> {
-    const res = await fetch(`/api/catalog/products/${id}`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mengambil detail produk.');
+    const data = await apiFetch<{ product: Produk }>(`/api/catalog/products/${id}`, {}, 'Gagal mengambil detail produk.');
     return data.product;
   },
 
@@ -236,69 +232,59 @@ export const catalogApi = {
     catatan?: string;
     stok_awal?: number;
   }): Promise<Produk> {
-    const res = await fetch('/api/catalog/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal membuat produk baru.');
+    const data = await apiFetch<{ product: Produk }>(
+      '/api/catalog/products',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal membuat produk baru.'
+    );
     return data.product;
   },
 
   async getTipeStokSuggestions(): Promise<string[]> {
-    const res = await fetch('/api/catalog/tipe-stok-suggestions', { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) return ['unit', 'roll', 'meter', 'pcs', 'box', 'set'];
+    const { ok, data } = await requestJson<{ suggestions?: string[] }>('/api/catalog/tipe-stok-suggestions');
+    if (!ok) return ['unit', 'roll', 'meter', 'pcs', 'box', 'set'];
     return data.suggestions || ['unit', 'roll', 'meter', 'pcs', 'box', 'set'];
   },
 
-  async updateItemCondition(itemId: string, kondisi: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak', catatan_kondisi?: string): Promise<any> {
-    const res = await fetch(`/api/stock/items/${encodeURIComponent(itemId)}/condition`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ kondisi, catatan_kondisi })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui kondisi item.');
-    return data;
+  async updateItemCondition(itemId: string, kondisi: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak', catatan_kondisi?: string): Promise<Record<string, unknown>> {
+    return apiFetch(
+      `/api/stock/items/${encodeURIComponent(itemId)}/condition`,
+      { method: 'PUT', body: JSON.stringify({ kondisi, catatan_kondisi }) },
+      'Gagal memperbarui kondisi item.'
+    );
   },
 
-  async listBoxes(): Promise<any[]> {
-    const res = await fetch('/api/stock/boxes', { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat daftar storage box.');
+  async listBoxes(): Promise<Array<Record<string, unknown>>> {
+    const data = await apiFetch<{ boxes?: Array<Record<string, unknown>> }>('/api/stock/boxes', {}, 'Gagal memuat daftar storage box.');
     return data.boxes || [];
   },
 
-  async getBoxContents(boxId: string): Promise<any> {
-    const res = await fetch(`/api/stock/boxes/${encodeURIComponent(boxId)}/contents`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat isi storage box.');
-    return data;
+  async getBoxContents(boxId: string): Promise<Record<string, unknown>> {
+    return apiFetch(
+      `/api/stock/boxes/${encodeURIComponent(boxId)}/contents`,
+      {},
+      'Gagal memuat isi storage box.'
+    );
   },
 
   async deleteProduk(id: number, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/catalog/products/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {})
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/catalog/products/${id}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
       },
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menghapus produk.');
-    return data;
+      'Gagal menghapus produk.'
+    );
   },
 
   // TIPE
   async listTipeByProduk(produkId: number): Promise<Tipe[]> {
-    const res = await fetch(`/api/catalog/products/${produkId}/types`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat tipe varian produk.');
+    const data = await apiFetch<{ types?: Tipe[] }>(
+      `/api/catalog/products/${produkId}/types`,
+      {},
+      'Gagal memuat tipe varian produk.'
+    );
     return data.types || [];
   },
 
@@ -316,14 +302,11 @@ export const catalogApi = {
       nilai_teks?: string | null;
     }>;
   }): Promise<Tipe> {
-    const res = await fetch('/api/catalog/types', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal membuat tipe baru.');
+    const data = await apiFetch<{ type: Tipe }>(
+      '/api/catalog/types',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal membuat tipe baru.'
+    );
     return data.type;
   },
 
@@ -334,21 +317,20 @@ export const catalogApi = {
     alasan: string;
     confirmation_token?: string;
   }): Promise<Tipe> {
-    const res = await fetch(`/api/catalog/types/${tipeId}/id-rule`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui aturan ID tipe.');
+    const data = await apiFetch<{ type: Tipe }>(
+      `/api/catalog/types/${tipeId}/id-rule`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+      'Gagal memperbarui aturan ID tipe.'
+    );
     return data.type;
   },
 
-  async getItemsByTipe(tipeId: number): Promise<{ items: any[]; stokJumlah: any[] }> {
-    const res = await fetch(`/api/stock/types/${tipeId}/items`, { credentials: 'include' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat item fisik tipe.');
+  async getItemsByTipe(tipeId: number): Promise<{ items: Array<Record<string, unknown>>; stokJumlah: Array<Record<string, unknown>> }> {
+    const data = await apiFetch<{ items?: Array<Record<string, unknown>>; stokJumlah?: Array<Record<string, unknown>> }>(
+      `/api/stock/types/${tipeId}/items`,
+      {},
+      'Gagal memuat item fisik tipe.'
+    );
     return { items: data.items || [], stokJumlah: data.stokJumlah || [] };
   }
 };

@@ -128,7 +128,7 @@ async function runTahap6Tests() {
 
     // Cek bahwa stok item SN otomatis dikeluarkan ke Arsip
     const checkDupSN = await StockService.checkDuplicateKodeId(kodeSN1);
-    assert(checkDupSN.item.status === 'keluar', 'Item fisik ber-ID otomatis KELUAR dari stok setelah request disetujui');
+    assert(checkDupSN.item?.status === 'keluar', 'Item fisik ber-ID otomatis KELUAR dari stok setelah request disetujui');
 
     // 5. Uji Pencegahan Double Approval (Race Condition Protection)
     let doubleApproveError = false;

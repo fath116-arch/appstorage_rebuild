@@ -101,7 +101,7 @@ async function runTahap5Tests() {
 
     // Cek item berstatus keluar
     const checkDup1 = await StockService.checkDuplicateKodeId(kodeId1);
-    assert(checkDup1.exists && checkDup1.item.status === 'keluar', 'Status item berubah menjadi KELUAR');
+    assert(checkDup1.exists && checkDup1.item?.status === 'keluar', 'Status item berubah menjadi KELUAR');
 
     // 5. Uji Barang Keluar Single (Stok Jumlah)
     const resOutJumlah = await StockService.barangKeluarSingle({
@@ -161,7 +161,7 @@ async function runTahap5Tests() {
     assert(resRestoreSuccess.success === true, 'Restore item dari Arsip ke Box B berhasil');
 
     const checkDupRestored = await StockService.checkDuplicateKodeId(kodeId1);
-    assert(checkDupRestored.item.status === 'aktif' && checkDupRestored.item.box_id === boxB.id, 'Status item kembali AKTIF dan dipindahkan ke Box B');
+    assert(checkDupRestored.item?.status === 'aktif' && checkDupRestored.item?.box_id === boxB.id, 'Status item kembali AKTIF dan dipindahkan ke Box B');
 
     // 11. Uji Barang Keluar Massal (Tier 2 Confirmation Token `approve`)
     const tokenRes = await ConfirmationService.requestConfirmationToken({
@@ -186,7 +186,7 @@ async function runTahap5Tests() {
 
     const checkBulk1 = await StockService.checkDuplicateKodeId(kodeId1);
     const checkBulk2 = await StockService.checkDuplicateKodeId(kodeId2);
-    assert(checkBulk1.item.status === 'keluar' && checkBulk2.item.status === 'keluar', 'Kedua item massal kini berstatus KELUAR');
+    assert(checkBulk1.item?.status === 'keluar' && checkBulk2.item?.status === 'keluar', 'Kedua item massal kini berstatus KELUAR');
 
     console.log(`\n🎉 TAHAP 5 TEST SUITE COMPLETED: ${passed}/${total} TESTS PASSED!`);
   } catch (err: any) {

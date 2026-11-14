@@ -5,7 +5,7 @@
  */
 
 import crypto from 'crypto';
-import { executeQuery, runTransaction } from '../db/database';
+import { DbTxConnection, executeQuery, runTransaction } from '../db/database';
 
 export interface ActivityDetailInput {
   tipe_id?: number | null;
@@ -28,6 +28,39 @@ export interface CreateActivityInput {
   details?: ActivityDetailInput[];
 }
 
+interface ActivityIdRow {
+  id_aktivitas: string;
+}
+
+export interface ActivityLogRow {
+  id: string;
+  id_aktivitas: string;
+  aksi: string;
+  pelaku_id: string;
+  nama_pelaku?: string | null;
+  role_pelaku?: string | null;
+  penyetuju_id?: string | null;
+  nama_penyetuju?: string | null;
+  request_id?: string | null;
+  box_asal?: string | null;
+  box_tujuan?: string | null;
+  catatan?: string | null;
+  waktu: string;
+  total_items: number;
+}
+
+export interface ActivityDetailRow {
+  id: number;
+  transaksi_id: string;
+  tipe_id?: number | null;
+  item_id?: string | null;
+  kode_id?: string | null;
+  nama_snapshot: string;
+  jumlah: number;
+  status_sebelum?: string | null;
+  status_sesudah?: string | null;
+}
+
 export class ActivityLogService {
   /**
    * Menghasilkan ID Aktivitas unik format AKT-YYYYMMDD-NNNN dihitung per hari
@@ -39,7 +72,7 @@ export class ActivityLogService {
     const day = String(now.getUTCDate()).padStart(2, '0');
     const prefix = `AKT-${year}${month}${day}-`;
 
-    const rows = await executeQuery<any>(
+    const rows = await executeQuery<ActivityIdRow>(
       `SELECT id_aktivitas FROM transaksi 
        WHERE id_aktivitas LIKE ? 
        ORDER BY id_aktivitas DESC LIMIT 1`,
@@ -62,8 +95,8 @@ export class ActivityLogService {
   /**
    * Mencatat aktivitas transaksi secara atomik (Append-Only)
    */
-  static async recordActivity(input: CreateActivityInput, conn?: any): Promise<{ transaksiId: string; idAktivitas: string }> {
-    const runner = async (c: any) => {
+  static async recordActivity(input: CreateActivityInput, conn?: DbTxConnection): Promise<{ transaksiId: string; idAktivitas: string }> {
+    const runner = async (c: DbTxConnection) => {
       const idAktivitas = await this.generateActivityId();
       const transaksiId = `tx-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -122,7 +155,7 @@ export class ActivityLogService {
     dateTo?: string;
     limit?: number;
     offset?: number;
-  }) {
+  }): Promise<ActivityLogRow[]> {
     const limit = filters.limit || 50;
     const offset = filters.offset || 0;
 
@@ -137,7 +170,7 @@ export class ActivityLogService {
       LEFT JOIN transaksi_detail td ON t.id = td.transaksi_id
       WHERE 1=1
     `;
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (filters.action) {
       sql += ' AND t.aksi = ?';
@@ -162,15 +195,14 @@ export class ActivityLogService {
     sql += ' GROUP BY t.id ORDER BY t.waktu DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
-    const logs = await executeQuery<any>(sql, params);
-    return logs;
+    return await executeQuery<ActivityLogRow>(sql, params);
   }
 
   /**
    * Mengambil detail barang dari suatu ID aktivitas
    */
-  static async getActivityDetails(transaksiId: string) {
-    return await executeQuery<any>(
+  static async getActivityDetails(transaksiId: string): Promise<ActivityDetailRow[]> {
+    return await executeQuery<ActivityDetailRow>(
       `SELECT id, transaksi_id, tipe_id, item_id, kode_id, nama_snapshot, jumlah, status_sebelum, status_sesudah
        FROM transaksi_detail WHERE transaksi_id = ?`,
       [transaksiId]

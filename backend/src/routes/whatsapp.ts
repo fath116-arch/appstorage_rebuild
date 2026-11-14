@@ -9,6 +9,8 @@
 import { Router, Request, Response } from 'express';
 import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { WhatsappAlertService } from '../services/whatsappAlertService';
+import { isAdminOrDev } from '../utils/permissions';
+import { getErrorMessage } from '../utils/errorUtils';
 
 const router = Router();
 
@@ -16,8 +18,7 @@ const router = Router();
 router.get('/config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const config = await WhatsappAlertService.getConfig();
-    const role = req.user?.role;
-    const isDevOrAdmin = role === 'developer' || role === 'admin';
+    const isDevOrAdmin = isAdminOrDev(req.user?.role);
 
     // Masked/Cleaned config response (Token mentah tidak pernah dikirim ke frontend)
     const sanitizedConfig = {
@@ -30,19 +31,18 @@ router.get('/config', requireAuth, async (req: AuthenticatedRequest, res: Respon
       success: true,
       config: sanitizedConfig
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
 // POST /api/whatsapp/config (Ubah Pengaturan: developer, admin, warehouse_admin; technician 403)
 router.post('/config', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const role = req.user!.role;
-    const isDevOrAdmin = role === 'developer' || role === 'admin';
+    const isDevOrAdmin = isAdminOrDev(req.user!.role);
 
     // Cek apakah payload mencoba mengubah kredensial (apiToken / apiUrl) oleh non-admin
-    const isAttemptingCredentials = 
+    const isAttemptingCredentials =
       (req.body.apiToken !== undefined && req.body.apiToken !== '') ||
       (req.body.apiUrl !== undefined && req.body.apiUrl !== '' && req.body.apiUrl !== 'https://api.fonnte.com/send');
 
@@ -72,10 +72,10 @@ router.post('/config', requireAuth, requireRole(['developer', 'admin', 'warehous
         maskedToken: isDevOrAdmin ? updated.maskedToken : '••••••••'
       }
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     res.status(400).json({
       success: false,
-      message: err.message || 'Gagal memperbarui konfigurasi WhatsApp.'
+      message: getErrorMessage(err, 'Gagal memperbarui konfigurasi WhatsApp.')
     });
   }
 });
@@ -88,8 +88,8 @@ router.get('/thresholds', requireAuth, async (_req: Request, res: Response) => {
       success: true,
       thresholds: matrix
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -103,8 +103,8 @@ router.post('/thresholds', requireAuth, requireRole(['developer', 'admin', 'ware
       message: 'Ambang stok khusus / daftar pantauan berhasil disimpan.',
       threshold: result
     });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(400).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -116,8 +116,8 @@ router.post('/evaluate', requireAuth, requireRole(['developer', 'admin', 'wareho
       success: true,
       evaluation
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 
@@ -141,10 +141,10 @@ router.post('/send', requireAuth, requireRole(['developer', 'admin', 'warehouse_
     }
 
     res.json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
     res.status(500).json({
       success: false,
-      message: err.message || 'Gagal mengirim alert WhatsApp.'
+      message: getErrorMessage(err, 'Gagal mengirim alert WhatsApp.')
     });
   }
 });
@@ -155,11 +155,12 @@ router.post('/test', requireAuth, requireRole(['developer', 'admin', 'warehouse_
     const operator = { id: req.user!.id, name: req.user!.name };
     const result = await WhatsappAlertService.sendTestMessage(req.body.targetPhone, operator);
     res.json(result);
-  } catch (err: any) {
-    const isCooldown = err.message && err.message.includes('masih aktif');
+  } catch (err: unknown) {
+    const message = getErrorMessage(err, 'Gagal mengirim pesan uji WhatsApp.');
+    const isCooldown = message.includes('masih aktif');
     res.status(isCooldown ? 429 : 400).json({
       success: false,
-      message: err.message || 'Gagal mengirim pesan uji WhatsApp.'
+      message
     });
   }
 });
@@ -173,8 +174,8 @@ router.get('/logs', requireAuth, async (req: Request, res: Response) => {
       success: true,
       logs
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: getErrorMessage(err) });
   }
 });
 

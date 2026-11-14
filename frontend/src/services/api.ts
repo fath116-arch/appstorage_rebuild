@@ -3,6 +3,8 @@
  * Single communication gateway to FieldOps IT Express backend
  */
 
+import { apiFetch, clearAuthToken, requestJson, setAuthToken } from './httpClient';
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -74,112 +76,87 @@ export interface Transaction {
   date?: string;
 }
 
-// Token fallback for browser contexts where third-party iframe cookies are restricted
-let authToken: string | null = null;
-try {
-  authToken = localStorage.getItem('fieldops_token');
-} catch {}
+interface AuthResponse {
+  success: boolean;
+  user?: UserProfile;
+  token?: string;
+  message?: string;
+}
 
-function getHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...customHeaders
-  };
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
-  }
-  return headers;
+interface BasicResponse {
+  success: boolean;
+  message: string;
+  user?: UserProfile;
+}
+
+export interface StockMutationResponse {
+  success: boolean;
+  message: string;
+  lowStockAlertTriggered?: boolean;
+  [key: string]: unknown;
 }
 
 export const api = {
   // Auth API
   async login(username: string, passwordAttempt: string): Promise<{ success: boolean; user?: UserProfile; message?: string }> {
-    const res = await fetch('/api/auth/login', {
+    const { data } = await requestJson<AuthResponse>('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password: passwordAttempt }),
-      credentials: 'include'
+      skipAuth: true,
+      body: JSON.stringify({ username, password: passwordAttempt })
     });
-    const data = await res.json();
     if (data.token) {
-      authToken = data.token;
-      try { localStorage.setItem('fieldops_token', data.token); } catch {}
+      setAuthToken(data.token);
     }
     return data;
   },
 
   async register(userData: { username: string; name?: string; email?: string; role?: string; department?: string; password: string }): Promise<{ success: boolean; user?: UserProfile; message?: string }> {
-    authToken = null;
-    try { localStorage.removeItem('fieldops_token'); } catch {}
-    const res = await fetch('/api/auth/register', {
+    clearAuthToken();
+    const { data } = await requestJson<AuthResponse>('/api/auth/register', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData),
-      credentials: 'include'
+      skipAuth: true,
+      body: JSON.stringify(userData)
     });
-    return res.json();
+    return data;
   },
 
   async getMe(): Promise<{ success: boolean; user?: UserProfile }> {
-    const res = await fetch('/api/auth/me', {
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    if (!res.ok) return { success: false };
-    return res.json();
+    const { ok, data } = await requestJson<{ success: boolean; user?: UserProfile }>('/api/auth/me');
+    if (!ok) return { success: false };
+    return data;
   },
 
   async logout(): Promise<void> {
-    authToken = null;
-    try { localStorage.removeItem('fieldops_token'); } catch {}
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
+    clearAuthToken();
+    await requestJson('/api/auth/logout', { method: 'POST' });
   },
 
   async getUsers(): Promise<UserProfile[]> {
-    const res = await fetch('/api/auth/users', { headers: getHeaders(), credentials: 'include' });
-    const data = await res.json();
+    const { data } = await requestJson<{ users?: UserProfile[] }>('/api/auth/users');
     return data.users || [];
   },
 
   async approveUser(userId: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/auth/users/${userId}/approve`, {
-      method: 'POST',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    return res.json();
+    const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}/approve`, { method: 'POST' });
+    return data;
   },
 
   async rejectUser(userId: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/auth/users/${userId}/reject`, {
-      method: 'POST',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    return res.json();
+    const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}/reject`, { method: 'POST' });
+    return data;
   },
 
   async updateUserStatus(userId: string, status: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/auth/users/${userId}/status`, {
+    const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}/status`, {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ status }),
-      credentials: 'include'
+      body: JSON.stringify({ status })
     });
-    return res.json();
+    return data;
   },
 
   async deleteUser(userId: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/auth/users/${userId}`, {
-      method: 'DELETE',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    return res.json();
+    const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}`, { method: 'DELETE' });
+    return data;
   },
 
   async createUser(userData: {
@@ -192,189 +169,136 @@ export const api = {
     password: string;
     status?: string;
   }): Promise<{ success: boolean; message: string; user?: UserProfile }> {
-    const res = await fetch('/api/auth/users', {
+    const { data } = await requestJson<BasicResponse>('/api/auth/users', {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(userData),
-      credentials: 'include'
+      body: JSON.stringify(userData)
     });
-    return res.json();
+    return data;
   },
 
   async resetPassword(data: { username: string; email?: string; newPassword: string }): Promise<{ success: boolean; message: string }> {
-    const res = await fetch('/api/auth/reset-password', {
+    const { data: resData } = await requestJson<BasicResponse>('/api/auth/reset-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      skipAuth: true,
       body: JSON.stringify(data)
     });
-    return res.json();
+    return resData;
   },
 
   async adminResetPassword(userId: string, newPassword: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/auth/users/${userId}/reset-password`, {
+    const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}/reset-password`, {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ newPassword }),
-      credentials: 'include'
+      body: JSON.stringify({ newPassword })
     });
-    return res.json();
+    return data;
   },
 
   // Inventory API
   async getItems(includeDeleted: boolean = false): Promise<InventoryItem[]> {
-    const res = await fetch(`/api/inventory/items?includeDeleted=${includeDeleted}`, { headers: getHeaders(), credentials: 'include' });
-    const data = await res.json();
+    const { data } = await requestJson<{ items?: InventoryItem[] }>(`/api/inventory/items?includeDeleted=${includeDeleted}`);
     return data.items || [];
   },
 
   async scanItem(code: string): Promise<{ success: boolean; found: boolean; message: string; item?: InventoryItem }> {
-    const res = await fetch(`/api/inventory/scan/${encodeURIComponent(code)}`, {
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    return res.json();
+    const { data } = await requestJson<{ success: boolean; found: boolean; message: string; item?: InventoryItem }>(
+      `/api/inventory/scan/${encodeURIComponent(code)}`
+    );
+    return data;
   },
 
   async getCategories(): Promise<Category[]> {
-    const res = await fetch('/api/inventory/categories', { headers: getHeaders(), credentials: 'include' });
-    const data = await res.json();
+    const { data } = await requestJson<{ categories?: Category[] }>('/api/inventory/categories');
     return data.categories || [];
   },
 
   async createItem(item: Partial<InventoryItem>): Promise<InventoryItem> {
-    const res = await fetch('/api/inventory/items', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(item),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menambahkan barang.');
+    const data = await apiFetch<{ item: InventoryItem }>(
+      '/api/inventory/items',
+      { method: 'POST', body: JSON.stringify(item) },
+      'Gagal menambahkan barang.'
+    );
     return data.item;
   },
 
   async updateItem(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem> {
-    const res = await fetch(`/api/inventory/items/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(updates),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui barang.');
+    const data = await apiFetch<{ item: InventoryItem }>(
+      `/api/inventory/items/${id}`,
+      { method: 'PUT', body: JSON.stringify(updates) },
+      'Gagal memperbarui barang.'
+    );
     return data.item;
   },
 
   async deleteItem(id: string): Promise<void> {
-    const res = await fetch(`/api/inventory/items/${id}`, {
-      method: 'DELETE',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menghapus barang.');
+    await apiFetch(`/api/inventory/items/${id}`, { method: 'DELETE' }, 'Gagal menghapus barang.');
   },
 
   async restoreItem(id: string): Promise<void> {
-    const res = await fetch(`/api/inventory/items/${id}/restore`, {
-      method: 'POST',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memulihkan barang.');
+    await apiFetch(`/api/inventory/items/${id}/restore`, { method: 'POST' }, 'Gagal memulihkan barang.');
   },
 
   async permanentDeleteItem(id: string): Promise<void> {
-    const res = await fetch(`/api/inventory/items/${id}/permanent`, {
-      method: 'DELETE',
-      headers: getHeaders(),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menghapus barang permanen.');
+    await apiFetch(`/api/inventory/items/${id}/permanent`, { method: 'DELETE' }, 'Gagal menghapus barang permanen.');
   },
 
   async createCategory(cat: { code: string; name: string; description?: string }): Promise<Category> {
-    const res = await fetch('/api/inventory/categories', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(cat),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal membuat kategori.');
+    const data = await apiFetch<{ category: Category }>(
+      '/api/inventory/categories',
+      { method: 'POST', body: JSON.stringify(cat) },
+      'Gagal membuat kategori.'
+    );
     return data.category;
   },
 
   // Transactions API
   async getTransactions(limit: number = 100): Promise<Transaction[]> {
-    const res = await fetch(`/api/transactions?limit=${limit}`, { headers: getHeaders(), credentials: 'include' });
-    const data = await res.json();
+    const { data } = await requestJson<{ transactions?: Transaction[] }>(`/api/transactions?limit=${limit}`);
     return data.transactions || [];
   },
 
-  async stockIn(payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }): Promise<any> {
-    const res = await fetch('/api/transactions/in', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mencatat stok masuk.');
-    return data;
+  async stockIn(payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }): Promise<StockMutationResponse> {
+    return apiFetch<StockMutationResponse>(
+      '/api/transactions/in',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mencatat stok masuk.'
+    );
   },
 
-  async stockOut(payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }): Promise<any> {
-    const res = await fetch('/api/transactions/out', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mencatat stok keluar.');
-    return data;
+  async stockOut(payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }): Promise<StockMutationResponse> {
+    return apiFetch<StockMutationResponse>(
+      '/api/transactions/out',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mencatat stok keluar.'
+    );
   },
 
-  async batchStockOut(payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }): Promise<any> {
-    const res = await fetch('/api/transactions/batch-out', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mencatat batch stok keluar.');
-    return data;
+  async batchStockOut(payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }): Promise<StockMutationResponse> {
+    return apiFetch<StockMutationResponse>(
+      '/api/transactions/batch-out',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mencatat batch stok keluar.'
+    );
   },
 
   // Weekly Reports
-  async getWeeklyReport(): Promise<any> {
-    const res = await fetch('/api/reports/weekly', { headers: getHeaders(), credentials: 'include' });
-    return res.json();
+  async getWeeklyReport(): Promise<Record<string, unknown>> {
+    const { data } = await requestJson<Record<string, unknown>>('/api/reports/weekly');
+    return data;
   },
 
   // Checklists
-  async getChecklists(): Promise<any[]> {
-    const res = await fetch('/api/checklists', { headers: getHeaders(), credentials: 'include' });
-    const data = await res.json();
+  async getChecklists(): Promise<Array<Record<string, unknown>>> {
+    const { data } = await requestJson<{ checklists?: Array<Record<string, unknown>> }>('/api/checklists');
     return data.checklists || [];
   },
 
-  async createChecklist(payload: any): Promise<any> {
-    const res = await fetch('/api/checklists', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-      credentials: 'include'
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menyimpan checklist.');
-    return data;
+  async createChecklist(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return apiFetch(
+      '/api/checklists',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal menyimpan checklist.'
+    );
   }
 };
 
 export const apiService = api;
-

@@ -10,6 +10,10 @@ import { ItemRecord } from '../repositories/inventoryRepository';
 import { StockService } from './stockService';
 import { LegacyMigrationService } from './legacyMigrationService';
 
+export interface DbQueryExecutor {
+  query: (sql: string, params?: unknown[]) => Promise<any>;
+}
+
 export interface MutationResult {
   success: boolean;
   message: string;
@@ -28,20 +32,138 @@ export interface BatchMutationResult {
   lowStockItems: ItemRecord[];
 }
 
+interface ResolvedItemMeta {
+  tipeId: number | null;
+  legacyItem: ItemRecord | null;
+  itemName: string;
+  itemSku: string;
+  itemUnit: string;
+}
+
+interface TipeProductRow {
+  produk_nama?: string;
+  nama_tipe?: string;
+  prefix_id?: string | null;
+  tipe_stok?: string | null;
+}
+
+interface BoxRow {
+  id: string;
+}
+
+interface StokJumlahRow {
+  box_id: string;
+  jumlah: number;
+}
+
 export class TransactionService {
   static async getAllTransactions(limit: number = 100): Promise<TransactionRecord[]> {
     return TransactionRepository.findAll(limit);
   }
 
   /**
+   * Kalkulasi status stok legacy berdasarkan jumlah dan ambang minimal
+   */
+  static calculateLegacyStockStatus(
+    quantity: number,
+    minStockAlert: number
+  ): 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' {
+    if (quantity === 0) return 'OUT_OF_STOCK';
+    if (quantity <= minStockAlert) return 'LOW_STOCK';
+    return 'NORMAL';
+  }
+
+  /**
+   * Sinkronisasi stok dan status pada tabel legacy items di dalam transaksi atomik
+   */
+  static async syncLegacyItemStock(
+    conn: DbQueryExecutor,
+    item: ItemRecord,
+    newQty: number
+  ): Promise<ItemRecord> {
+    const newStatus = this.calculateLegacyStockStatus(newQty, item.min_stock_alert);
+    await conn.query(
+      'UPDATE items SET quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [newQty, newStatus, item.id]
+    );
+    return {
+      ...item,
+      quantity: newQty,
+      status: newStatus
+    };
+  }
+
+  /**
+   * Penyesuaian stok jumlah v2 (penambahan ke box default atau pengurangan proporsional antar box)
+   */
+  private static async adjustV2StokJumlah(
+    conn: DbQueryExecutor,
+    tipeId: number,
+    deltaQty: number,
+    isAddition: boolean
+  ): Promise<void> {
+    if (isAddition) {
+      const existingBoxes = (await conn.query('SELECT id FROM box WHERE kode = "BOX-A-01"')) as BoxRow[];
+      const boxId = existingBoxes && existingBoxes.length > 0 ? existingBoxes[0].id : 'box-1';
+
+      const existingSj = (await conn.query(
+        'SELECT jumlah FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?',
+        [tipeId, boxId]
+      )) as StokJumlahRow[];
+
+      if (existingSj && existingSj.length > 0) {
+        await conn.query(
+          'UPDATE stok_jumlah SET jumlah = jumlah + ? WHERE tipe_id = ? AND box_id = ?',
+          [deltaQty, tipeId, boxId]
+        );
+      } else {
+        await conn.query(
+          'INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)',
+          [tipeId, boxId, deltaQty]
+        );
+      }
+      return;
+    }
+
+    const sjRows = (await conn.query(
+      'SELECT box_id, jumlah FROM stok_jumlah WHERE tipe_id = ? AND jumlah > 0 ORDER BY jumlah DESC',
+      [tipeId]
+    )) as StokJumlahRow[];
+
+    let remainingToDeduct = deltaQty;
+    for (const row of sjRows || []) {
+      if (remainingToDeduct <= 0) break;
+      const deduct = Math.min(row.jumlah, remainingToDeduct);
+      await conn.query(
+        'UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?',
+        [deduct, tipeId, row.box_id]
+      );
+      remainingToDeduct -= deduct;
+    }
+  }
+
+  private static async getCurrentStockForMeta(meta: ResolvedItemMeta): Promise<number> {
+    if (meta.tipeId) {
+      return StockService.getStock(meta.tipeId);
+    }
+    if (meta.legacyItem) {
+      return Number(meta.legacyItem.quantity || 0);
+    }
+    return 0;
+  }
+
+  /**
    * Helper menyelesaikan metadata item & tipe v2
    */
-  private static async resolveItemMeta(itemIdOrSku: string, conn?: { query: (sql: string, params?: any[]) => Promise<any> }) {
+  private static async resolveItemMeta(itemIdOrSku: string, conn?: DbQueryExecutor): Promise<ResolvedItemMeta> {
     const q = conn ? conn.query.bind(conn) : executeQuery;
     const tipeId = await LegacyMigrationService.resolveTipeId(itemIdOrSku);
 
     // Cek di tabel items legacy
-    const items = await q('SELECT * FROM items WHERE (id = ? OR UPPER(sku) = UPPER(?)) AND is_deleted = FALSE', [itemIdOrSku, itemIdOrSku]);
+    const items = (await q(
+      'SELECT * FROM items WHERE (id = ? OR UPPER(sku) = UPPER(?)) AND is_deleted = FALSE',
+      [itemIdOrSku, itemIdOrSku]
+    )) as ItemRecord[];
     const legacyItem = items && items.length > 0 ? items[0] : null;
 
     let itemName = legacyItem ? legacyItem.name : '';
@@ -49,13 +171,13 @@ export class TransactionService {
     let itemUnit = legacyItem ? legacyItem.unit : 'pcs';
 
     if (tipeId) {
-      const tipes = await q(
+      const tipes = (await q(
         `SELECT t.*, p.nama as produk_nama, p.tipe_stok
          FROM tipe t
          JOIN produk p ON t.produk_id = p.id
          WHERE t.id = ?`,
         [tipeId]
-      );
+      )) as TipeProductRow[];
       if (tipes && tipes.length > 0) {
         const t = tipes[0];
         if (!itemName) itemName = `${t.produk_nama} - ${t.nama_tipe}`;
@@ -101,7 +223,7 @@ export class TransactionService {
     userId?: string;
     performedBy?: string;
     notes?: string;
-  }, conn?: { query: (sql: string, params?: any[]) => Promise<any> }): Promise<string> {
+  }, conn?: DbQueryExecutor): Promise<string> {
     const q = conn ? conn.query.bind(conn) : executeQuery;
     const txId = params.id || `tx-${params.type === 'IN' ? 'in' : 'out'}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
@@ -178,63 +300,25 @@ export class TransactionService {
 
     return await runTransaction(async (conn) => {
       const meta = await this.resolveItemMeta(payload.itemId, conn);
-
-      // Hitung stok sebelumnya dari Single Source of Truth
-      let previousQty = 0;
-      if (meta.tipeId) {
-        previousQty = await StockService.getStock(meta.tipeId);
-      } else if (meta.legacyItem) {
-        previousQty = Number(meta.legacyItem.quantity || 0);
-      }
-
+      const previousQty = await this.getCurrentStockForMeta(meta);
       const newQty = previousQty + qty;
 
-      // 1. Update stok di v2 (stok_jumlah pada box default box-1)
+      // 1. Update stok di v2
       if (meta.tipeId) {
-        const existingBoxes = await conn.query('SELECT id FROM box WHERE kode = "BOX-A-01"');
-        const boxId = existingBoxes && existingBoxes.length > 0 ? existingBoxes[0].id : 'box-1';
-
-        const existingSj = await conn.query(
-          'SELECT jumlah FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?',
-          [meta.tipeId, boxId]
-        );
-        if (existingSj && existingSj.length > 0) {
-          await conn.query(
-            'UPDATE stok_jumlah SET jumlah = jumlah + ? WHERE tipe_id = ? AND box_id = ?',
-            [qty, meta.tipeId, boxId]
-          );
-        } else {
-          await conn.query(
-            'INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)',
-            [meta.tipeId, boxId, qty]
-          );
-        }
+        await this.adjustV2StokJumlah(conn, meta.tipeId, qty, true);
       }
 
       // 2. Sinkronkan ke tabel legacy items jika ada
-      let updatedItem: ItemRecord | undefined;
-      if (meta.legacyItem) {
-        let newStatus: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'NORMAL';
-        if (newQty === 0) newStatus = 'OUT_OF_STOCK';
-        else if (newQty <= meta.legacyItem.min_stock_alert) newStatus = 'LOW_STOCK';
+      const updatedItem = meta.legacyItem
+        ? await this.syncLegacyItemStock(conn, meta.legacyItem, newQty)
+        : undefined;
 
-        await conn.query(
-          'UPDATE items SET quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [newQty, newStatus, meta.legacyItem.id]
-        );
-
-        updatedItem = {
-          ...meta.legacyItem,
-          quantity: newQty,
-          status: newStatus
-        };
-      }
-
-      // 3. Catat transaksi mutasi lengkap dengan snapshot via recordStockTransaction
+      // 3. Catat transaksi mutasi lengkap dengan snapshot
+      const recordRefId = meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId);
       const txId = await this.recordStockTransaction({
         type: 'IN',
         tipe_mutasi: 'MASUK',
-        itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
+        itemId: recordRefId,
         tipeId: meta.tipeId || null,
         namaBarang: meta.itemName,
         sku: meta.itemSku,
@@ -257,7 +341,7 @@ export class TransactionService {
           operatorUser.id,
           'STOCK_IN',
           'items',
-          meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
+          recordRefId,
           JSON.stringify({ quantity: previousQty }),
           JSON.stringify({ quantity: newQty, txId })
         ]
@@ -292,14 +376,7 @@ export class TransactionService {
 
     return await runTransaction(async (conn) => {
       const meta = await this.resolveItemMeta(payload.itemId, conn);
-
-      // Hitung stok saat ini dari Single Source of Truth
-      let previousQty = 0;
-      if (meta.tipeId) {
-        previousQty = await StockService.getStock(meta.tipeId);
-      } else if (meta.legacyItem) {
-        previousQty = Number(meta.legacyItem.quantity || 0);
-      }
+      const previousQty = await this.getCurrentStockForMeta(meta);
 
       // Proteksi anti-stok negatif
       if (previousQty < qty) {
@@ -310,48 +387,22 @@ export class TransactionService {
 
       const newQty = previousQty - qty;
 
-      // 1. Kurangi stok di v2 (stok_jumlah pada box yang memiliki stok)
+      // 1. Kurangi stok di v2
       if (meta.tipeId) {
-        const sjRows = await conn.query(
-          'SELECT box_id, jumlah FROM stok_jumlah WHERE tipe_id = ? AND jumlah > 0 ORDER BY jumlah DESC',
-          [meta.tipeId]
-        );
-        let remainingToDeduct = qty;
-        for (const row of (sjRows || [])) {
-          if (remainingToDeduct <= 0) break;
-          const deduct = Math.min(row.jumlah, remainingToDeduct);
-          await conn.query(
-            'UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?',
-            [deduct, meta.tipeId, row.box_id]
-          );
-          remainingToDeduct -= deduct;
-        }
+        await this.adjustV2StokJumlah(conn, meta.tipeId, qty, false);
       }
 
       // 2. Sinkronkan ke tabel legacy items jika ada
-      let updatedItem: ItemRecord | undefined;
-      if (meta.legacyItem) {
-        let newStatus: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'NORMAL';
-        if (newQty === 0) newStatus = 'OUT_OF_STOCK';
-        else if (newQty <= meta.legacyItem.min_stock_alert) newStatus = 'LOW_STOCK';
+      const updatedItem = meta.legacyItem
+        ? await this.syncLegacyItemStock(conn, meta.legacyItem, newQty)
+        : undefined;
 
-        await conn.query(
-          'UPDATE items SET quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [newQty, newStatus, meta.legacyItem.id]
-        );
-
-        updatedItem = {
-          ...meta.legacyItem,
-          quantity: newQty,
-          status: newStatus
-        };
-      }
-
-      // 3. Catat transaksi mutasi lengkap dengan snapshot via recordStockTransaction
+      // 3. Catat transaksi mutasi lengkap dengan snapshot
+      const recordRefId = meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId);
       const txId = await this.recordStockTransaction({
         type: 'OUT',
         tipe_mutasi: 'KELUAR',
-        itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
+        itemId: recordRefId,
         tipeId: meta.tipeId || null,
         namaBarang: meta.itemName,
         sku: meta.itemSku,
@@ -374,7 +425,7 @@ export class TransactionService {
           operatorUser.id,
           'STOCK_OUT',
           'items',
-          meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || payload.itemId),
+          recordRefId,
           JSON.stringify({ quantity: previousQty }),
           JSON.stringify({ quantity: newQty, txId })
         ]
@@ -412,6 +463,7 @@ export class TransactionService {
       const txIds: string[] = [];
       const processed: ItemRecord[] = [];
       const lowStockAlerts: ItemRecord[] = [];
+      const validatedEntries: Array<{ meta: ResolvedItemMeta; qty: number; currentStock: number }> = [];
 
       // Validasi seluruh stok terlebih dahulu sebelum melakukan update
       for (const req of payload.items) {
@@ -421,74 +473,37 @@ export class TransactionService {
         }
 
         const meta = await this.resolveItemMeta(req.itemId, conn);
-        let currentStock = 0;
-        if (meta.tipeId) {
-          currentStock = await StockService.getStock(meta.tipeId);
-        } else if (meta.legacyItem) {
-          currentStock = Number(meta.legacyItem.quantity || 0);
-        }
+        const currentStock = await this.getCurrentStockForMeta(meta);
 
         if (currentStock < qty) {
           throw new Error(
             `Stok "${meta.itemName}" tidak mencukupi! Tersedia: ${currentStock} ${meta.itemUnit}, Diminta: ${qty} ${meta.itemUnit}.`
           );
         }
+
+        validatedEntries.push({ meta, qty, currentStock });
       }
 
       // Eksekusi update mutasi jika semua stok aman
-      for (const req of payload.items) {
-        const qty = parseInt(String(req.quantity), 10);
-        const meta = await this.resolveItemMeta(req.itemId, conn);
-
-        let prev = 0;
-        if (meta.tipeId) {
-          prev = await StockService.getStock(meta.tipeId);
-        } else if (meta.legacyItem) {
-          prev = Number(meta.legacyItem.quantity || 0);
-        }
-
+      for (const { meta, qty, currentStock: prev } of validatedEntries) {
         const next = prev - qty;
 
-        // 1. Kurangi stok di v2
         if (meta.tipeId) {
-          const sjRows = await conn.query(
-            'SELECT box_id, jumlah FROM stok_jumlah WHERE tipe_id = ? AND jumlah > 0 ORDER BY jumlah DESC',
-            [meta.tipeId]
-          );
-          let remainingToDeduct = qty;
-          for (const row of (sjRows || [])) {
-            if (remainingToDeduct <= 0) break;
-            const deduct = Math.min(row.jumlah, remainingToDeduct);
-            await conn.query(
-              'UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?',
-              [deduct, meta.tipeId, row.box_id]
-            );
-            remainingToDeduct -= deduct;
-          }
+          await this.adjustV2StokJumlah(conn, meta.tipeId, qty, false);
         }
 
-        // 2. Sinkronkan ke tabel items jika ada
-        let updated: ItemRecord | undefined;
         if (meta.legacyItem) {
-          let status: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' = 'NORMAL';
-          if (next === 0) status = 'OUT_OF_STOCK';
-          else if (next <= meta.legacyItem.min_stock_alert) status = 'LOW_STOCK';
-
-          await conn.query('UPDATE items SET quantity = ?, status = ? WHERE id = ?', [next, status, meta.legacyItem.id]);
-          updated = { ...meta.legacyItem, quantity: next, status };
-          if (updated) {
-            processed.push(updated);
-            if (next <= meta.legacyItem.min_stock_alert) {
-              lowStockAlerts.push(updated);
-            }
+          const updated = await this.syncLegacyItemStock(conn, meta.legacyItem, next);
+          processed.push(updated);
+          if (next <= meta.legacyItem.min_stock_alert) {
+            lowStockAlerts.push(updated);
           }
         }
 
-        // 3. Catat transaksi mutasi lengkap dengan snapshot via recordStockTransaction
         const txId = await this.recordStockTransaction({
           type: 'OUT',
           tipe_mutasi: 'KELUAR',
-          itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || req.itemId),
+          itemId: meta.legacyItem ? meta.legacyItem.id : String(meta.tipeId || ''),
           tipeId: meta.tipeId || null,
           namaBarang: meta.itemName,
           sku: meta.itemSku,
