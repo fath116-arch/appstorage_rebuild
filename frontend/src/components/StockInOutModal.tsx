@@ -135,6 +135,12 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
   // Handle scanned code (from camera or barcode scanner input)
   const handleProcessCode = useCallback(async (rawCode: string) => {
     const filter = extractSNFromBarcode(rawCode);
+    if (!filter.isSN) {
+      const msg = 'SN tidak terdeteksi, coba foto ulang';
+      setScanFeedback({ type: 'error', message: msg });
+      showToast(msg, 'error');
+      return;
+    }
     const code = filter.cleanValue.trim();
     if (!code) return;
 
@@ -217,12 +223,14 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
           stopCamera();
           handleProcessCode(filter.cleanValue);
         },
-        (ignored) => {
+        () => {
           setScanFeedback({
             type: 'error',
-            message: `Barcode ${ignored.rawType} terdeteksi (${ignored.cleanValue}). Abaikan, mengarahkan ke Serial Number (SN)...`
+            message: 'SN tidak terdeteksi, coba foto ulang'
           });
-        }
+        },
+        undefined,
+        ''
       );
 
       scannerRef.current.startScanning();
@@ -242,11 +250,14 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     setIsPhotoScanning(true);
     setScanFeedback(null);
     try {
-      const filter = await scanBarcodeFromImageFile(file);
+      const filter = await scanBarcodeFromImageFile(file, undefined, '');
+      if (!filter.isSN || !filter.cleanValue.trim()) {
+        throw new Error('SN tidak terdeteksi, coba foto ulang');
+      }
       showToast(`SN [${filter.cleanValue}] berhasil diekstrak dari foto!`, 'success');
       handleProcessCode(filter.cleanValue);
     } catch (err: any) {
-      const msg = err.message || 'Gagal membaca barcode dari foto.';
+      const msg = err.message || 'SN tidak terdeteksi, coba foto ulang';
       showToast(msg, 'error');
       setScanFeedback({ type: 'error', message: msg });
     } finally {

@@ -21,6 +21,108 @@ export interface ScanResultFilter {
 }
 
 /**
+ * Deteksi kandidat MAC Address (prefix MAC, format XX:XX:XX:XX:XX:XX / XX-XX-..., atau 12 karakter hex mentah)
+ */
+export function isMacAddressCandidate(rawToken: string): boolean {
+  const trimmed = rawToken.trim();
+  if (!trimmed) return false;
+  return (
+    /^MAC[:\s-]/i.test(trimmed) ||
+    /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/.test(trimmed) ||
+    /^[0-9A-Fa-f]{12}$/.test(trimmed)
+  );
+}
+
+/**
+ * Ekstraksi SN ketat untuk mode SCAN_SN:
+ * - Memperlakukan hasil scan sebagai array kandidat, log mentah ke console.
+ * - Memecah teks mentah berdasarkan spasi, baris baru, atau koma menjadi token.
+ * - Jika tipePolaRegex ada, uji tiap token dengan regex ketat (^...$) tanpa menghapus anchor,
+ *   kembalikan token pertama yang cocok dalam huruf kapital. Tidak pernah fallback ke hasil mentah/MAC.
+ * - Jika tipePolaRegex kosong, buang kandidat berbentuk MAC, PIN/SSID, dan D-SN.
+ */
+export function extractSNByRule(
+  rawCandidates: string | string[],
+  tipePolaRegex?: string | null
+): string | null {
+  const candidates = (Array.isArray(rawCandidates) ? rawCandidates : [rawCandidates])
+    .filter((c): c is string => typeof c === 'string')
+    .map((c) => c.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim())
+    .filter(Boolean);
+
+  console.log('[ScannerDebug] Raw scan candidates:', candidates);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const trimmedRegex = typeof tipePolaRegex === 'string' ? tipePolaRegex.trim() : '';
+
+  if (trimmedRegex) {
+    let strictRegex: RegExp;
+    try {
+      strictRegex = new RegExp(trimmedRegex, 'i');
+    } catch {
+      return null;
+    }
+
+    for (const candidate of candidates) {
+      const tokens = candidate.split(/[\s,]+/).filter(Boolean);
+      for (const rawToken of tokens) {
+        const cleanToken = rawToken.replace(/^(?:S\/N|SN|SERIAL(?:\s*NO)?):/i, '').trim();
+        if (!cleanToken) continue;
+        if (strictRegex.test(cleanToken)) {
+          return cleanToken.toUpperCase();
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // Fallback aman saat pola regex tipe kosong: buang MAC, PIN/SSID, dan D-SN
+  const ignoredLabelOnlyRegex = /^(?:MAC|PIN|WPA|WPA2|SSID|PASS|PWD|PASSWORD|D-?SN):?$/i;
+  const ignoredInlinePrefixRegex = /^(?:MAC|PIN|WPA|WPA2|SSID|PASS|PWD|PASSWORD|D-?SN)[:\s-]/i;
+  const dsnTokenRegex = /^D-?SN[0-9A-Za-z_-]*$/i;
+
+  for (const candidate of candidates) {
+    const tokens = candidate.split(/[\s,]+/).filter(Boolean);
+    let skipNextValueToken = false;
+
+    for (const rawToken of tokens) {
+      if (skipNextValueToken) {
+        skipNextValueToken = false;
+        continue;
+      }
+
+      if (ignoredLabelOnlyRegex.test(rawToken)) {
+        skipNextValueToken = true;
+        continue;
+      }
+
+      if (ignoredInlinePrefixRegex.test(rawToken) || dsnTokenRegex.test(rawToken) || isMacAddressCandidate(rawToken)) {
+        continue;
+      }
+
+      const cleanToken = rawToken.replace(/^(?:S\/N|SN|SERIAL(?:\s*NO)?):/i, '').trim();
+      if (!cleanToken) {
+        continue;
+      }
+
+      if (isMacAddressCandidate(cleanToken) || dsnTokenRegex.test(cleanToken)) {
+        continue;
+      }
+
+      if (cleanToken.length >= 3) {
+        return cleanToken.toUpperCase();
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * 1. Filter Multi-Barcode Label Results (Extract SN, Ignore MAC / PIN, Match Active Patterns)
  */
 export function extractSNFromBarcode(rawResult: string, activePatterns?: SNPattern[]): ScanResultFilter {
@@ -38,12 +140,7 @@ export function extractSNFromBarcode(rawResult: string, activePatterns?: SNPatte
   console.log('[ScannerDebug] Evaluating barcode candidate:', trimmed);
 
   // A. Deteksi MAC Address
-  const isMacPattern =
-    /^MAC[:\s-]/i.test(trimmed) ||
-    /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/.test(trimmed) ||
-    (/^(?:MAC\s*)?[0-9A-Fa-f]{12}$/i.test(trimmed) && /^MAC/i.test(trimmed));
-
-  if (isMacPattern) {
+  if (isMacAddressCandidate(trimmed)) {
     return { isSN: false, cleanValue: trimmed, rawType: 'MAC', originalRaw: rawResult };
   }
 
@@ -211,17 +308,20 @@ export class UniversalBarcodeScanner {
   private onDetectedCallback: (filter: ScanResultFilter) => void;
   private onIgnoredCallback?: (filter: ScanResultFilter) => void;
   private activePatterns?: SNPattern[];
+  private tipePolaRegex?: string | null;
 
   constructor(
     videoElement: HTMLVideoElement,
     onDetected: (filter: ScanResultFilter) => void,
     onIgnored?: (filter: ScanResultFilter) => void,
-    activePatterns?: SNPattern[]
+    activePatterns?: SNPattern[],
+    tipePolaRegex?: string | null
   ) {
     this.videoElement = videoElement;
     this.onDetectedCallback = onDetected;
     this.onIgnoredCallback = onIgnored;
     this.activePatterns = activePatterns;
+    this.tipePolaRegex = tipePolaRegex;
   }
 
   public startScanning() {
@@ -260,6 +360,7 @@ export class UniversalBarcodeScanner {
         return;
       }
 
+      const frameCandidates: string[] = [];
       let detectedText: string | null = null;
 
       if (nativeDetector) {
@@ -267,33 +368,64 @@ export class UniversalBarcodeScanner {
           const barcodes = await nativeDetector.detect(this.videoElement);
           if (barcodes && barcodes.length > 0) {
             for (const b of barcodes) {
-              if (b.rawValue) {
-                const filter = extractSNFromBarcode(b.rawValue, this.activePatterns);
-                if (filter.isSN) {
-                  detectedText = filter.originalRaw;
-                  break;
-                } else if (filter.rawType === 'MAC' || filter.rawType === 'PIN') {
-                  if (this.onIgnoredCallback) this.onIgnoredCallback(filter);
-                }
+              if (b.rawValue && !frameCandidates.includes(b.rawValue)) {
+                frameCandidates.push(b.rawValue);
               }
             }
-            if (!detectedText && barcodes[0]?.rawValue) {
-              detectedText = barcodes[0].rawValue;
+            if (this.tipePolaRegex === undefined) {
+              for (const b of barcodes) {
+                if (b.rawValue) {
+                  const filter = extractSNFromBarcode(b.rawValue, this.activePatterns);
+                  if (filter.isSN) {
+                    detectedText = filter.originalRaw;
+                    break;
+                  } else if (filter.rawType === 'MAC' || filter.rawType === 'PIN') {
+                    if (this.onIgnoredCallback) this.onIgnoredCallback(filter);
+                  }
+                }
+              }
             }
           }
         } catch {}
       }
 
-      if (!detectedText && this.zxingReader) {
+      if (frameCandidates.length === 0 && !detectedText && this.zxingReader) {
         try {
           const reader = this.zxingReader as any;
           const result = await reader.decodeFromVideoElement(this.videoElement);
-          if (result && typeof result.getText === 'function') {
-            detectedText = result.getText();
-          } else if (result && result.text) {
-            detectedText = result.text;
+          const zxingText =
+            result && typeof result.getText === 'function'
+              ? result.getText()
+              : result?.text || '';
+          if (zxingText) {
+            frameCandidates.push(zxingText);
+            detectedText = zxingText;
           }
         } catch {}
+      }
+
+      if (this.tipePolaRegex !== undefined) {
+        if (frameCandidates.length > 0) {
+          const extracted = extractSNByRule(frameCandidates, this.tipePolaRegex);
+          if (extracted) {
+            this.onDetectedCallback({
+              isSN: true,
+              cleanValue: extracted,
+              rawType: 'SN',
+              originalRaw: frameCandidates.join(' | '),
+              allRawCandidates: frameCandidates
+            });
+          } else if (this.onIgnoredCallback) {
+            this.onIgnoredCallback({
+              isSN: false,
+              cleanValue: '',
+              rawType: 'UNKNOWN',
+              originalRaw: frameCandidates.join(' | '),
+              allRawCandidates: frameCandidates
+            });
+          }
+        }
+        return;
       }
 
       if (detectedText) {
@@ -304,8 +436,6 @@ export class UniversalBarcodeScanner {
           if (this.onIgnoredCallback) {
             this.onIgnoredCallback(filter);
           }
-        } else {
-          this.onDetectedCallback(filter);
         }
       }
     }, 200);
@@ -332,7 +462,11 @@ export class UniversalBarcodeScanner {
  * 5. Decode Barcode 1D / QR dari Foto (Jalur Utama - Client Side Opsi A)
  * Ekstraksi Barcode & Cocokkan dengan Pola SN Aktif
  */
-export async function scanBarcodeFromImageFile(file: File, activePatterns?: SNPattern[]): Promise<ScanResultFilter> {
+export async function scanBarcodeFromImageFile(
+  file: File,
+  activePatterns?: SNPattern[],
+  tipePolaRegex?: string | null
+): Promise<ScanResultFilter> {
   if (!file || !file.type.startsWith('image/')) {
     throw new Error('File yang dipilih bukan berkas gambar yang valid.');
   }
@@ -395,6 +529,20 @@ export async function scanBarcodeFromImageFile(file: File, activePatterns?: SNPa
 
   console.log('[ScannerDebug] All raw detected barcode candidates from image:', rawCandidates);
 
+  if (tipePolaRegex !== undefined) {
+    const extractedSN = extractSNByRule(rawCandidates, tipePolaRegex);
+    if (!extractedSN) {
+      throw new Error('SN tidak terdeteksi, coba foto ulang');
+    }
+    return {
+      isSN: true,
+      cleanValue: extractedSN,
+      rawType: 'SN',
+      originalRaw: rawCandidates.join(' | '),
+      allRawCandidates: rawCandidates
+    };
+  }
+
   if (rawCandidates.length === 0) {
     throw new Error('Barcode 1D (SN) tidak terbaca dari foto. Coba foto lebih dekat, tegak lurus, dan terang, atau gunakan input manual.');
   }
@@ -408,10 +556,7 @@ export async function scanBarcodeFromImageFile(file: File, activePatterns?: SNPa
     }
   }
 
-  // D. Jika tidak ada yang cocok dengan Pola SN Aktif, kembalikan hasil mentah pertama beserta seluruh kandidat
-  const fallbackFilter = extractSNFromBarcode(rawCandidates[0], activePatterns);
-  fallbackFilter.allRawCandidates = rawCandidates;
-  return fallbackFilter;
+  throw new Error('SN tidak terdeteksi, coba foto ulang');
 }
 
 /**

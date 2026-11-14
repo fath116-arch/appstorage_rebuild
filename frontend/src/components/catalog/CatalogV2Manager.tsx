@@ -144,12 +144,16 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
   const [typeSumberId, setTypeSumberId] = useState<'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id'>('manual');
   const [typePrefixId, setTypePrefixId] = useState('');
   const [typePolaId, setTypePolaId] = useState('');
+  const [typePolaIdError, setTypePolaIdError] = useState<string | null>(null);
+  const [typeTestSn, setTypeTestSn] = useState('');
   const [typeCatatan, setTypeCatatan] = useState('');
 
   // Form Koreksi Aturan ID
   const [correctSumberId, setCorrectSumberId] = useState<'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id'>('manual');
   const [correctPrefixId, setCorrectPrefixId] = useState('');
   const [correctPolaId, setCorrectPolaId] = useState('');
+  const [correctPolaIdError, setCorrectPolaIdError] = useState<string | null>(null);
+  const [correctTestSn, setCorrectTestSn] = useState('');
   const [correctAlasan, setCorrectAlasan] = useState('');
 
   // Form Buat Atribut
@@ -314,6 +318,8 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
     setTypeSumberId(j?.sumber_id_bawaan || 'manual');
     setTypePrefixId(j?.prefix_id_bawaan || '');
     setTypePolaId('');
+    setTypePolaIdError(null);
+    setTypeTestSn('');
     setTypeCatatan('');
     setTypeAttrValues({});
     setIsAddTypeOpen(true);
@@ -387,13 +393,24 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       }
     }
 
+    const trimmedPolaId = typePolaId.trim();
+    if (typeSumberId === 'scan_sn' && trimmedPolaId) {
+      try {
+        new RegExp(trimmedPolaId);
+      } catch {
+        setTypePolaIdError('Pola regex tidak valid. Periksa sintaks regex Anda.');
+        return;
+      }
+    }
+    setTypePolaIdError(null);
+
     try {
       await catalogApi.createTipe({
         produk_id: selectedProductForType.id,
         catatan: typeCatatan.trim() || undefined,
         sumber_id: typeSumberId,
         prefix_id: typePrefixId.trim() || undefined,
-        pola_id: typePolaId.trim() || undefined,
+        pola_id: trimmedPolaId || undefined,
         nilai_atribut: nilaiPayload
       });
 
@@ -476,11 +493,22 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       return;
     }
 
+    const trimmedPolaId = correctPolaId.trim();
+    if (correctSumberId === 'scan_sn' && trimmedPolaId) {
+      try {
+        new RegExp(trimmedPolaId);
+      } catch {
+        setCorrectPolaIdError('Pola regex tidak valid. Periksa sintaks regex Anda.');
+        return;
+      }
+    }
+    setCorrectPolaIdError(null);
+
     try {
       await catalogApi.updateAturanId(selectedTypeForIdRule.id, {
         sumber_id: correctSumberId,
-        prefix_id: correctPrefixId.trim() || undefined,
-        pola_id: correctPolaId.trim() || undefined,
+        prefix_id: correctSumberId === 'otomatis' ? (correctPrefixId.trim() || undefined) : undefined,
+        pola_id: trimmedPolaId || undefined,
         alasan: correctAlasan.trim()
       });
 
@@ -904,6 +932,8 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                                           setCorrectSumberId(t.sumber_id);
                                           setCorrectPrefixId(t.prefix_id || '');
                                           setCorrectPolaId(t.pola_id || '');
+                                          setCorrectPolaIdError(null);
+                                          setCorrectTestSn('');
                                           setCorrectAlasan('');
                                           setIsCorrectIdRuleOpen(true);
                                         }}
@@ -1412,7 +1442,10 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                     <button
                       key={mode}
                       type="button"
-                      onClick={() => setTypeSumberId(mode)}
+                      onClick={() => {
+                        setTypeSumberId(mode);
+                        setTypePolaIdError(null);
+                      }}
                       className={`p-2 rounded-lg border text-left flex flex-col justify-between ${
                         typeSumberId === mode
                           ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold'
@@ -1446,17 +1479,76 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 )}
 
                 {typeSumberId !== 'tanpa_id' && (
-                  <div>
-                    <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="space-y-1.5">
+                    <label className="block font-medium text-slate-600 dark:text-slate-400">
                       Pola Regex Validasi ID (Opsional)
                     </label>
                     <input
                       type="text"
-                      placeholder="Misal: ^SN[0-9]{8}$ atau ^ADP[A-Z0-9]+$"
+                      placeholder={
+                        typeSumberId === 'scan_sn'
+                          ? 'Contoh: ^ZTEGD[0-9A-Fa-f]{7}$'
+                          : 'Misal: ^SN[0-9]{8}$ atau ^ADP[A-Z0-9]+$'
+                      }
                       value={typePolaId}
-                      onChange={e => setTypePolaId(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                      onChange={e => {
+                        setTypePolaId(e.target.value);
+                        if (typePolaIdError) setTypePolaIdError(null);
+                      }}
+                      className={`w-full px-3 py-2 bg-white dark:bg-slate-900 border rounded-lg text-slate-900 dark:text-slate-100 font-mono ${
+                        typePolaIdError
+                          ? 'border-rose-500 focus:ring-rose-500'
+                          : 'border-slate-200 dark:border-slate-700'
+                      }`}
                     />
+                    {typePolaIdError && (
+                      <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">
+                        {typePolaIdError}
+                      </p>
+                    )}
+                    {typeSumberId === 'scan_sn' && (
+                      <div className="space-y-1.5 pt-0.5">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Dipakai untuk memilih SN dari hasil scan foto. Contoh ZTE GPON:{' '}
+                          <code className="font-mono text-emerald-700 dark:text-emerald-400">
+                            ^ZTEGD[0-9A-Fa-f]{'{7}'}$
+                          </code>
+                        </p>
+                        {!typePolaId.trim() ? (
+                          <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                            Tanpa regex, scan bisa mengambil MAC atau D-SN.
+                          </p>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Uji regex: tempel contoh SN..."
+                              value={typeTestSn}
+                              onChange={e => setTypeTestSn(e.target.value)}
+                              className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-[11px] text-slate-900 dark:text-slate-100 font-mono"
+                            />
+                            {typeTestSn.trim() && (() => {
+                              try {
+                                const isMatch = new RegExp(typePolaId.trim(), 'i').test(typeTestSn.trim());
+                                return (
+                                  <span className={`text-[11px] font-bold shrink-0 ${
+                                    isMatch ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                                  }`}>
+                                    {isMatch ? 'Cocok' : 'Tidak cocok'}
+                                  </span>
+                                );
+                              } catch {
+                                return (
+                                  <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 shrink-0">
+                                    Regex tidak valid
+                                  </span>
+                                );
+                              }
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1720,7 +1812,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
             </div>
 
             <form onSubmit={handleSaveIdRuleCorrection} className="space-y-3.5 text-xs">
-              {selectedTypeForIdRule.id_dikunci && (
+              {Boolean(selectedTypeForIdRule.id_dikunci) && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-800 dark:text-amber-300 flex items-start gap-2">
                   <Lock className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
@@ -1735,7 +1827,10 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 </label>
                 <select
                   value={correctSumberId}
-                  onChange={e => setCorrectSumberId(e.target.value as any)}
+                  onChange={e => {
+                    setCorrectSumberId(e.target.value as any);
+                    setCorrectPolaIdError(null);
+                  }}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 >
                   <option value="scan_sn">scan_sn (Barcode / SN Pabrik)</option>
@@ -1745,31 +1840,98 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Prefix Baru (Jika otomatis)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Misal: ADP12-"
-                  value={correctPrefixId}
-                  onChange={e => setCorrectPrefixId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
-                />
-              </div>
+              {correctSumberId === 'otomatis' && (
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Prefix Baru (Jika otomatis)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Misal: ADP12-"
+                    value={correctPrefixId}
+                    onChange={e => setCorrectPrefixId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
+              )}
 
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Pola Regex Validasi Baru
-                </label>
-                <input
-                  type="text"
-                  placeholder="Misal: ^SN[0-9]{8}$"
-                  value={correctPolaId}
-                  onChange={e => setCorrectPolaId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
-                />
-              </div>
+              {correctSumberId !== 'tanpa_id' && (
+                <div className="space-y-1.5">
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                    Pola Regex Validasi Baru
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={
+                      correctSumberId === 'scan_sn'
+                        ? 'Contoh: ^ZTEGD[0-9A-Fa-f]{7}$'
+                        : 'Misal: ^SN[0-9]{8}$'
+                    }
+                    value={correctPolaId}
+                    onChange={e => {
+                      setCorrectPolaId(e.target.value);
+                      if (correctPolaIdError) setCorrectPolaIdError(null);
+                    }}
+                    className={`w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-100 font-mono ${
+                      correctPolaIdError
+                        ? 'border-rose-500 focus:ring-rose-500'
+                        : 'border-slate-200 dark:border-slate-700'
+                    }`}
+                  />
+                  {correctPolaIdError && (
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">
+                      {correctPolaIdError}
+                    </p>
+                  )}
+                  {correctSumberId === 'scan_sn' && (
+                    <div className="space-y-1.5 pt-0.5">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Dipakai untuk memilih SN dari hasil scan foto. Contoh ZTE GPON:{' '}
+                        <code className="font-mono text-emerald-700 dark:text-emerald-400">
+                          ^ZTEGD[0-9A-Fa-f]{'{7}'}$
+                        </code>
+                      </p>
+                      {!correctPolaId.trim() ? (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                          Tanpa regex, scan bisa mengambil MAC atau D-SN.
+                        </p>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="Uji regex: tempel contoh SN..."
+                            value={correctTestSn}
+                            onChange={e => setCorrectTestSn(e.target.value)}
+                            className="flex-1 px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[11px] text-slate-900 dark:text-slate-100 font-mono"
+                          />
+                          {correctTestSn.trim() && (() => {
+                            try {
+                              const isMatch = new RegExp(correctPolaId.trim(), 'i').test(correctTestSn.trim());
+                              return (
+                                <span className={`text-[11px] font-bold shrink-0 ${
+                                  isMatch ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                                }`}>
+                                  {isMatch ? 'Cocok' : 'Tidak cocok'}
+                                </span>
+                              );
+                            } catch {
+                              return (
+                                <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 shrink-0">
+                                  Regex tidak valid
+                                </span>
+                              );
+                            }
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/70 px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                Catatan: Koreksi aturan ID hanya berlaku untuk scan atau input baru dan tidak mengubah data barang yang sudah tersimpan.
+              </p>
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">

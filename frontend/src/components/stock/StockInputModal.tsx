@@ -153,6 +153,9 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
 
       await startCameraStream(videoRef.current);
 
+      const isScanSn = currentTipe?.sumber_id === 'scan_sn';
+      const tipePolaRegex = isScanSn ? (currentTipe?.pola_id || '') : undefined;
+
       scannerRef.current = new UniversalBarcodeScanner(
         videoRef.current,
         async (filter) => {
@@ -180,8 +183,15 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
           }
         },
         (ignored) => {
-          showToast(`Abaikan Barcode ${ignored.rawType} (${ignored.cleanValue}). Arahkan ke Barcode SN...`, 'warning');
-        }
+          if (isScanSn) {
+            setCameraErrorNotice('SN tidak terdeteksi, coba foto ulang');
+            showToast('SN tidak terdeteksi, coba foto ulang', 'warning');
+          } else {
+            showToast(`Abaikan Barcode ${ignored.rawType} (${ignored.cleanValue}). Arahkan ke Barcode SN...`, 'warning');
+          }
+        },
+        undefined,
+        tipePolaRegex
       );
 
       scannerRef.current.startScanning();
@@ -200,10 +210,15 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
 
     setIsPhotoScanning(true);
     setCameraErrorNotice(null);
+    const isScanSn = currentTipe?.sumber_id === 'scan_sn';
+    const tipePolaRegex = isScanSn ? (currentTipe?.pola_id || '') : undefined;
+
     try {
-      const filter = await scanBarcodeFromImageFile(file);
+      const filter = await scanBarcodeFromImageFile(file, undefined, tipePolaRegex);
       const cleanSN = filter.cleanValue.trim();
-      if (!cleanSN) return;
+      if (!filter.isSN || !cleanSN) {
+        throw new Error('SN tidak terdeteksi, coba foto ulang');
+      }
 
       if (scannedList.includes(cleanSN)) {
         showToast(`ID [${cleanSN}] sudah ada di antrean scan.`, 'warning');
@@ -220,9 +235,9 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
       setScannedList(prev => [...prev, cleanSN]);
       showToast(`SN [${cleanSN}] berhasil diekstrak dari foto!`, 'success');
     } catch (err: any) {
-      const msg = err.message || 'Gagal membaca barcode dari foto.';
+      const msg = err.message || 'SN tidak terdeteksi, coba foto ulang';
       showToast(msg, 'error');
-      setCameraErrorNotice(`Gagal scan foto: ${msg}`);
+      setCameraErrorNotice(isScanSn ? msg : `Gagal scan foto: ${msg}`);
     } finally {
       setIsPhotoScanning(false);
       e.target.value = '';
@@ -239,7 +254,8 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
 
   // Tambah SN ke antrean beruntun
   const handleAddSingleSN = async () => {
-    const clean = singleKodeInput.trim();
+    const isScanSn = currentTipe?.sumber_id === 'scan_sn';
+    const clean = isScanSn ? singleKodeInput.trim().toUpperCase() : singleKodeInput.trim();
     if (!clean) return;
 
     if (scannedList.includes(clean)) {
@@ -258,9 +274,14 @@ export const StockInputModal: React.FC<StockInputModalProps> = ({
 
       // Check Regex if present
       if (currentTipe?.pola_id) {
-        const regex = new RegExp(currentTipe.pola_id);
-        if (!regex.test(clean)) {
-          showToast(`Format ID tidak cocok dengan pola regex: ${currentTipe.pola_id}`, 'error');
+        try {
+          const regex = isScanSn ? new RegExp(currentTipe.pola_id.trim(), 'i') : new RegExp(currentTipe.pola_id);
+          if (!regex.test(clean)) {
+            showToast(`Format ID tidak cocok dengan pola regex: ${currentTipe.pola_id}`, 'error');
+            return;
+          }
+        } catch {
+          showToast(`Pola regex tipe tidak valid: ${currentTipe.pola_id}`, 'error');
           return;
         }
       }

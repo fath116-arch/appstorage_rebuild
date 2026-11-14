@@ -1,6 +1,0 @@
-{
-  "summary":  "Rencana Pembuatan File DOCUMENTATION.md untuk FieldOps IT\n\nRencana ini mencakup penyusunan file DOCUMENTATION.md di root folder yang menyajikan:\n1. Panduan Setup Lingkungan Lengkap (Prasyarat Node.js/Bun, variabel .env, perintah install & run).\n2. Penjelasan Arsitektur Modul (Frontend React 19, Express Backend Proxy, Offline Sync Service, dan ThemeContext).\n3. Panduan Penggunaan Fitur API dengan contoh cURL, header otorisasi X-App-Secret-Key, dan payload JSON lengkap.\n4. Prosedur Pemeliharaan Sistem (Backup/restore Firestore, kliring cache PWA, sanitasi data, dan troubleshooting).",
-  "updatedAt":  "2026-10-30T04:03:25.909492088Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

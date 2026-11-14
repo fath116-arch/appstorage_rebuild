@@ -1,6 +1,0 @@
-{
-  "summary":  "Rencana implementasi backup otomatis Firestore harian ke JSON (Express 5 backend) dan fitur soft delete item inventaris dengan pemulihan data (restore).",
-  "updatedAt":  "2026-10-30T06:08:35.159630079Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}
