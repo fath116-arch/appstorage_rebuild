@@ -3,130 +3,227 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { 
-  Calendar, 
-  Download, 
-  Printer, 
-  TrendingDown, 
-  TrendingUp, 
-  AlertTriangle, 
-  CheckCircle2, 
-  FileText,
-  Boxes,
-  Activity,
-  FileSpreadsheet
+import { useAuth } from '../context/AuthContext';
+import {
+  activityApi,
+  CanonicalTransactionView,
+  DebugClockResponse,
+  WeeklyReportResponse
+} from '../services/activityApi';
+import {
+  Download,
+  Printer,
+  TrendingDown,
+  TrendingUp,
+  FileSpreadsheet,
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import { exportWeeklyReportToExcel } from '../utils/excelExporter';
 import { sanitizeFormulaInput } from '../utils/security';
+import {
+  APP_TIMEZONE,
+  formatWibDateTime,
+  getWibDateKey,
+  getWibWeekRange,
+  parseDateSafe
+} from '../utils/timezone';
 import { PrintReportModal } from './reports/PrintReportModal';
 
-import { useAuth } from '../context/AuthContext';
+interface WeeklyRow {
+  rowKey: string;
+  sku: string;
+  name: string;
+  categoryName: string;
+  location: string;
+  startStock: number;
+  totalIn: number;
+  totalOut: number;
+  endStock: number;
+  reservedStock: number;
+  unit: string;
+  status: 'AMAN' | 'MENIPIS' | 'HABIS';
+  lowThreshold: number;
+}
 
 export const WeeklyReport: React.FC = () => {
   const { user } = useAuth();
-  const { items, transactions, categories } = useInventory();
+  const { products, transactions, showToast } = useInventory();
 
-  // Print Modal State
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
-
-  // Preset week periods
   const [selectedWeek, setSelectedWeek] = useState<'current' | 'previous' | 'all'>('current');
+  const [reportData, setReportData] = useState<WeeklyReportResponse | null>(null);
+  const [clockInfo, setClockInfo] = useState<DebugClockResponse | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
 
-  // Compute date range based on selected week
-  const dateRange = useMemo(() => {
-    const now = new Date(2026, 9, 25); // Oct 25, 2026 reference
-    if (selectedWeek === 'current') {
-      const start = new Date(now);
-      start.setDate(now.getDate() - 6);
+  const loadReportAndClock = async (weekMode: 'current' | 'previous' | 'all') => {
+    setLoadingReport(true);
+    try {
+      const [rep, clk] = await Promise.all([
+        activityApi.getWeeklyReport(weekMode),
+        activityApi.getDebugClock()
+      ]);
+      setReportData(rep);
+      setClockInfo(clk);
+    } catch {
+      // Fallback ke komputasi client jika endpoint sementara gagal
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    setLoadingReport(true);
+    Promise.all([
+      activityApi.getWeeklyReport(selectedWeek),
+      activityApi.getDebugClock()
+    ])
+      .then(([rep, clk]) => {
+        if (!active) return;
+        setReportData(rep);
+        setClockInfo(clk);
+      })
+      .catch(() => {
+        // Fallback client-side range tetap aktif
+      })
+      .finally(() => {
+        if (active) setLoadingReport(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedWeek, transactions.length, products.length]);
+
+  const fallbackRange = useMemo(() => {
+    if (selectedWeek === 'all') {
       return {
-        label: 'Pekan Berjalan (19 Okt - 25 Okt 2026)',
-        startDate: start,
-        endDate: now,
-      };
-    } else if (selectedWeek === 'previous') {
-      const end = new Date(now);
-      end.setDate(now.getDate() - 7);
-      const start = new Date(end);
-      start.setDate(end.getDate() - 6);
-      return {
-        label: 'Pekan Lalu (12 Okt - 18 Okt 2026)',
-        startDate: start,
-        endDate: end,
-      };
-    } else {
-      return {
-        label: 'Akumulasi Keseluruhan Riwayat',
-        startDate: new Date(2026, 8, 1),
-        endDate: now,
+        label: 'Seluruh Riwayat Waktu (WIB)',
+        startUtcIso: '2020-01-01T00:00:00.000Z',
+        endUtcIso: new Date().toISOString()
       };
     }
+    return getWibWeekRange(selectedWeek === 'previous' ? -1 : 0);
   }, [selectedWeek]);
 
-  // Filter transactions within the selected range
-  const weekTransactions = useMemo(() => {
+  const periodLabel = reportData?.reportPeriod?.label || fallbackRange.label;
+
+  const weekTransactions: CanonicalTransactionView[] = useMemo(() => {
+    if (reportData?.transactions) return reportData.transactions;
     if (selectedWeek === 'all') return transactions;
-    return transactions.filter((tx: any) => {
-      const txDate = new Date(tx.created_at || tx.date || Date.now());
-      return txDate >= dateRange.startDate && txDate <= dateRange.endDate;
+    const startMs = new Date(fallbackRange.startUtcIso).getTime();
+    const endMs = new Date(fallbackRange.endUtcIso).getTime();
+    return transactions.filter((tx) => {
+      const ms = parseDateSafe(tx.occurred_at || tx.waktu).getTime();
+      return ms >= startMs && ms <= endMs;
     });
-  }, [transactions, selectedWeek, dateRange]);
+  }, [reportData, transactions, selectedWeek, fallbackRange]);
 
-  // Compute weekly stats per item
-  const itemWeeklyStats = useMemo(() => {
-    return items.map((item: any) => {
-      // Find transactions for this item in this week
-      const itemTxs = weekTransactions.filter((tx: any) => (tx.item_id || tx.itemId) === item.id);
-      const totalIn = itemTxs
-        .filter((tx: any) => tx.type === 'IN')
-        .reduce((sum, tx: any) => sum + tx.quantity, 0);
-      const totalOut = itemTxs
-        .filter((tx: any) => tx.type === 'OUT')
-        .reduce((sum, tx: any) => sum + tx.quantity, 0);
+  const itemWeeklyStats: WeeklyRow[] = useMemo(() => {
+    const inByTipe = new Map<number, number>();
+    const outByTipe = new Map<number, number>();
 
-      // Estimated starting stock at beginning of the week
-      const calculatedStart = Math.max(0, item.quantity - totalIn + totalOut);
+    for (const tx of weekTransactions) {
+      if (tx.type !== 'IN' && tx.type !== 'OUT') continue;
+      const details = tx.details || [];
+      if (details.length > 0) {
+        for (const d of details) {
+          if (!d.tipe_id) continue;
+          const qty = Number(d.jumlah || 1);
+          if (tx.type === 'IN') {
+            inByTipe.set(d.tipe_id, (inByTipe.get(d.tipe_id) || 0) + qty);
+          } else {
+            outByTipe.set(d.tipe_id, (outByTipe.get(d.tipe_id) || 0) + qty);
+          }
+        }
+      } else if (tx.tipe_id) {
+        const qty = Number(tx.quantity || 0);
+        if (tx.type === 'IN') {
+          inByTipe.set(tx.tipe_id, (inByTipe.get(tx.tipe_id) || 0) + qty);
+        } else {
+          outByTipe.set(tx.tipe_id, (outByTipe.get(tx.tipe_id) || 0) + qty);
+        }
+      }
+    }
 
-      return {
-        ...item,
-        min_stock_alert: item.min_stock_alert ?? item.minStockAlert ?? 0,
-        startStock: calculatedStart,
-        totalIn,
-        totalOut,
-        endStock: item.quantity,
-        netChange: totalIn - totalOut,
-        turnoverRate: calculatedStart > 0 ? ((totalOut / calculatedStart) * 100).toFixed(1) : '0',
-      };
-    });
-  }, [items, weekTransactions]);
+    const rows: WeeklyRow[] = [];
+    for (const p of products) {
+      const tipes = p.tipes || [];
+      if (tipes.length === 0) {
+        const avail = Number(p.total_stok || 0);
+        const statusUpper = String(p.status_stok || (avail === 0 ? 'habis' : 'aman')).toUpperCase();
+        rows.push({
+          rowKey: `prod-${p.id}`,
+          sku: `PROD-${p.id}`,
+          name: p.nama,
+          categoryName: p.jenis_nama || '-',
+          location: '-',
+          startStock: avail,
+          totalIn: 0,
+          totalOut: 0,
+          endStock: avail,
+          reservedStock: Number(p.total_dipesan || 0),
+          unit: p.tipe_stok || 'unit',
+          status: statusUpper === 'HABIS' ? 'HABIS' : statusUpper === 'MENIPIS' ? 'MENIPIS' : 'AMAN',
+          lowThreshold: 2
+        });
+      } else {
+        for (const t of tipes) {
+          const totalIn = inByTipe.get(t.id) || 0;
+          const totalOut = outByTipe.get(t.id) || 0;
+          const endStock = Number(t.stok_tersedia || 0);
+          const startStock = Math.max(0, endStock - totalIn + totalOut);
+          const statusUpper = String(t.status_stok || (endStock === 0 ? 'habis' : 'aman')).toUpperCase();
+          const locationText = (t.sebaran_box || []).map(b => `${b.box_kode}:${b.jumlah}`).join(', ') || '-';
 
-  // Aggregate totals
-  const totalInflow = itemWeeklyStats.reduce((sum, i) => sum + i.totalIn, 0);
-  const totalOutflow = itemWeeklyStats.reduce((sum, i) => sum + i.totalOut, 0);
-  const criticalItems = items.filter((i: any) => i.quantity <= (i.min_stock_alert ?? i.minStockAlert ?? 0));
-  const outOfStockItems = items.filter((i: any) => i.quantity === 0);
+          rows.push({
+            rowKey: `tipe-${t.id}`,
+            sku: t.prefix_id || `TIPE-${t.id}`,
+            name: `${p.nama} — ${t.nama_tipe}`,
+            categoryName: p.jenis_nama || '-',
+            location: locationText,
+            startStock,
+            totalIn,
+            totalOut,
+            endStock,
+            reservedStock: Number(t.stok_dipesan || 0),
+            unit: p.tipe_stok || 'unit',
+            status: statusUpper === 'HABIS' ? 'HABIS' : statusUpper === 'MENIPIS' ? 'MENIPIS' : 'AMAN',
+            lowThreshold: Number(t.threshold?.lowStockThreshold ?? 2)
+          });
+        }
+      }
+    }
+    return rows;
+  }, [products, weekTransactions]);
 
-  // Top 5 consumed items for field tickets
+  const totalInflow = reportData?.summary?.totalInQty ?? weekTransactions.filter(t => t.type === 'IN').reduce((s, t) => s + Number(t.quantity || 0), 0);
+  const totalOutflow = reportData?.summary?.totalOutQty ?? weekTransactions.filter(t => t.type === 'OUT').reduce((s, t) => s + Number(t.quantity || 0), 0);
+  const criticalItems = itemWeeklyStats.filter(i => i.status === 'MENIPIS');
+  const outOfStockItems = itemWeeklyStats.filter(i => i.status === 'HABIS');
+
   const topConsumedItems = useMemo(() => {
-    const sorted = [...itemWeeklyStats].filter(i => i.totalOut > 0).sort((a, b) => b.totalOut - a.totalOut);
-    return sorted.slice(0, 5);
+    return [...itemWeeklyStats]
+      .filter(i => i.totalOut > 0)
+      .sort((a, b) => b.totalOut - a.totalOut)
+      .slice(0, 5);
   }, [itemWeeklyStats]);
 
-  // Export CSV handler
   const handleExportCSV = () => {
     const headers = [
-      'SKU',
-      'Nama Barang',
-      'Kategori',
-      'Stok Awal',
+      'SKU / Kode',
+      'Nama Produk & Varian',
+      'Jenis',
+      'Stok Awal (Est.)',
       'Masuk (+)',
       'Keluar (-)',
-      'Stok Akhir',
+      'Stok Akhir Tersedia',
+      'Dipesan',
       'Satuan',
-      'Batas Min Alert',
       'Status Stok',
-      'Lokasi Penyimpanan'
+      'Sebaran Box'
     ];
 
     const sanitizeCsvVal = (val: string | number | undefined) => {
@@ -134,7 +231,7 @@ export const WeeklyReport: React.FC = () => {
       return `"${sanitized.replace(/"/g, '""')}"`;
     };
 
-    const rows = itemWeeklyStats.map((i: any) => [
+    const rows = itemWeeklyStats.map(i => [
       sanitizeCsvVal(i.sku),
       sanitizeCsvVal(i.name),
       sanitizeCsvVal(i.categoryName),
@@ -142,9 +239,9 @@ export const WeeklyReport: React.FC = () => {
       i.totalIn,
       i.totalOut,
       i.endStock,
+      i.reservedStock,
       sanitizeCsvVal(i.unit),
-      i.min_stock_alert,
-      i.quantity === 0 ? 'HABIS' : i.quantity <= i.min_stock_alert ? 'MENIPIS' : 'AMAN',
+      i.status,
       sanitizeCsvVal(i.location)
     ]);
 
@@ -153,20 +250,28 @@ export const WeeklyReport: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Laporan_Stok_Mingguan_${selectedWeek}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Laporan_Stok_Mingguan_${selectedWeek}_${getWibDateKey(new Date())}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    showToast('File CSV laporan mingguan berhasil diunduh.', 'success');
   };
 
   const handleExportExcel = () => {
-    exportWeeklyReportToExcel(weekTransactions as any, `Laporan_Mutasi_Stok_${selectedWeek}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    exportWeeklyReportToExcel(
+      weekTransactions,
+      `Laporan_Mutasi_Stok_${selectedWeek}_${getWibDateKey(new Date())}.xlsx`
+    );
   };
 
-  const handlePrint = () => {
-    setIsPrintModalOpen(true);
-  };
+  const browserTz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -174,28 +279,29 @@ export const WeeklyReport: React.FC = () => {
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium flex-wrap">
               <span>Laporan Berkala</span>
               <span aria-hidden="true">·</span>
-              <span>Audit Arus Barang & Suku Cadang</span>
+              <span>Batas Pekan Senin–Minggu (WIB)</span>
               <span aria-hidden="true">·</span>
-              <span className="font-mono text-slate-600 dark:text-slate-300">{dateRange.label}</span>
+              <span className="font-mono text-slate-600 dark:text-slate-300">{periodLabel}</span>
             </div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight mt-1">
               Laporan Stok Mingguan Teknisi IT
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 max-w-2xl">
-              Ringkasan pergerakan stok awal, penerimaan pengadaan (PO), dan pemakaian suku cadang perbaikan tiket insiden lapangan selama 1 pekan.
+              Ringkasan pergerakan stok awal, penerimaan, pengeluaran lapangan, dan status varian dari sumber katalog tunggal.
             </p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap shrink-0">
-            {/* Week Selector */}
             <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-lg text-xs font-medium">
               <button
                 onClick={() => setSelectedWeek('current')}
                 className={`px-3 py-1.5 rounded-md transition-colors ${
-                  selectedWeek === 'current' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  selectedWeek === 'current'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Pekan Ini
@@ -203,7 +309,9 @@ export const WeeklyReport: React.FC = () => {
               <button
                 onClick={() => setSelectedWeek('previous')}
                 className={`px-3 py-1.5 rounded-md transition-colors ${
-                  selectedWeek === 'previous' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  selectedWeek === 'previous'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Pekan Lalu
@@ -211,7 +319,9 @@ export const WeeklyReport: React.FC = () => {
               <button
                 onClick={() => setSelectedWeek('all')}
                 className={`px-3 py-1.5 rounded-md transition-colors ${
-                  selectedWeek === 'all' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  selectedWeek === 'all'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Semua
@@ -219,9 +329,17 @@ export const WeeklyReport: React.FC = () => {
             </div>
 
             <button
+              onClick={() => loadReportAndClock(selectedWeek)}
+              disabled={loadingReport}
+              className="p-2 text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              title="Muat ulang laporan & verifikasi jam server"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingReport ? 'animate-spin' : ''}`} />
+            </button>
+
+            <button
               onClick={handleExportExcel}
               className="px-3.5 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/80 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-2xs"
-              title="Download laporan lengkap dalam format Excel (.xlsx)"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>Export Excel (.xlsx)</span>
@@ -230,16 +348,14 @@ export const WeeklyReport: React.FC = () => {
             <button
               onClick={handleExportCSV}
               className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
-              title="Download file CSV"
             >
               <Download className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               <span>CSV</span>
             </button>
 
             <button
-              onClick={handlePrint}
+              onClick={() => setIsPrintModalOpen(true)}
               className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-xs"
-              title="Cetak format laporan resmi"
             >
               <Printer className="w-4 h-4" />
               <span>Cetak Laporan</span>
@@ -250,59 +366,94 @@ export const WeeklyReport: React.FC = () => {
         {/* Weekly KPI Matrix */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-100 dark:border-slate-700 text-xs">
           <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-100 dark:border-slate-700">
-            <div className="text-slate-500 dark:text-slate-400 font-medium">Suku Cadang Terpakai (Tiket)</div>
+            <div className="text-slate-500 dark:text-slate-400 font-medium">Barang Keluar (Periode)</div>
             <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
               {totalOutflow}
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
               <TrendingDown className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
-              <span>Pengeluaran pekan ini</span>
+              <span>{reportData?.summary?.totalOutTxCount ?? weekTransactions.filter(t => t.type === 'OUT').length} transaksi keluar</span>
             </div>
           </div>
 
           <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-100 dark:border-slate-700">
-            <div className="text-slate-500 dark:text-slate-400 font-medium">Barang Masuk / Restock PO</div>
+            <div className="text-slate-500 dark:text-slate-400 font-medium">Barang Masuk (Periode)</div>
             <div className="text-2xl font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-0.5">
               +{totalInflow}
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
               <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Penerimaan fisik baru</span>
+              <span>{reportData?.summary?.totalInTxCount ?? weekTransactions.filter(t => t.type === 'IN').length} transaksi masuk</span>
             </div>
           </div>
 
           <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-100 dark:border-slate-700">
-            <div className="text-slate-500 dark:text-slate-400 font-medium">Item Stok Menipis</div>
+            <div className="text-slate-500 dark:text-slate-400 font-medium">Varian Stok Menipis</div>
             <div className="text-2xl font-bold font-mono tabular-nums text-amber-700 dark:text-amber-400 mt-0.5">
               {criticalItems.length}
             </div>
             <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
-              Perlu pengajuan PO
+              Perlu pengajuan restock
             </div>
           </div>
 
           <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-100 dark:border-slate-700">
-            <div className="text-slate-500 dark:text-slate-400 font-medium">Barang Kosong / Habis</div>
+            <div className="text-slate-500 dark:text-slate-400 font-medium">Varian Kosong / Habis</div>
             <div className="text-2xl font-bold font-mono tabular-nums text-red-700 dark:text-red-400 mt-0.5">
               {outOfStockItems.length}
             </div>
             <div className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">
-              Prioritas restock mendesak
+              {reportData?.summary?.heldByTechniciansCount
+                ? `${reportData.summary.heldByTechniciansCount} sedang dibawa teknisi`
+                : 'Prioritas restock mendesak'}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Top Consumed Items for Tickets Panel */}
+      {/* Temporary Server Clock Verification Panel (UTC vs WIB vs Browser) */}
+      <div className="bg-slate-50 dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-xs">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100">
+            <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>Verifikasi Jam Server &amp; Zona Waktu Laporan ({APP_TIMEZONE})</span>
+          </div>
+          <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+            TZ Env Server: {clockInfo?.processTzEnv || '-'}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono text-[11px]">
+          <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div className="text-slate-400 dark:text-slate-500 font-sans">Waktu Server (UTC Penyimpanan):</div>
+            <div className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
+              {clockInfo?.serverUtcIso || new Date().toISOString()}
+            </div>
+          </div>
+          <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div className="text-slate-400 dark:text-slate-500 font-sans">Waktu Server (WIB Tampilan):</div>
+            <div className="font-bold text-emerald-700 dark:text-emerald-400 mt-0.5 tabular-nums">
+              {clockInfo?.serverWibFormatted || formatWibDateTime(new Date())}
+            </div>
+          </div>
+          <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div className="text-slate-400 dark:text-slate-500 font-sans">Browser Lokal ({browserTz}) -&gt; WIB:</div>
+            <div className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
+              {formatWibDateTime(new Date())}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Consumed Items Panel */}
       {topConsumedItems.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                5 Suku Cadang Paling Banyak Terpakai di Tiket Lapangan (Pekan Ini)
+                5 Varian Paling Banyak Keluar ({periodLabel})
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Peringkat barang dengan frekuensi penggunaan tertinggi oleh teknisi untuk perbaikan insiden.
+                Peringkat varian dengan volume keluar tertinggi oleh teknisi.
               </p>
             </div>
             <span className="text-xs text-slate-400 dark:text-slate-500 font-mono">High Demand</span>
@@ -310,7 +461,10 @@ export const WeeklyReport: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3 pt-2">
             {topConsumedItems.map((top, idx) => (
-              <div key={top.id} className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-200/80 dark:border-slate-700/80 text-xs">
+              <div
+                key={top.rowKey}
+                className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-200/80 dark:border-slate-700/80 text-xs"
+              >
                 <div className="flex items-center justify-between text-slate-400 dark:text-slate-500 mb-1">
                   <span className="font-mono text-[11px] font-bold">#0{idx + 1}</span>
                   <span className="text-[10px] uppercase font-mono">{top.categoryName.split(' ')[0]}</span>
@@ -319,12 +473,12 @@ export const WeeklyReport: React.FC = () => {
                   {top.name}
                 </div>
                 <div className="mt-2 flex items-baseline justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                  <span className="text-slate-500 dark:text-slate-400 text-[11px]">Terpakai:</span>
+                  <span className="text-slate-500 dark:text-slate-400 text-[11px]">Keluar:</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white tabular-nums">
                     {top.totalOut} {top.unit}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 text-right font-mono">
+                <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 text-right font-mono tabular-nums">
                   Sisa: {top.endStock} {top.unit}
                 </div>
               </div>
@@ -338,14 +492,14 @@ export const WeeklyReport: React.FC = () => {
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-              Matriks Pergerakan Stok Suku Cadang Mingguan
+              Matriks Pergerakan Stok Produk &amp; Varian Mingguan
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Laporan formal komparasi stok awal vs mutasi masuk/keluar vs stok fisik akhir.
+              Komparasi estimasi stok awal vs mutasi masuk/keluar vs stok fisik tersedia akhir.
             </p>
           </div>
           <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-            Total {itemWeeklyStats.length} jenis suku cadang
+            Total {itemWeeklyStats.length} varian aktif
           </span>
         </div>
 
@@ -354,8 +508,8 @@ export const WeeklyReport: React.FC = () => {
             <thead className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-medium">
               <tr>
                 <th className="py-3 px-4">SKU / Kode</th>
-                <th className="py-3 px-4">Nama Suku Cadang</th>
-                <th className="py-3 px-4">Kategori</th>
+                <th className="py-3 px-4">Produk &amp; Varian</th>
+                <th className="py-3 px-4">Jenis</th>
                 <th className="py-3 px-4 text-right">Stok Awal</th>
                 <th className="py-3 px-4 text-right text-emerald-700 dark:text-emerald-400">Masuk (+)</th>
                 <th className="py-3 px-4 text-right text-slate-900 dark:text-slate-100">Keluar (-)</th>
@@ -365,57 +519,84 @@ export const WeeklyReport: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-              {itemWeeklyStats.map((item) => {
-                const isOutOfStock = item.endStock === 0;
-                const isLowStock = item.endStock <= item.minStockAlert;
-                const suggestedOrder = isLowStock ? Math.max(item.minStockAlert * 2 - item.endStock, 5) : 0;
+              {itemWeeklyStats.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-10 text-center text-slate-500 dark:text-slate-400">
+                    Belum ada produk atau varian aktif pada katalog.
+                  </td>
+                </tr>
+              ) : (
+                itemWeeklyStats.map((item) => {
+                  const isOutOfStock = item.status === 'HABIS';
+                  const isLowStock = item.status === 'MENIPIS';
+                  const suggestedOrder = isOutOfStock || isLowStock ? Math.max(item.lowThreshold * 2 - item.endStock, 5) : 0;
 
-                return (
-                  <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
-                    <td className="py-3 px-4 font-mono font-medium text-slate-700 dark:text-slate-300">
-                      {item.sku}
-                    </td>
-                    <td className="py-3 px-4 max-w-xs font-medium text-slate-900 dark:text-slate-100">
-                      <div className="truncate" title={item.name}>{item.name}</div>
-                      <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Lokasi: {item.location}</div>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {item.categoryName}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                      {item.startStock}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-medium">
-                      {item.totalIn > 0 ? `+${item.totalIn}` : '-'}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-900 dark:text-slate-100 font-medium">
-                      {item.totalOut > 0 ? `-${item.totalOut}` : '-'}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums font-bold">
-                      <span className={isOutOfStock ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}>
-                        {item.endStock}
-                      </span>
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal ml-1">{item.unit}</span>
-                    </td>
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <span className={`text-xs font-semibold ${
-                        isOutOfStock ? 'text-red-700 dark:text-red-400' : isLowStock ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'
-                      }`}>
-                        {isOutOfStock ? 'HABIS' : isLowStock ? 'MENIPIS' : 'AMAN'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right whitespace-nowrap font-mono tabular-nums">
-                      {suggestedOrder > 0 ? (
-                        <span className="text-amber-800 dark:text-amber-300 font-semibold text-[11px]">
-                          Pesan +{suggestedOrder} {item.unit}
+                  return (
+                    <tr key={item.rowKey} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                      <td className="py-3 px-4 font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                        {item.sku}
+                      </td>
+                      <td className="py-3 px-4 max-w-xs font-medium text-slate-900 dark:text-slate-100">
+                        <div className="truncate" title={item.name}>{item.name}</div>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal truncate">
+                          Box: {item.location}
+                          {item.reservedStock > 0 ? ` · Dipesan: ${item.reservedStock}` : ''}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {item.categoryName}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                        {item.startStock}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-medium">
+                        {item.totalIn > 0 ? `+${item.totalIn}` : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-900 dark:text-slate-100 font-medium">
+                        {item.totalOut > 0 ? `-${item.totalOut}` : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums font-bold">
+                        <span
+                          className={
+                            isOutOfStock
+                              ? 'text-red-600 dark:text-red-400'
+                              : isLowStock
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-slate-900 dark:text-slate-100'
+                          }
+                        >
+                          {item.endStock}
                         </span>
-                      ) : (
-                        <span className="text-slate-400 dark:text-slate-500 text-[11px]">Tercukupi</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal ml-1">
+                          {item.unit}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <span
+                          className={`text-xs font-semibold ${
+                            isOutOfStock
+                              ? 'text-red-700 dark:text-red-400'
+                              : isLowStock
+                              ? 'text-amber-700 dark:text-amber-400'
+                              : 'text-emerald-700 dark:text-emerald-400'
+                          }`}
+                        >
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap font-mono tabular-nums">
+                        {suggestedOrder > 0 ? (
+                          <span className="text-amber-800 dark:text-amber-300 font-semibold text-[11px]">
+                            Pesan +{suggestedOrder} {item.unit}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500 text-[11px]">Tercukupi</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -424,7 +605,7 @@ export const WeeklyReport: React.FC = () => {
         <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/50">
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 mb-6 font-mono">
             <span>Lembar Pengesahan Auditing Inventori IT</span>
-            <span>Dicetak Tanggal: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            <span>Waktu Laporan: {formatWibDateTime(new Date())}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center text-xs text-slate-700 dark:text-slate-300">
@@ -433,8 +614,8 @@ export const WeeklyReport: React.FC = () => {
               <div className="h-16 flex items-center justify-center">
                 <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px] font-bold tracking-widest">( Tanda Tangan )</span>
               </div>
-              <p className="font-bold text-slate-900 dark:text-slate-100 underline">Siti Rahma</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Admin Inventori & Logistik IT</p>
+              <p className="font-bold text-slate-900 dark:text-slate-100 underline">{user?.name || 'Admin Logistik IT'}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Admin Inventori &amp; Logistik IT</p>
             </div>
 
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
@@ -462,7 +643,7 @@ export const WeeklyReport: React.FC = () => {
       <PrintReportModal
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
-        periodLabel={dateRange.label}
+        periodLabel={periodLabel}
         itemsData={itemWeeklyStats.map(i => ({
           sku: i.sku,
           name: i.name,
@@ -473,7 +654,7 @@ export const WeeklyReport: React.FC = () => {
           totalOut: i.totalOut,
           endStock: i.endStock,
           unit: i.unit,
-          status: (i.endStock === 0 ? 'HABIS' : i.endStock <= i.minStockAlert ? 'MENIPIS' : 'AMAN') as any
+          status: i.status
         }))}
         totalInflow={totalInflow}
         totalOutflow={totalOutflow}

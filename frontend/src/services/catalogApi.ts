@@ -71,6 +71,7 @@ export interface Tipe {
   dibuat_pada: string;
   stok_total?: number;
   stok_tersedia?: number;
+  stok_dipesan?: number;
   stok_rusak?: number;
   stok_per_kondisi?: {
     baru: number;
@@ -110,6 +111,7 @@ export interface Produk {
   dibuat_oleh?: string | null;
   dibuat_pada: string;
   total_stok?: number;
+  total_dipesan?: number;
   stok_rusak?: number;
   tipes?: Tipe[];
   total_tipe?: number;
@@ -211,7 +213,7 @@ export const catalogApi = {
     if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
 
     const data = await apiFetch<{ products?: Produk[] }>(
-      `/api/catalog/products-v2?${params.toString()}`,
+      `/api/catalog/products?${params.toString()}`,
       {},
       'Gagal memuat daftar produk.'
     );
@@ -251,19 +253,6 @@ export const catalogApi = {
       `/api/stock/items/${encodeURIComponent(itemId)}/condition`,
       { method: 'PUT', body: JSON.stringify({ kondisi, catatan_kondisi }) },
       'Gagal memperbarui kondisi item.'
-    );
-  },
-
-  async listBoxes(): Promise<Array<Record<string, unknown>>> {
-    const data = await apiFetch<{ boxes?: Array<Record<string, unknown>> }>('/api/stock/boxes', {}, 'Gagal memuat daftar storage box.');
-    return data.boxes || [];
-  },
-
-  async getBoxContents(boxId: string): Promise<Record<string, unknown>> {
-    return apiFetch(
-      `/api/stock/boxes/${encodeURIComponent(boxId)}/contents`,
-      {},
-      'Gagal memuat isi storage box.'
     );
   },
 

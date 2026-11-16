@@ -1,8 +1,33 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.2.5.3-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.6-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+## 🚀 [v1.2.6] - Unifikasi Model Data Tunggal, Alur Output & Request Teknisi, Akuntabilitas Audit, & Zona Waktu UTC/WIB - 2026-11-15
+- **1. Unifikasi Satu Model Data Kanonik (Penghapusan Pemisahan v1/v2)**:
+  - Menghapus seluruh endpoint, service, repository, modal, dan data dummy v1 (`/api/inventory`, `/api/transactions`, `inventoryService`, `transactionService`, `legacyMigrationService`, `mockData.ts`, `ItemFormModal`, `ItemDetailModal`, `CategoryManager`) serta meniadakan label `v1`/`v2` dari UI.
+  - Seluruh menu (Dashboard, Katalog, Input Barang Masuk, Output Barang Keluar, Request Teknisi, Riwayat Transaksi, & Laporan Mingguan) membaca satu sumber kebenaran kanonik (`jenis` → `produk` → `tipe` → `item` / `stok_jumlah` → `transaksi` & `transaksi_detail` → `request`).
+  - Setiap mutasi otomatis menyinkronkan `InventoryContext.refreshData()` tanpa perlu muat ulang manual.
+- **2. Alur Input, Ekstraksi Ketat `SCAN_SN`, & Output Keranjang Keluar**:
+  - **Input (`StockInputModal`) & Koreksi Aturan ID**: Validasi regex `SCAN_SN` per token hasil pemindaian foto/kamera tanpa pernah fallback ke MAC/D-SN/raw scan, kolom interaktif **Uji Regex**, teks bantuan pola `^ZTEGD[0-9A-Fa-f]{7}$`, peringatan bila pola dikosongkan, serta perbaikan tampilan kondisional pada modal Koreksi Aturan ID.
+  - **Output (`StockInOutModal`)**: Pencarian terpadu (debounce 300ms) berdasarkan SN/produk/tipe/box, integrasi scanner bersama, proteksi item berkondisi `Rusak` dan item reservasi `dipesan`, dukungan **Keranjang Keluar** multi-item, serta pembatasan jumlah `TANPA_ID` sesuai stok tersedia.
+- **3. Akuntabilitas Pelaku (`actor_id`) vs Pencatat (`recorded_by_id`) & Ledger Koreksi Append-Only**:
+  - Pemisahan kolom `actor_id`/`actor_nama`, `recorded_by_id`/`recorded_by_nama`, `is_on_behalf`, dan `on_behalf_reason` (wajib minimal 3 karakter, khusus `developer`/`admin`/`warehouse_admin` via `GET /api/auth/actors`).
+  - Validasi waktu kejadian (`occurred_at`): dilarang di masa depan; batas maksimal 7 hari ke belakang untuk `warehouse_admin` dan bebas untuk `admin`/`developer`.
+  - Fitur **Catat Koreksi Audit** pada `TransactionHistory.tsx` (`POST /api/activities/:id/correct`) secara append-only (`correction_of_id`) tanpa pernah mengubah/menghapus log transaksi historis.
+- **4. Siklus Request Teknisi Terintegrasi & *"Barang di Tangan Teknisi"***:
+  - Migrasi `12_unify_single_model_and_wib.sql`: memperluas siklus request menjadi `diajukan` → `disetujui` (reservasi `'dipesan'` / `reserved_qty`) → `diambil` (`'keluar'`, `taken_at`, via `POST /api/requests/:id/pickup`) → `dikembalikan` (`'aktif'` + kondisi barang, wajib untuk `Alat`, via `POST /api/requests/:id/return`) | `ditolak` | `dibatalkan` (melepas reservasi).
+  - Menambahkan endpoint `GET /api/requests/held`, `GET /api/requests/open-for-actor/:actorId`, dan `GET /api/requests/:id/timeline`, serta integrasi 1-klik **"Hubungkan ke Request"** pada pencatatan Output atas nama teknisi.
+- **5. Kebijakan Zona Waktu Ketat (Simpan UTC ↔ Tampilkan & Laporkan WIB / `Asia/Jakarta`)**:
+  - Utilitas terpadu `timezone.ts` di backend dan frontend: penyimpanan UTC penuh (`process.env.TZ = 'UTC'`), tampilan konsisten `DD/MM/YYYY HH:mm WIB`, dan perhitungan Laporan Mingguan tepat pada rentang **Senin 00:00:00.000 WIB – Minggu 23:59:59.999 WIB** (`GET /api/reports/weekly`).
+  - Ekspor Excel (`excelExporter.ts`) menyematkan serial tanggal wall-clock WIB (`dd/mm/yyyy hh:mm`) dengan kolom `Waktu Kejadian (WIB)` dan sanitasi **CWE-1236** penuh (`sanitizeFormulaInput()`).
+  - Menambahkan panel verifikasi jam server (`GET /api/reports/debug-clock`) di `WeeklyReport.tsx` dan membersihkan seluruh tanggal hardcoded `2026`.
+- **6. Pemangkasan Memory Adapter & Pengujian Kanonik**:
+  - Pembaruan `stockMemory.ts` (matching `SJ.TIPE_ID`, `COALESCE(reserved_qty, 0) - ?`, literal `R.STATUS = 'DIAMBIL'`, dan `WHERE TIPE_ID = ? AND STATUS = 'DIPESAN'`) serta `legacyMemory.ts`.
+  - Verifikasi suite `canonicalSystem.test.ts` (19/19 LULUS), `tahap6Requests.test.ts` (17/17 LULUS), `scanSnExtraction.test.ts` (6/6 LULUS), `tahap2Catalog.test.ts` (13/13), `tahap3Stock.test.ts` (17/17), `tahap4CatalogView.test.ts` (14/14), `tahap5ArchiveRestore.test.ts` (15/15), `v125Paket3Tools.test.ts` (24/24), dan `testReportsAndChecklists.ts` (LULUS).
+
+---
 
 ## 🔧 [v1.2.5.3-refactor] - Refaktor Prinsip SOLID, Modularisasi & Type Safety
 - **1. Klien HTTP Terpusat & Perbaikan Kontrak WA Alert**: Menambahkan `httpClient.ts` (`requestJson` dengan penanganan `res.ok`, `credentials: 'include'`, dan `getErrorMessage`) pada `api.ts`, `catalogApi.ts`, `stockApi.ts`, serta `whatsappService.ts`; memisahkan `getInternalConfig()` dari `getConfig()` yang disanitasi di `whatsappAlertService.ts`, menginjeksikan `WhatsAppProvider`, dan memperbaiki kueri tabel `item`/`stok_jumlah`.

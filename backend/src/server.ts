@@ -1,7 +1,9 @@
 /**
  * FieldOps IT - Backend Server Entry Point
- * Express 5 + MariaDB 11.x + Vite Middleware Dev Integration
+ * Express 5 + MariaDB 11.x (UTC) + Vite Middleware Dev Integration
  */
+
+process.env.TZ = 'UTC';
 
 import express from 'express';
 import path from 'path';
@@ -9,8 +11,7 @@ import { fileURLToPath } from 'url';
 import { initDatabase } from './db/database';
 import { authenticate, requireAuth, requireRole } from './middleware/authMiddleware';
 import authRoutes from './routes/auth';
-import inventoryRoutes from './routes/inventory';
-import transactionRoutes from './routes/transactions';
+import activitiesRoutes from './routes/activities';
 import ticketRoutes from './routes/ticketIntegration';
 import checklistRoutes from './routes/checklist';
 import reportRoutes from './routes/reports';
@@ -21,7 +22,6 @@ import stockRoutes from './routes/stock';
 import requestRoutes from './routes/request';
 import snPatternsRoutes from './routes/snPatterns';
 import { BackupService } from './services/backupService';
-import { LegacyMigrationService } from './services/legacyMigrationService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,11 +43,8 @@ async function startServer() {
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Inisialisasi Database MariaDB & Migrasi Skema
+  // Inisialisasi Database MariaDB (UTC +00:00) & Konsolidasi Data Kanonis
   await initDatabase();
-
-  // Migrasi Otomatis Data Legacy ke Katalog v2
-  await LegacyMigrationService.runMigration().catch(err => console.error('[LegacyMigration] Error:', err));
 
   // Inisialisasi Cron Backup Harian Terpisah
   BackupService.initDailyBackupCron();
@@ -59,18 +56,17 @@ async function startServer() {
   app.get('/api/health', (_req, res) => {
     res.json({
       status: 'healthy',
-      app: 'FieldOps IT Backend Rebuild',
-      version: '1.0.0',
-      database: 'MariaDB 11.x (Separated Business vs Account Files)',
+      app: 'FieldOps IT Inventory',
+      version: '1.2.6',
+      database: 'MariaDB 11.x (Single Canonical Model, UTC)',
       tunnel: 'Cloudflare Tunnel Ready',
       timestamp: new Date().toISOString()
     });
   });
 
-  // Mount API Routes
+  // Mount Canonical API Routes
   app.use('/api/auth', authRoutes);
-  app.use('/api/inventory', inventoryRoutes);
-  app.use('/api/transactions', transactionRoutes);
+  app.use('/api/activities', activitiesRoutes);
   app.use('/api/tickets', ticketRoutes);
   app.use('/api/checklists', checklistRoutes);
   app.use('/api/reports', reportRoutes);
@@ -103,7 +99,6 @@ async function startServer() {
     const distDir = path.resolve(frontendDir, 'dist');
     app.use(express.static(distDir));
 
-    // Fallback SPA routing (Express 5 compatible)
     app.use((req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
@@ -111,7 +106,6 @@ async function startServer() {
       res.sendFile(path.resolve(distDir, 'index.html'));
     });
   } else {
-    // Import Vite secara dinamis hanya di mode development
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       root: frontendDir,
@@ -122,7 +116,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[FieldOps IT Rebuild Server] Berjalan pada http://0.0.0.0:${PORT} (Mode: ${isProduction ? 'Production' : 'Development'})`);
+    console.log(`[FieldOps IT Server] Berjalan pada http://0.0.0.0:${PORT} (TZ: ${process.env.TZ}, Mode: ${isProduction ? 'Production' : 'Development'})`);
   });
 }
 

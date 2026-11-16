@@ -22,7 +22,8 @@ const MIGRATION_FILES = [
   '08_v125_paket4_schema.sql',
   '09_v125_paket6_wa_alert.sql',
   '10_v2_unify_stock_and_sessions.sql',
-  '11_drop_transactions_item_id_fk.sql'
+  '11_drop_transactions_item_id_fk.sql',
+  '12_unify_single_model_and_wib.sql'
 ];
 
 /**

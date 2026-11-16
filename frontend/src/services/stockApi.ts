@@ -1,5 +1,5 @@
 /**
- * Stock & Box API Client (FieldOps Inventory v2 - Tahap 3)
+ * Stock & Box API Client (Canonical Single Model)
  */
 
 import { apiFetch } from './httpClient';
@@ -44,6 +44,46 @@ export interface BoxContentsResponse {
   raw_stok_jumlah: Array<{ tipe_id: number; box_id: string; jumlah: number; nama_tipe?: string; nama_produk?: string }>;
 }
 
+export interface SearchStockItemResult {
+  id: string;
+  kode_id: string;
+  tipe_id: number;
+  nama_tipe: string;
+  produk_id: number;
+  nama_produk: string;
+  jenis_nama?: string;
+  box_id: string;
+  box_kode: string;
+  status: 'aktif' | 'dipesan' | 'keluar' | 'dihapus' | string;
+  kondisi: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak' | string;
+  tipe_stok: string;
+  kategori_barang: 'Alat' | 'Barang Habis Pakai';
+  selectable: boolean;
+  unselectableReason?: string | null;
+}
+
+export interface StockAttributionPayload {
+  actor_id?: string;
+  on_behalf_reason?: string;
+  occurred_at?: string;
+  request_id?: string;
+  reference_number?: string;
+  recipient_destination?: string;
+}
+
+export interface ArchivedItemRecord {
+  id: string;
+  kode_id: string;
+  tipe_id: number;
+  box_id: string;
+  status: string;
+  kondisi?: string;
+  nama_tipe?: string;
+  nama_produk?: string;
+  kode_box?: string;
+  dibuat_pada?: string;
+}
+
 export const stockApi = {
   async listBoxes(): Promise<Box[]> {
     const data = await apiFetch<{ boxes?: Box[] }>('/api/boxes', {}, 'Gagal memuat daftar box.');
@@ -82,6 +122,15 @@ export const stockApi = {
     );
   },
 
+  async searchItems(q: string): Promise<SearchStockItemResult[]> {
+    const data = await apiFetch<{ items?: SearchStockItemResult[] }>(
+      `/api/stock/search?q=${encodeURIComponent(q)}`,
+      {},
+      'Gagal mencari item stok.'
+    );
+    return data.items || [];
+  },
+
   async checkDuplicateId(kodeId: string): Promise<{ exists: boolean; item?: BoxContentItem }> {
     return apiFetch<{ exists: boolean; item?: BoxContentItem }>(
       `/api/stock/check-id/${encodeURIComponent(kodeId)}`,
@@ -90,10 +139,12 @@ export const stockApi = {
     );
   },
 
-  async inputSingleStock(payload: {
+  async inputSingleStock(payload: StockAttributionPayload & {
     tipe_id: number;
     box_id: string;
     kode_id: string;
+    kondisi?: string;
+    catatan_kondisi?: string;
     catatan?: string;
   }) {
     return apiFetch<{ success: boolean; message: string; itemId?: string; kodeId?: string; activityId?: string }>(
@@ -103,7 +154,7 @@ export const stockApi = {
     );
   },
 
-  async inputBulkStock(payload: {
+  async inputBulkStock(payload: StockAttributionPayload & {
     tipe_id: number;
     box_id: string;
     kode_ids?: string[];
@@ -111,14 +162,14 @@ export const stockApi = {
     catatan?: string;
     confirmation_token?: string;
   }) {
-    return apiFetch<{ success: boolean; message: string; totalCount?: number; activityId?: string }>(
+    return apiFetch<{ success: boolean; message: string; totalCount?: number; activityId?: string; generatedIds?: string[] }>(
       '/api/stock/bulk',
       { method: 'POST', body: JSON.stringify(payload) },
       'Gagal input stok massal.'
     );
   },
 
-  async inputQuantityStock(payload: {
+  async inputQuantityStock(payload: StockAttributionPayload & {
     tipe_id: number;
     box_id: string;
     jumlah: number;
@@ -128,6 +179,78 @@ export const stockApi = {
       '/api/stock/quantity',
       { method: 'POST', body: JSON.stringify(payload) },
       'Gagal input stok jumlah.'
+    );
+  },
+
+  async outSingle(payload: StockAttributionPayload & {
+    kode_id?: string;
+    item_id?: string;
+    tipe_id?: number;
+    box_id?: string;
+    jumlah?: number;
+    catatan?: string;
+    confirmation_token?: string;
+  }) {
+    return apiFetch<{
+      success: boolean;
+      message: string;
+      activityId?: string;
+      transaksiId?: string;
+      lowStockAlert?: boolean;
+    }>(
+      '/api/stock/out',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mencatat barang keluar.'
+    );
+  },
+
+  async outBulk(payload: StockAttributionPayload & {
+    items: Array<{
+      kodeId?: string;
+      itemId?: string;
+      tipeId?: number;
+      boxId?: string;
+      jumlah?: number;
+    }>;
+    catatan?: string;
+    confirmation_token?: string;
+  }) {
+    return apiFetch<{
+      success: boolean;
+      message: string;
+      activityId?: string;
+      transaksiId?: string;
+      totalQty?: number;
+      lowStockAlert?: boolean;
+    }>(
+      '/api/stock/out/bulk',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mencatat keranjang barang keluar.'
+    );
+  },
+
+  async listArchive(search?: string): Promise<ArchivedItemRecord[]> {
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    const data = await apiFetch<{ items?: ArchivedItemRecord[] }>(
+      `/api/stock/archive${query}`,
+      {},
+      'Gagal memuat daftar arsip barang keluar.'
+    );
+    return data.items || [];
+  },
+
+  async restoreItem(payload: StockAttributionPayload & {
+    kode_id: string;
+    target_box_id: string;
+    confirm_product_matched: boolean;
+    kondisi?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+    catatan_kondisi?: string;
+    catatan?: string;
+  }) {
+    return apiFetch<{ success: boolean; message: string; activityId?: string }>(
+      '/api/stock/restore',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal memulihkan barang ke gudang.'
     );
   }
 };

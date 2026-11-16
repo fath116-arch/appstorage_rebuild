@@ -1,31 +1,28 @@
-# STATUS.md — FieldOps Inventory v2
+# STATUS.md — FieldOps IT Inventory (v1.2.6)
 
-Perbarui di akhir setiap tahap. Agent membaca file ini bersama `IMPLEMENTATION_GUIDE.md` dan `SECURITY_GUIDE.md` sebelum bekerja.
+Perbarui di akhir setiap tahap. Agent membaca file ini bersama `AGENTS.md` sebelum bekerja.
 
-## Tahap & Paket v1.2.5
-- [x] Tahap 0 s/d Tahap 8 (Rilis v1.2.0 Complete - 102/102 Tests PASS)
-- [x] Paket 1 — Hak Akses RBAC (Setting API, Katalog, WA Alert) — Terverifikasi 23/23 Tests PASS
-- [x] Paket 2 — Perbaikan Bug Transaksi Keluar/Masuk & Ekspor Excel — Terverifikasi 19/19 Tests PASS
-- [x] Paket 3 — Konsolidasi Menu Tools Navbar — Terverifikasi 24/24 Tests PASS
-- [x] Paket 4 — Katalog, Tipe Stok, Kategori Barang, & Kondisi Item — Terverifikasi 13/13 Tests PASS
-- [x] Paket 5 — Input Stok via Kamera & Template Cetak Laporan A4 — Terverifikasi 15/15 Tests PASS
-- [x] Paket 6 — WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m — Terverifikasi 13/13 Tests PASS
-- [x] Paket 7 — Branding Logo Baru & Kotak Logo Top Navigation — Terverifikasi 6/6 Tests PASS
+## Tahap & Rilis
+- [x] Tahap 0 s/d Tahap 8 (Rilis v1.2.0 Complete)
+- [x] Paket 1 s/d Paket 7 (Rilis v1.2.5 / v1.2.5.3 Complete)
+- [x] **v1.2.6 — Unifikasi Model Data Tunggal, Output Keranjang, Request Teknisi, Akuntabilitas Audit, & UTC/WIB** — Terverifikasi:
+  - `canonicalSystem.test.ts`: 19/19 PASS
+  - `tahap6Requests.test.ts`: 17/17 PASS
+  - `scanSnExtraction.test.ts`: 6/6 PASS
+  - `tahap2Catalog.test.ts`: 13/13 PASS | `tahap3Stock.test.ts`: 17/17 PASS | `tahap4CatalogView.test.ts`: 14/14 PASS | `tahap5ArchiveRestore.test.ts`: 15/15 PASS
+  - `v125Paket3Tools.test.ts`: 24/24 PASS | `testReportsAndChecklists.ts`: PASS
+  - `tsc --noEmit` & `npm run build`: 0 Galat
 
 ## Sedang dikerjakan
-- Seluruh 7 Paket v1.2.5 Telah Selesai & Terverifikasi Penuh (Total 113/113 test suite Paket 1 s/d Paket 7 PASS 100%). Versi 1.2.5 siap rilis.
+- Rilis **v1.2.6** selesai dan terverifikasi penuh. Seluruh jalur data legacy v1 telah dihapus sehingga seluruh aplikasi beroperasi di atas satu model kanonik tunggal.
 
 ## Keputusan penting
-- Definisi Hak Akses RBAC dipusatkan di `backend/src/utils/permissions.ts` agar mudah diaudit.
-- Setting API (`/api/tickets/keys`, `/api/auth/settings`, `/api/auth/users`, `/api/auth/trash`) secara ketat dibatasi hanya untuk `developer` dan `admin` (ditolak HTTP 403 untuk `warehouse_admin` dan `technician`).
-- Katalog & Storage Box read (termasuk kueri rincian isi box) diizinkan untuk seluruh role (termasuk `technician`).
-- Katalog write & mutasi stok diizinkan untuk `developer`, `admin`, dan `warehouse_admin` (ditolak HTTP 403 untuk `technician`).
-- Pengaturan WA Alert (`POST /api/whatsapp/config`, `send`, `test`) dibatasi untuk `developer`, `admin`, `warehouse_admin` (ditolak HTTP 403 untuk `technician`), sedangkan riwayat log dapat dibaca semua role.
-- Kueri `INSERT INTO transactions` pada `transactionService.ts`, `stockService.ts`, dan `ticketIntegration.ts` diseragamkan menggunakan 12 positional parameter bindings (`?`) agar tidak terjadi pergeseran array indeks pada adapter database in-memory maupun MariaDB.
-- Ekspor berkas Excel diperbarui menggunakan `ExcelJS` yang menghasilkan berkas binary `.xlsx` asli (MIME type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) dengan proteksi otomatis CWE-1236 Formula Injection.
-- Pemindai kamera barcode/QR diintegrasikan ke `StockInOutModal.tsx` dengan memanfaatkan kembali pola `navigator.mediaDevices.getUserMedia` dan video targeting overlay tanpa membuat komponen scanner baru dari nol.
-- Scan kode valid dan tidak valid ditangani secara presisi; pencarian memetakan SKU, Barcode, ID fisik, serta tabel v2 item. Transaksi IN/OUT divalidasi ketat terhadap stok fisik dan status barang.
-- Template cetak laporan menggunakan modul `PrintReportModal.tsx` dengan Kop resmi instansi PT. Solusi Informatika Lapangan, tabel terstruktur dengan thead berulang (`table-header-group`), lembar tanda tangan pengesahan, dan isolasi `@media print` murni A4 yang menyembunyikan navbar dan tombol aksi.
+- **Satu Model Data Kanonik Tunggal**: Pemisahan v1/v2 dihilangkan sepenuhnya; Katalog, Input, Output, Request, Riwayat Transaksi, Dashboard, dan Laporan membaca sumber tunggal (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`), dengan `InventoryContext.refreshData()` otomatis pasca-mutasi.
+- **Definisi Hak Akses RBAC** dipusatkan di `backend/src/utils/permissions.ts` dan `frontend/src/utils/permissions.ts`.
+- **Akuntabilitas `actor_id` vs `recorded_by_id` & Ledger Koreksi**: Transaksi atas nama pengguna lain wajib mencatat `on_behalf_reason` (khusus pengelola/admin/developer), `occurred_at` dibatasi 7 hari ke belakang untuk `warehouse_admin` (bebas untuk `admin`/`developer`, dilarang masa depan), dan koreksi audit dicatat append-only (`POST /api/activities/:id/correct`, `correction_of_id`).
+- **Siklus Request Teknisi**: `diajukan → disetujui (reservasi 'dipesan' / reserved_qty) → diambil ('keluar', taken_at) → dikembalikan ('aktif' + kondisi, wajib untuk Alat)` atau `ditolak` / `dibatalkan` (melepas reservasi).
+- **Zona Waktu UTC ↔ WIB**: Backend mengunci `process.env.TZ = 'UTC'` dan menyimpan UTC di MariaDB; seluruh tampilan dan rentang mingguan (Senin 00:00 WIB – Minggu 23:59:59.999 WIB) serta ekspor ExcelJS memakai `Asia/Jakarta` (WIB) + sanitasi CWE-1236.
+- **Ekstraksi `SCAN_SN` Ketat**: Token hasil scan foto/kamera diuji per token terhadap regex ketat tipe (`^...$`) tanpa fallback ke MAC/D-SN/teks mentah.
 
 ## Hasil audit keamanan (disetujui)
 | Aturan | Menurut panduan | Kondisi kode | Status | Saran / keputusan |

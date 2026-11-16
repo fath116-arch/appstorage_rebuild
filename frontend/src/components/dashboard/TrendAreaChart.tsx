@@ -14,6 +14,7 @@ import {
   Tooltip 
 } from 'recharts';
 import { Activity, ArrowRight } from 'lucide-react';
+import { formatWibDate } from '../../utils/timezone';
 
 interface TrendAreaChartProps {
   trendData: Array<{
@@ -31,10 +32,12 @@ const CustomTrendTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const inVal = payload.find((p: any) => p.dataKey === 'inflow')?.value || 0;
     const outVal = payload.find((p: any) => p.dataKey === 'outflow')?.value || 0;
+    const fullDate = payload[0]?.payload?.fullDate;
+    const headerLabel = fullDate ? `${formatWibDate(`${fullDate}T12:00:00+07:00`)} (WIB)` : label;
     return (
       <div className="bg-slate-900 text-white p-2.5 sm:p-3 rounded-lg shadow-xl border border-slate-700 text-xs space-y-1.5 pointer-events-none select-none z-50 max-w-[210px] sm:max-w-[240px]">
         <div className="font-bold font-mono text-slate-300 border-b border-slate-800 pb-1 text-[11px]">
-          {label} 2026
+          {headerLabel}
         </div>
         <div className="flex items-center justify-between gap-3 text-[11px]">
           <span className="flex items-center gap-1.5 text-emerald-400 truncate">

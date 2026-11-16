@@ -78,6 +78,7 @@ export interface TipeStockBreakdown {
 
 export interface TipeStockSummary {
   stok_tersedia: number;
+  stok_dipesan: number;
   stok_rusak: number;
   stok_total: number;
   stok_per_kondisi: TipeStockBreakdown;
@@ -129,6 +130,7 @@ export interface Tipe {
   dibuat_pada: string;
   stok_total?: number;
   stok_tersedia?: number;
+  stok_dipesan?: number;
   stok_rusak?: number;
   stok_per_kondisi?: TipeStockBreakdown;
   sebaran_box?: TipeBoxDistribution[];
@@ -202,15 +204,21 @@ export class CatalogService {
    * Helper tunggal untuk menghitung stok fisik, rusak, dan breakdown kondisi per tipe
    */
   private static async computeTipeStockSummary(tipeId: number): Promise<TipeStockSummary> {
-    const physicalRows = await executeQuery<PhysicalCountRow>(
+    const physicalRows = await executeQuery<PhysicalCountRow & { dipesan?: number | string }>(
       `SELECT
          COUNT(id) as total,
          SUM(CASE WHEN kondisi = 'Rusak' THEN 1 ELSE 0 END) as rusak,
          SUM(CASE WHEN kondisi = 'Baru' THEN 1 ELSE 0 END) as baru,
          SUM(CASE WHEN kondisi = 'Baik' OR kondisi IS NULL THEN 1 ELSE 0 END) as baik,
-         SUM(CASE WHEN kondisi = 'Perlu Perbaikan' THEN 1 ELSE 0 END) as perlu_perbaikan
+         SUM(CASE WHEN kondisi = 'Perlu Perbaikan' THEN 1 ELSE 0 END) as perlu_perbaikan,
+         SUM(CASE WHEN status = 'dipesan' THEN 1 ELSE 0 END) as dipesan
        FROM item
        WHERE tipe_id = ? AND status = 'aktif'`,
+      [tipeId]
+    );
+
+    const reservedRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(id) as total FROM item WHERE tipe_id = ? AND status = 'dipesan'`,
       [tipeId]
     );
 
@@ -218,18 +226,24 @@ export class CatalogService {
     const countPhysicalTotal = Number(row.total || 0);
     const countRusakItem = Number(row.rusak || 0);
     const countAvailableItem = Math.max(0, countPhysicalTotal - countRusakItem);
+    const countDipesanItem = Number(reservedRows[0]?.total || row.dipesan || 0);
 
-    const sjStok = await executeQuery<TotalCountRow>(
-      `SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?`,
+    const sjStok = await executeQuery<TotalCountRow & { reserved?: number | string }>(
+      `SELECT COALESCE(SUM(GREATEST(0, jumlah - COALESCE(reserved_qty, 0))), 0) as total,
+              COALESCE(SUM(COALESCE(reserved_qty, 0)), 0) as reserved
+       FROM stok_jumlah WHERE tipe_id = ?`,
       [tipeId]
     );
-    const countSj = Number(sjStok[0]?.total || 0);
+    const countSjAvailable = Number(sjStok[0]?.total || 0);
+    const countSjReserved = Number(sjStok[0]?.reserved || 0);
 
-    const stokTersedia = countAvailableItem + countSj;
+    const stokTersedia = countAvailableItem + countSjAvailable;
+    const stokDipesan = countDipesanItem + countSjReserved;
     return {
       stok_tersedia: stokTersedia,
+      stok_dipesan: stokDipesan,
       stok_rusak: countRusakItem,
-      stok_total: stokTersedia + countRusakItem,
+      stok_total: stokTersedia + stokDipesan + countRusakItem,
       stok_per_kondisi: {
         baru: Number(row.baru || 0),
         baik: Number(row.baik || 0),
@@ -680,41 +694,37 @@ export class CatalogService {
       )) as unknown as InsertResultRow;
       const tipeId = Number(tRes.insertId || tRes.id);
 
-      const boxes = await executeQuery<{ id: string }>('SELECT id FROM box WHERE kode = "BOX-A-01"');
+      const boxes = await executeQuery<{ id: string; kode?: string }>('SELECT id, kode FROM box WHERE kode = "BOX-A-01"');
       const boxId = boxes && boxes.length > 0 ? boxes[0].id : 'box-1';
+      const boxKode = boxes && boxes.length > 0 && boxes[0].kode ? boxes[0].kode : 'BOX-A-01';
 
       await executeQuery(
         `INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)`,
         [tipeId, boxId, stokAwal]
       );
 
-      const txId = `tx-saldo-awal-${prodId}-${Date.now()}`;
-      await executeQuery(
-        `INSERT INTO transactions (
-          id, type, tipe_mutasi, item_id, tipe_id, nama_barang, sku, satuan,
-          quantity, previous_qty, new_qty, reference_type, reference_number,
-          recipient_destination, user_id, performed_by, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          txId,
-          'IN',
-          'MASUK',
-          String(tipeId),
-          tipeId,
-          cleanNama,
-          `PRD-${prodId}`,
-          tipeStok,
-          stokAwal,
-          0,
-          stokAwal,
-          'SALDO_AWAL',
-          `SALDO-AWAL-PRD-${prodId}`,
-          'Gudang Utama - Rak A-01',
-          userId,
-          userId,
-          `Saldo awal saat pendaftaran produk baru (${stokAwal} ${tipeStok})`
+      await ActivityLogService.recordActivity({
+        aksi: 'saldo_awal',
+        pelaku_id: userId,
+        tipe_mutasi: 'MASUK',
+        reference_type: 'SALDO_AWAL',
+        reference_number: `SALDO-AWAL-PRD-${prodId}`,
+        recipient_destination: boxKode,
+        box_tujuan: boxKode,
+        qty_total: stokAwal,
+        catatan: `Saldo awal saat pendaftaran produk baru "${cleanNama}" (${stokAwal} ${tipeStok})`,
+        details: [
+          {
+            tipe_id: tipeId,
+            item_id: null,
+            kode_id: null,
+            nama_snapshot: `${cleanNama} - Standar`,
+            jumlah: stokAwal,
+            status_sebelum: null,
+            status_sesudah: 'aktif'
+          }
         ]
-      );
+      });
     }
 
     const created = await this.getProdukById(prodId);
@@ -877,6 +887,7 @@ export class CatalogService {
       if (includeStock) {
         const stockSummary = await this.computeTipeStockSummary(t.id);
         t.stok_tersedia = stockSummary.stok_tersedia;
+        t.stok_dipesan = stockSummary.stok_dipesan;
         t.stok_rusak = stockSummary.stok_rusak;
         t.stok_total = stockSummary.stok_total;
         t.stok_per_kondisi = stockSummary.stok_per_kondisi;
@@ -888,12 +899,13 @@ export class CatalogService {
 
       if (includeHistory) {
         t.riwayat_terakhir = await executeQuery<TipeHistoryEntry>(
-          `SELECT tr.id_aktivitas, tr.aksi, tr.waktu, tr.catatan, u.name as nama_pelaku, td.jumlah, td.kode_id, td.status_sebelum, td.status_sesudah
+          `SELECT tr.id_aktivitas, tr.aksi, COALESCE(tr.occurred_at, tr.waktu) as waktu, tr.catatan,
+                  COALESCE(tr.actor_nama, u.name) as nama_pelaku, td.jumlah, td.kode_id, td.status_sebelum, td.status_sesudah
            FROM transaksi_detail td
            JOIN transaksi tr ON td.transaksi_id = tr.id
-           LEFT JOIN users u ON tr.pelaku_id = u.id
+           LEFT JOIN users u ON COALESCE(tr.actor_id, tr.pelaku_id) = u.id
            WHERE td.tipe_id = ?
-           ORDER BY tr.waktu DESC
+           ORDER BY COALESCE(tr.occurred_at, tr.waktu) DESC
            LIMIT 5`,
           [t.id]
         );

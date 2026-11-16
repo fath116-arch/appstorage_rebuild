@@ -138,14 +138,15 @@ export class TrashService {
 
     // Validasi konflik berdasarkan jenis objek
     if (trash.jenis_objek === 'item') {
-      const existing = await executeQuery<any>('SELECT id FROM items WHERE id = ? AND is_deleted = 0', [trash.objek_id]);
+      const existing = await executeQuery<any>('SELECT id FROM item WHERE id = ?', [trash.objek_id]);
       if (existing.length > 0) {
-        conflicts.push(`Item ID ${trash.objek_id} sudah ada barang aktif yang menggunakan ID ini.`);
+        conflicts.push(`Item ID ${trash.objek_id} sudah ada di gudang.`);
       }
-      if (snapshotData.sku) {
-        const skuConflict = await executeQuery<any>('SELECT id FROM items WHERE sku = ? AND is_deleted = 0', [snapshotData.sku]);
-        if (skuConflict.length > 0) {
-          conflicts.push(`SKU / Kode "${snapshotData.sku}" saat ini sudah dipakai oleh item aktif lain.`);
+      const kodeId = snapshotData.kode_id || snapshotData.sku;
+      if (kodeId) {
+        const kodeConflict = await executeQuery<any>('SELECT id FROM item WHERE UPPER(kode_id) = UPPER(?)', [kodeId]);
+        if (kodeConflict.length > 0) {
+          conflicts.push(`Kode ID "${kodeId}" saat ini sudah dipakai oleh item lain.`);
         }
       }
     } else if (trash.jenis_objek === 'akun') {
@@ -176,22 +177,16 @@ export class TrashService {
       // 1. Masukkan ulang data sesuai jenis objek
       if (trash.jenis_objek === 'item') {
         await conn.query(
-          `INSERT INTO items (id, sku, barcode, name, category_id, quantity, min_stock_alert, unit, location, specs, unit_cost, status, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-           ON DUPLICATE KEY UPDATE is_deleted = 0, name = VALUES(name), quantity = VALUES(quantity)`,
+          `INSERT INTO item (id, kode_id, tipe_id, box_id, status, kondisi, catatan_kondisi)
+           VALUES (?, ?, ?, ?, 'aktif', ?, ?)
+           ON DUPLICATE KEY UPDATE status = 'aktif', box_id = VALUES(box_id)`,
           [
             snapshotData.id,
-            snapshotData.sku,
-            snapshotData.barcode || '',
-            snapshotData.name,
-            snapshotData.category_id,
-            snapshotData.quantity || 0,
-            snapshotData.min_stock_alert || 0,
-            snapshotData.unit || 'pcs',
-            snapshotData.location || '',
-            snapshotData.specs || '',
-            snapshotData.unit_cost || 0,
-            snapshotData.status || 'NORMAL'
+            snapshotData.kode_id || snapshotData.sku,
+            snapshotData.tipe_id || 1,
+            snapshotData.box_id || 'box-1',
+            snapshotData.kondisi || 'Baik',
+            snapshotData.catatan_kondisi || null
           ]
         );
       } else if (trash.jenis_objek === 'akun') {

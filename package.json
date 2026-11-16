@@ -1,7 +1,7 @@
 {
   "name": "fieldops-it-inventory",
   "private": true,
-  "version": "1.2.5.3",
+  "version": "1.2.6",
   "type": "module",
   "scripts": {
     "dev": "tsx backend/src/server.ts",

@@ -7,8 +7,8 @@ import JSZip from 'jszip';
 import { APP_VERSION } from '../constants/version';
 
 export interface ExportDataPayload {
-  items: any[];
-  categories: any[];
+  products: any[];
+  jenisList: any[];
   transactions: any[];
   apiKeys?: any[];
   integrationLogs?: any[];
@@ -238,20 +238,25 @@ File static akan berada di folder \`dist/\`.
     '/src/App.tsx',
     '/src/index.css',
     '/src/types/inventory.ts',
-    '/src/data/mockData.ts',
     '/src/context/InventoryContext.tsx',
     '/src/utils/security.ts',
+    '/src/utils/timezone.ts',
     '/src/utils/excelExporter.ts',
+    '/src/services/catalogApi.ts',
+    '/src/services/stockApi.ts',
+    '/src/services/requestApi.ts',
+    '/src/services/activityApi.ts',
     '/src/components/Navbar.tsx',
     '/src/components/Dashboard.tsx',
     '/src/components/InventoryCatalog.tsx',
+    '/src/components/catalog/CatalogV2Manager.tsx',
+    '/src/components/stock/StockInputModal.tsx',
+    '/src/components/stock/TransactionAttributionFields.tsx',
     '/src/components/StockInOutModal.tsx',
     '/src/components/TransactionHistory.tsx',
+    '/src/components/requests/TechnicianRequestsView.tsx',
     '/src/components/WeeklyReport.tsx',
-    '/src/components/CategoryManager.tsx',
     '/src/components/TicketIntegrationHub.tsx',
-    '/src/components/ItemDetailModal.tsx',
-    '/src/components/ItemFormModal.tsx',
     '/src/components/FieldTripChecklistModal.tsx',
     '/src/components/PrintDocumentModal.tsx',
     '/src/components/UserRoleSwitcher.tsx',

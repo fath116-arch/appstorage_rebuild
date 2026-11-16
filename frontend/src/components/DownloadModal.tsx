@@ -28,8 +28,8 @@ import { useAuth } from '../context/AuthContext';
 export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuth();
   const { 
-    items, 
-    categories, 
+    products, 
+    jenisList, 
     transactions, 
     showToast,
   } = useInventory();
@@ -42,9 +42,10 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose })
       setIsZipping(true);
       showToast('Sedang membundel seluruh source code proyek...', 'info');
       await downloadProjectZip({
-        items,
-        categories,
+        products,
+        jenisList,
         transactions,
+        currentUser: user
       });
       showToast('File ZIP source code berhasil diunduh!', 'success');
     } catch (err) {
@@ -57,9 +58,10 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose })
 
   const handleDownloadBackup = () => {
     downloadJsonBackup({
-      items,
-      categories,
+      products,
+      jenisList,
       transactions,
+      currentUser: user
     });
     showToast('File backup database JSON berhasil diunduh!', 'success');
   };
@@ -137,7 +139,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose })
                     Backup Data Suku Cadang & Mutasi (.JSON)
                   </h3>
                   <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-[11px] leading-relaxed">
-                    Data terkini: {items.length} master barang, {transactions.length} riwayat mutasi masuk/keluar, dan log integrasi tiket saat ini.
+                    Data terkini: {products.length} produk katalog, {transactions.length} riwayat mutasi masuk/keluar, dan log integrasi tiket saat ini.
                   </p>
                 </div>
               </div>

@@ -1,6 +1,6 @@
 /**
- * Backup & Restore Service (Separated Business vs Account Snapshots)
- * FieldOps IT Inventory Rebuild
+ * Backup & Restore Service (Canonical Single-Model Snapshots, Separated Business vs Account)
+ * FieldOps IT Inventory
  */
 
 import fs from 'fs';
@@ -18,7 +18,7 @@ export class BackupService {
   }
 
   /**
-   * Ekspor Khusus Data Bisnis Inventaris (FILE BARANG - BEBAS AKUN & PASSWORD)
+   * Ekspor Khusus Data Bisnis Inventaris Kanonis (BEBAS AKUN & PASSWORD)
    */
   static async createInventoryBackup(triggeredBy: string = 'system-cron'): Promise<{ filename: string; filePath: string; summary: any }> {
     this.ensureBackupDir();
@@ -26,9 +26,15 @@ export class BackupService {
     const filename = `backup_inventory_items_${dateStr}.json`;
     const filePath = path.join(this.backupsDir, filename);
 
-    const categories = await executeQuery('SELECT * FROM categories ORDER BY id ASC');
-    const items = await executeQuery('SELECT * FROM items WHERE is_deleted = FALSE ORDER BY sku ASC');
-    const transactions = await executeQuery('SELECT * FROM transactions ORDER BY created_at DESC');
+    const jenis = await executeQuery('SELECT * FROM jenis WHERE aktif = 1 ORDER BY id ASC');
+    const produk = await executeQuery('SELECT * FROM produk WHERE aktif = 1 ORDER BY id ASC');
+    const tipe = await executeQuery('SELECT * FROM tipe WHERE aktif = 1 ORDER BY id ASC');
+    const boxes = await executeQuery('SELECT * FROM box WHERE aktif = 1 ORDER BY kode ASC');
+    const items = await executeQuery('SELECT * FROM item ORDER BY id ASC');
+    const stokJumlah = await executeQuery('SELECT * FROM stok_jumlah');
+    const transaksi = await executeQuery('SELECT * FROM transaksi ORDER BY COALESCE(occurred_at, waktu) DESC');
+    const transaksiDetail = await executeQuery('SELECT * FROM transaksi_detail ORDER BY id ASC');
+    const requests = await executeQuery('SELECT * FROM request ORDER BY dibuat_pada DESC');
     const checklists = await executeQuery('SELECT * FROM checklists ORDER BY created_at DESC');
     const whatsappConfig = await executeQuery('SELECT id, gateway_type, api_url, target_phones, auto_alert_enabled FROM whatsapp_config');
     const whatsappLogs = await executeQuery('SELECT * FROM whatsapp_logs ORDER BY created_at DESC LIMIT 100');
@@ -36,13 +42,19 @@ export class BackupService {
     const payload = {
       system: 'FieldOps IT Inventory',
       dataType: 'BUSINESS_INVENTORY_ONLY',
-      version: '1.0.0',
+      version: '2.0.0',
       createdAt: new Date().toISOString(),
       triggeredBy,
       data: {
-        categories,
+        jenis,
+        produk,
+        tipe,
+        boxes,
         items,
-        transactions,
+        stokJumlah,
+        transaksi,
+        transaksiDetail,
+        requests,
         checklists,
         whatsappConfig: whatsappConfig[0] || null,
         whatsappLogs
@@ -55,9 +67,11 @@ export class BackupService {
       filename,
       filePath,
       summary: {
-        categoriesCount: categories.length,
+        jenisCount: jenis.length,
+        productsCount: produk.length,
+        tipesCount: tipe.length,
         itemsCount: items.length,
-        transactionsCount: transactions.length,
+        transactionsCount: transaksi.length,
         checklistsCount: checklists.length
       }
     };
@@ -87,69 +101,59 @@ export class BackupService {
   }
 
   /**
-   * Pulihkan Data Bisnis dari File Cadangan (Tanpa Menyentuh Akun Pengguna)
+   * Pulihkan Data Bisnis Kanonis dari File Cadangan (Tanpa Menyentuh Akun Pengguna)
    */
   static async restoreInventory(jsonData: any): Promise<{ success: boolean; message: string; counts: any }> {
     if (!jsonData || jsonData.dataType !== 'BUSINESS_INVENTORY_ONLY' || !jsonData.data) {
       throw new Error('Format file backup tidak valid. Hanya file backup khusus data bisnis (BUSINESS_INVENTORY_ONLY) yang diterima.');
     }
 
-    const { categories, items, transactions } = jsonData.data;
+    const { produk, boxes, items, stokJumlah } = jsonData.data;
 
     return await runTransaction(async (conn) => {
-      // 1. Pulihkan kategori
-      if (Array.isArray(categories)) {
-        for (const cat of categories) {
+      if (Array.isArray(boxes)) {
+        for (const b of boxes) {
           await conn.query(
-            `INSERT INTO categories (id, code, name, description) 
-             VALUES (?, ?, ?, ?) 
-             ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description)`,
-            [cat.id, cat.code, cat.name, cat.description || '']
+            `INSERT INTO box (id, kode, keterangan, aktif)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE keterangan = VALUES(keterangan), aktif = VALUES(aktif)`,
+            [b.id, b.kode, b.keterangan || null, b.aktif !== undefined ? (b.aktif ? 1 : 0) : 1]
           );
         }
       }
 
-      // 2. Pulihkan barang
       if (Array.isArray(items)) {
         for (const it of items) {
-          await conn.query(
-            `INSERT INTO items (id, sku, barcode, name, category_id, quantity, min_stock_alert, unit, location, specs, unit_cost, status, is_deleted)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE 
-               name = VALUES(name), category_id = VALUES(category_id), quantity = VALUES(quantity), 
-               min_stock_alert = VALUES(min_stock_alert), location = VALUES(location), specs = VALUES(specs), status = VALUES(status)`,
-            [
-              it.id, it.sku, it.barcode || null, it.name, it.category_id, it.quantity || 0,
-              it.min_stock_alert || 2, it.unit || 'pcs', it.location || '', it.specs || '',
-              it.unit_cost || 0, it.status || 'NORMAL', it.is_deleted ? 1 : 0
-            ]
-          );
+          if (it.kode_id && it.tipe_id && it.box_id) {
+            await conn.query(
+              `INSERT INTO item (id, kode_id, tipe_id, box_id, status, kondisi, catatan_kondisi)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE status = VALUES(status), box_id = VALUES(box_id), kondisi = VALUES(kondisi)`,
+              [it.id, it.kode_id, it.tipe_id, it.box_id, it.status || 'aktif', it.kondisi || 'Baik', it.catatan_kondisi || null]
+            );
+          }
         }
       }
 
-      // 3. Pulihkan transaksi
-      if (Array.isArray(transactions)) {
-        for (const tx of transactions) {
+      if (Array.isArray(stokJumlah)) {
+        for (const sj of stokJumlah) {
           await conn.query(
-            `INSERT INTO transactions (id, type, item_id, quantity, previous_qty, new_qty, reference_type, reference_number, recipient_destination, user_id, performed_by, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE notes = VALUES(notes)`,
-            [
-              tx.id, tx.type, tx.item_id, tx.quantity, tx.previous_qty, tx.new_qty,
-              tx.reference_type || 'MANUAL', tx.reference_number || '', tx.recipient_destination || '',
-              tx.user_id || 'system', tx.performed_by || 'Admin', tx.notes || ''
-            ]
+            `INSERT INTO stok_jumlah (tipe_id, box_id, jumlah)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE jumlah = VALUES(jumlah)`,
+            [sj.tipe_id, sj.box_id, Number(sj.jumlah || 0)]
           );
         }
       }
 
       return {
         success: true,
-        message: 'Pemulihan data inventori berhasil diselesaikan.',
+        message: 'Pemulihan data inventori kanonis berhasil diselesaikan.',
         counts: {
-          categories: categories?.length || 0,
-          items: items?.length || 0,
-          transactions: transactions?.length || 0
+          products: Array.isArray(produk) ? produk.length : 0,
+          boxes: Array.isArray(boxes) ? boxes.length : 0,
+          items: Array.isArray(items) ? items.length : 0,
+          stokJumlah: Array.isArray(stokJumlah) ? stokJumlah.length : 0
         }
       };
     });
@@ -159,7 +163,6 @@ export class BackupService {
    * Inisialisasi backup harian terjadwal (Setiap 24 jam)
    */
   static initDailyBackupCron() {
-    // 24 jam = 86400000 ms
     setInterval(async () => {
       try {
         const res = await this.createInventoryBackup('scheduled-daily-cron');

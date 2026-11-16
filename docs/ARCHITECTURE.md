@@ -1,8 +1,10 @@
 # DOKUMEN ARSITEKTUR SISTEM (ARCHITECTURE.MD)
-**Aplikasi**: FieldOps IT Inventory (Rebuild)  
-**Database Mesin**: MariaDB 11.x (Server Lokal)  
-**Arsitektur**: Decoupled Monorepo (`frontend/` + `backend/`) dengan Docker Compose  
-**Status**: Tahap 1 - Spesifikasi & Rencana Disetujui Pengguna
+**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.6)  
+**Database Mesin**: MariaDB 11.x (Server Lokal, UTC)  
+**Arsitektur**: Decoupled Monorepo (`frontend/` + `backend/`) dengan Model Data Kanonik Tunggal  
+**Status**: Rilis v1.2.6 Terverifikasi Penuh
+
+> **Pembaruan Arsitektur v1.2.6**: Jalur legacy v1 (`inventoryService`, `transactionService`, `/api/inventory`, `/api/transactions`) telah dilepas sepenuhnya. Seluruh alur backend kini terpusat di `CatalogService`, `StockService`, `ActivityLogService` (ledger append-only dengan `actor_id`/`recorded_by_id`/`occurred_at`/`correction_of_id`), `RequestService` (`diajukan → disetujui → diambil → dikembalikan`), `WhatsAppAlertService`, dan `timezone.ts` (UTC storage ↔ `Asia/Jakarta` WIB display).
 
 ---
 

@@ -1,6 +1,6 @@
-# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.1.0)
+# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.6)
 
-Dokumen ini menjelaskan model data relasional, skema tabel MariaDB 11.x, mekanisme **Soft Delete**, aturan kalkulasi stok mutasi atomik, dan kebijakan proteksi data pada **FieldOps IT**.
+Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, skema tabel MariaDB 11.x hingga migrasi `12_unify_single_model_and_wib.sql`, mekanisme **Reservasi & Siklus Request**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT**.
 
 ---
 
@@ -126,20 +126,27 @@ Menyimpan parameter konfigurasi dan ambang batas sistem.
 | `keterangan` | `TEXT` | Penjelasan fungsi parameter |
 | `diperbarui_pada` | `TIMESTAMP` | Waktu pembaruan terakhir |
 
-#### 3. Tabel `transaksi` & `transaksi_detail` (Append-Only Mutasi Format AKT)
-Mencatat seluruh transaksi perpindahan/mutasi suku cadang dengan format ID Aktivitas `AKT-YYYYMMDD-NNNN`.
+#### 3. Tabel `transaksi` & `transaksi_detail` (Append-Only Ledger Kanonik Format `AKT-YYYYMMDD-NNNN`)
+Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04_v2_foundation_schema.sql` & diperkaya oleh `12_unify_single_model_and_wib.sql`) dengan penyimpanan waktu UTC penuh.
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
 | `id` | `VARCHAR(36)` | Primary Key transaksi |
-| `id_aktivitas` | `VARCHAR(32)` | ID Aktivitas unik harian (`AKT-YYYYMMDD-NNNN`) |
-| `aksi` | `VARCHAR(64)` | Jenis aksi mutasi (`tambah`, `keluar`, `pindah_box`, dsb.) |
-| `pelaku_id` | `VARCHAR(36)` | ID pengguna yang mengeksekusi mutasi |
-| `penyetuju_id` | `VARCHAR(36) NULL` | ID pengguna yang menyetujui mutasi (jika ada) |
-| `request_id` | `VARCHAR(36) NULL` | ID permintaan teknisi terkait |
+| `id_aktivitas` | `VARCHAR(32)` | ID Aktivitas unik harian berbasis kalender WIB (`AKT-YYYYMMDD-NNNN`) |
+| `aksi` | `VARCHAR(64)` | Jenis aksi (`tambah_item`, `barang_keluar`, `ambil_request`, `kembali_alat`, `koreksi_transaksi`, dll.) |
+| `pelaku_id` | `VARCHAR(36)` | Referensi pelaku utama |
+| `actor_id` / `actor_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Pelaku lapangan sebenarnya yang menerima/menjalankan mutasi |
+| `recorded_by_id` / `recorded_by_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Petugas yang mencatat transaksi di sistem |
+| `is_on_behalf` / `on_behalf_reason` | `TINYINT(1)` / `TEXT NULL` | Penanda pencatatan atas nama pengguna lain dan alasannya (min. 3 karakter) |
+| `occurred_at` / `recorded_at` | `DATETIME(3) NULL` | Waktu kejadian aktual (UTC) vs waktu pencatatan sistem (UTC) |
+| `correction_of_id` | `VARCHAR(64) NULL` | Referensi ke transaksi asal jika entri merupakan koreksi audit append-only |
+| `penyetuju_id` / `request_id` | `VARCHAR(36) NULL` | ID penyetuju dan referensi permohonan teknisi |
+| `reference_type` / `reference_number` | `VARCHAR(64)` / `VARCHAR(120)` | Kategori & nomor referensi mutasi / tiket |
+| `recipient_destination` | `VARCHAR(255) NULL` | Tujuan / teknisi / pelanggan / box |
+| `qty_total` / `tipe_mutasi` | `INT` / `VARCHAR(16)` | Total kuantitas & jenis mutasi (`MASUK`, `KELUAR`, `TRANSFER`, `SYSTEM`) |
 | `box_asal` / `box_tujuan` | `VARCHAR(32) NULL` | Kode box penyimpanan asal & tujuan |
 | `catatan` | `TEXT NULL` | Keterangan pekerjaan / tiket |
-| `waktu` | `TIMESTAMP` | Waktu pencatatan mutasi di server |
+| `waktu` | `TIMESTAMP` | Timestamp kompatibilitas (selaras `occurred_at` UTC) |
 
 #### 4. Tabel `sampah_hapus` (Permanent Delete Lapis 2 dengan Retensi 14 Hari)
 Menyimpan snapshot data terhapus permanen sebelum dimusnahkan secara otomatis.
@@ -273,8 +280,10 @@ Menyimpan fisik unit barang yang memiliki ID unik (Serial Number, Otomatis, atau
 | `kode_id` | `VARCHAR(120)` | ID/SN item fisik (Unik di seluruh sistem) |
 | `tipe_id` | `INT UNSIGNED` | Foreign Key ke `tipe(id)` |
 | `box_id` | `VARCHAR(36)` | Foreign Key ke `box(id)` |
-| `status` | `VARCHAR(32)` | Status unit: `'aktif'` atau `'keluar'` |
-| `dibuat_pada` | `DATETIME` | Waktu pendaftaran stok |
+| `status` | `VARCHAR(32)` | Status unit: `'aktif'`, `'dipesan'` (reservasi request), atau `'keluar'` |
+| `kondisi` / `catatan_kondisi` | `VARCHAR(32)` / `TEXT NULL` | Kondisi fisik (`'Baru'`, `'Baik'`, `'Perlu Perbaikan'`, `'Rusak'`) — item `Rusak` tidak masuk stok tersedia |
+| `reserved_for_request_id` / `reserved_for_user_id` | `VARCHAR(36) NULL` | Pengunci reservasi request saat status `'dipesan'` |
+| `dibuat_pada` | `DATETIME` | Waktu pendaftaran stok (UTC) |
 
 #### 3. Tabel `stok_jumlah` (Stok Non-SN Mode Jumlah)
 Menyimpan jumlah stok untuk tipe dengan mode `tanpa_id` per box.
@@ -283,18 +292,36 @@ Menyimpan jumlah stok untuk tipe dengan mode `tanpa_id` per box.
 | :--- | :--- | :--- |
 | `tipe_id` | `INT UNSIGNED` | Composite Primary Key `tipe(id)` |
 | `box_id` | `VARCHAR(36)` | Composite Primary Key `box(id)` |
-| `jumlah` | `INT UNSIGNED` | Jumlah unit stok fisik tersedia |
+| `jumlah` | `INT UNSIGNED` | Jumlah total unit stok fisik di box |
+| `reserved_qty` | `INT UNSIGNED` | Jumlah unit yang sedang direservasi oleh request berstatus `'disetujui'` |
 
 ---
 
-## 📐 2. Aturan Mutasi Stok Atomik
+### G. Skema Siklus Request Teknisi (`07_v2_request_schema.sql` & `12_unify_single_model_and_wib.sql`)
+
+Tabel `request` mengelola permohonan barang teknisi dari pengajuan hingga pengembalian alat (`diajukan` → `disetujui` → `diambil` → `dikembalikan` | `ditolak` | `dibatalkan`):
+
+| Nama Kolom | Tipe Data | Deskripsi |
+| :--- | :--- | :--- |
+| `id` | `VARCHAR(36)` | Primary Key permohonan |
+| `pemohon_id` / `actor_id` / `recorded_by_id` | `VARCHAR(36)` | Teknisi pemohon & petugas pencatat |
+| `tipe_id` / `box_id` / `kode_id` / `jumlah` | `INT` / `VARCHAR` | Target varian tipe, box, SN opsional, & kuantitas |
+| `status` | `VARCHAR(32)` | `'diajukan'`, `'disetujui'`, `'diambil'`, `'dikembalikan'`, `'ditolak'`, `'dibatalkan'` |
+| `taken_at` / `returned_at` | `DATETIME(3) NULL` | Waktu serah terima (`diambil`) & pengembalian ke gudang (`dikembalikan`, UTC) |
+| `return_condition` / `return_notes` / `return_box_id` | `VARCHAR(32)` / `TEXT` / `VARCHAR(36)` | Kondisi, catatan, dan box tujuan saat pengembalian |
+| `allocated_item_ids` / `transaction_out_id` / `transaction_in_id` | `TEXT` / `VARCHAR(64)` | Jejak alokasi item & tautan transaksi OUT/IN |
+
+---
+
+## 📐 2. Aturan Mutasi Stok Atomik & Kebijakan Zona Waktu (UTC ↔ WIB)
 
 1. **Mutasi Barang Masuk (`IN`)**:
-   $$\text{Stok Baru} = \text{Stok Lama} + \text{Jumlah Masuk}$$
-
+   $$\text{Stok Tersedia Baru} = \text{Stok Lama} + \text{Jumlah Masuk}$$
 2. **Mutasi Barang Keluar (`OUT`)**:
-   $$\text{Stok Baru} = \text{Stok Lama} - \text{Jumlah Keluar}$$
-   - **Invarian Validasi**: $\text{Jumlah Keluar} \le \text{Stok Lama}$. Jika stok tidak mencukupi, transaksi ditolak dan dibatalkan secara atomik (*Rollback*).
+   $$\text{Stok Tersedia} = \text{Total Fisik Non-Rusak} - \text{Reservasi (`dipesan` / `reserved_qty`)}$$
+   - **Invarian Validasi**: Item berstatus `keluar`, `Rusak`, atau `dipesan` (tanpa kecocokan `request_id`) ditolak secara atomik; untuk `TANPA_ID`, $\text{Jumlah Keluar} \le \text{Stok Tersedia}$.
+3. **Penyimpanan UTC & Tampilan WIB (`Asia/Jakarta`)**:
+   - Server menjalankan `process.env.TZ = 'UTC'`. Seluruh datetime disimpan UTC di MariaDB, diformat `DD/MM/YYYY HH:mm WIB` di antarmuka, dan direkap mingguan dari Senin `00:00:00.000 WIB` hingga Minggu `23:59:59.999 WIB`.
 
 ---
 

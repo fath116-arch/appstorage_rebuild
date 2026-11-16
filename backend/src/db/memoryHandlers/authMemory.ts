@@ -1,12 +1,13 @@
 /**
- * Memory Query Handler: Auth, Sessions & v2 Foundation Tables
+ * Auth, Sessions & Canonical Ledger Memory Query Handler
  * (users, sessions, audit_logs, pengaturan, sesi, transaksi, transaksi_detail, sampah_hapus, token_konfirmasi)
  */
 
 import { persistUsersToSeed } from '../memorySeed';
 import { memoryStore } from '../memoryStore';
+import { normalizeDbDateToIso } from '../../utils/timezone';
 
-export function handleAuthMemoryQuery(_cleanSql: string, upper: string, params: any[]): any {
+export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: any[]): any {
   // SELECT users
   if (upper.startsWith('SELECT') && upper.includes('FROM USERS')) {
     if (upper.includes('WHERE ID = ?')) {
@@ -184,7 +185,7 @@ export function handleAuthMemoryQuery(_cleanSql: string, upper: string, params: 
     return { affectedRows: 1 };
   }
 
-  // SESI (v2 Server-Authoritative Sessions)
+  // SESI
   if (upper.startsWith('SELECT') && upper.includes('FROM SESI')) {
     const list = Array.from(memoryStore.sesi.values());
     if (upper.includes('WHERE USER_ID = ? AND DICABUT_PADA IS NULL')) {
@@ -256,12 +257,29 @@ export function handleAuthMemoryQuery(_cleanSql: string, upper: string, params: 
     }
   }
 
-  // TRANSAKSI & TRANSAKSI_DETAIL
+  // TRANSAKSI & TRANSAKSI_DETAIL (Canonical Ledger)
   if (upper.startsWith('SELECT') && upper.includes('FROM TRANSAKSI_DETAIL')) {
+    let list = memoryStore.transaksi_detail_v2;
     if (upper.includes('WHERE TRANSAKSI_ID = ?')) {
-      return memoryStore.transaksi_detail_v2.filter(d => d.transaksi_id === params[0]);
+      list = list.filter(d => d.transaksi_id === params[0]);
+    } else if (upper.includes('WHERE TIPE_ID = ?')) {
+      const tId = Number(params[0]);
+      list = list.filter(d => Number(d.tipe_id) === tId);
     }
-    return memoryStore.transaksi_detail_v2;
+    return list.map(d => {
+      const tx = memoryStore.transaksi_v2.get(d.transaksi_id);
+      const actor = tx ? memoryStore.users.get(tx.actor_id || tx.pelaku_id) : null;
+      return {
+        ...d,
+        id_aktivitas: tx?.id_aktivitas || '',
+        aksi: tx?.aksi || '',
+        waktu: tx?.occurred_at || tx?.waktu || '',
+        occurred_at: tx?.occurred_at || tx?.waktu || '',
+        recorded_at: tx?.recorded_at || tx?.waktu || '',
+        catatan: tx?.catatan || '',
+        nama_pelaku: tx?.actor_nama || actor?.name || tx?.pelaku_id || ''
+      };
+    });
   }
 
   if (upper.startsWith('SELECT') && upper.includes('FROM TRANSAKSI')) {
@@ -271,26 +289,120 @@ export function handleAuthMemoryQuery(_cleanSql: string, upper: string, params: 
       list.sort((a, b) => b.id_aktivitas.localeCompare(a.id_aktivitas));
       return list.slice(0, 1);
     }
-    const list = Array.from(memoryStore.transaksi_v2.values());
-    list.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
-    return list;
+
+    let list = Array.from(memoryStore.transaksi_v2.values());
+
+    if (upper.includes('WHERE T.ID = ?') || upper.includes('WHERE ID = ?')) {
+      const match = memoryStore.transaksi_v2.get(params[0]);
+      list = match ? [match] : [];
+    } else if (upper.includes('WHERE T.REQUEST_ID = ?') || upper.includes('WHERE REQUEST_ID = ?')) {
+      const reqId = params[0];
+      list = list.filter(t => t.request_id === reqId);
+    } else if (upper.includes('WHERE T.CORRECTION_OF_ID = ?')) {
+      const cId = params[0];
+      list = list.filter(t => t.correction_of_id === cId);
+    } else {
+      // Dynamic filter matching ActivityLogService.getLogs
+      let pIdx = 0;
+      if (upper.includes('AND T.AKSI = ?')) {
+        const val = params[pIdx++];
+        list = list.filter(t => t.aksi === val);
+      }
+      if (upper.includes('AND (T.PELAKU_ID = ? OR T.ACTOR_ID = ?)')) {
+        const val1 = params[pIdx++];
+        pIdx++;
+        list = list.filter(t => t.pelaku_id === val1 || t.actor_id === val1);
+      } else if (upper.includes('AND T.PELAKU_ID = ?')) {
+        const val = params[pIdx++];
+        list = list.filter(t => t.pelaku_id === val);
+      }
+      if (upper.includes('AND COALESCE(T.OCCURRED_AT, T.WAKTU) >= ?')) {
+        const fromMs = new Date(normalizeDbDateToIso(params[pIdx++]) || params[pIdx - 1]).getTime();
+        list = list.filter(t => new Date(t.occurred_at || t.waktu).getTime() >= fromMs);
+      } else if (upper.includes('AND T.WAKTU >= ?')) {
+        const fromMs = new Date(params[pIdx++]).getTime();
+        list = list.filter(t => new Date(t.waktu).getTime() >= fromMs);
+      }
+      if (upper.includes('AND COALESCE(T.OCCURRED_AT, T.WAKTU) <= ?')) {
+        const toMs = new Date(normalizeDbDateToIso(params[pIdx++]) || params[pIdx - 1]).getTime();
+        list = list.filter(t => new Date(t.occurred_at || t.waktu).getTime() <= toMs);
+      } else if (upper.includes('AND T.WAKTU <= ?')) {
+        const toMs = new Date(params[pIdx++]).getTime();
+        list = list.filter(t => new Date(t.waktu).getTime() <= toMs);
+      }
+    }
+
+    const enriched = list.map(t => {
+      const uPelaku = memoryStore.users.get(t.pelaku_id);
+      const uActor = memoryStore.users.get(t.actor_id || t.pelaku_id);
+      const uRec = memoryStore.users.get(t.recorded_by_id || t.pelaku_id);
+      const uApp = t.penyetuju_id ? memoryStore.users.get(t.penyetuju_id) : null;
+      const details = memoryStore.transaksi_detail_v2.filter(d => d.transaksi_id === t.id);
+      return {
+        ...t,
+        nama_pelaku: t.actor_nama || uActor?.name || uPelaku?.name || t.pelaku_id,
+        role_pelaku: uActor?.role || uPelaku?.role || null,
+        actor_nama: t.actor_nama || uActor?.name || uPelaku?.name || t.pelaku_id,
+        recorded_by_nama: t.recorded_by_nama || uRec?.name || t.recorded_by_id || t.pelaku_id,
+        nama_penyetuju: uApp?.name || null,
+        total_items: details.length
+      };
+    });
+
+    enriched.sort((a, b) => new Date(b.occurred_at || b.waktu).getTime() - new Date(a.occurred_at || a.waktu).getTime());
+
+    if (upper.includes('LIMIT ? OFFSET ?')) {
+      const limit = Number(params[params.length - 2]) || 100;
+      const offset = Number(params[params.length - 1]) || 0;
+      return enriched.slice(offset, offset + limit);
+    }
+    if (upper.includes('LIMIT ?')) {
+      const limit = Number(params[params.length - 1]) || 100;
+      return enriched.slice(0, limit);
+    }
+    return enriched;
   }
 
   if (upper.startsWith('INSERT INTO TRANSAKSI (')) {
-    const tx = {
-      id: params[0],
-      id_aktivitas: params[1],
-      aksi: params[2],
-      pelaku_id: params[3],
-      penyetuju_id: params[4] || null,
-      request_id: params[5] || null,
-      box_asal: params[6] || null,
-      box_tujuan: params[7] || null,
-      catatan: params[8] || null,
-      waktu: new Date().toISOString()
-    };
-    memoryStore.transaksi_v2.set(tx.id, tx);
-    return { affectedRows: 1 };
+    const colMatch = cleanSql.match(/INSERT\s+INTO\s+transaksi\s*\(([^)]+)\)/i);
+    if (colMatch && colMatch[1]) {
+      const cols = colMatch[1].split(',').map(c => c.trim().toLowerCase());
+      const tx: any = {
+        waktu: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        recorded_at: new Date().toISOString(),
+        is_on_behalf: 0,
+        qty_total: 0
+      };
+      // Build SQL value tokens so literal NOW() is handled alongside ? placeholders
+      const valuesPart = cleanSql.slice(cleanSql.toUpperCase().indexOf('VALUES'));
+      const valMatch = valuesPart.match(/VALUES\s*\(([\s\S]*)\)/i);
+      if (valMatch && valMatch[1]) {
+        const valTokens = valMatch[1].split(',').map(v => v.trim());
+        let pIdx = 0;
+        cols.forEach((col, i) => {
+          const tok = valTokens[i];
+          if (tok === '?') {
+            const raw = params[pIdx++];
+            if (col === 'waktu' || col === 'occurred_at' || col === 'recorded_at') {
+              tx[col] = normalizeDbDateToIso(raw) || raw;
+            } else {
+              tx[col] = raw;
+            }
+          } else if (tok && tok.toUpperCase().startsWith('NOW')) {
+            tx[col] = new Date().toISOString();
+          } else if (tok) {
+            tx[col] = tok.replace(/^['"]|['"]$/g, '');
+          }
+        });
+      }
+      if (!tx.actor_id) tx.actor_id = tx.pelaku_id;
+      if (!tx.recorded_by_id) tx.recorded_by_id = tx.pelaku_id;
+      if (!tx.occurred_at) tx.occurred_at = tx.waktu;
+      if (!tx.recorded_at) tx.recorded_at = tx.waktu;
+      memoryStore.transaksi_v2.set(tx.id, tx);
+      return { affectedRows: 1 };
+    }
   }
 
   if (upper.startsWith('INSERT INTO TRANSAKSI_DETAIL')) {

@@ -1,23 +1,28 @@
 /**
- * Request Router (Tahap 6: Alur Request Teknisi & Persetujuan Cepat)
- * FieldOps Inventory v2
+ * Request Router (Alur Request Teknisi, Reservasi, Pickup, Pengembalian Alat, & Timeline)
+ * FieldOps IT — Single Canonical Model
  */
 
 import express from 'express';
 import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { RequestService } from '../services/requestService';
+import { isWarehouseManager } from '../utils/permissions';
 
 const router = express.Router();
 
 router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const { tipe_id, box_id, kode_id, jumlah, alasan } = req.body;
+    const { tipe_id, box_id, kode_id, jumlah, alasan, actor_id, on_behalf_reason } = req.body;
     if (!tipe_id || !alasan) {
       return res.status(400).json({ success: false, message: 'tipe_id dan alasan permohonan wajib diisi.' });
     }
 
     const requestObj = await RequestService.createRequest({
       pemohonId: req.user!.id,
+      actorId: actor_id ? String(actor_id) : undefined,
+      actorRole: req.user!.role,
+      recordedByRole: req.user!.role,
+      onBehalfReason: on_behalf_reason ? String(on_behalf_reason) : undefined,
       tipeId: Number(tipe_id),
       boxId: box_id ? String(box_id) : undefined,
       kodeId: kode_id ? String(kode_id) : undefined,
@@ -34,8 +39,11 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const status = req.query.status as any;
-    const pemohonId = req.query.pemohon_id ? String(req.query.pemohon_id) : undefined;
+    const requestedPemohonId = req.query.pemohon_id ? String(req.query.pemohon_id) : undefined;
     const search = req.query.search ? String(req.query.search) : undefined;
+
+    // Teknisi hanya melihat request miliknya sendiri kecuali pengelola gudang / admin / developer
+    const pemohonId = isWarehouseManager(req.user!.role) ? requestedPemohonId : req.user!.id;
 
     const list = await RequestService.listRequests({
       pemohonId,
@@ -49,13 +57,58 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: express.Resp
   }
 });
 
-router.get('/:id', requireAuth, async (req: express.Request, res: express.Response) => {
+router.get('/held', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const actorIdParam = req.query.actor_id ? String(req.query.actor_id) : undefined;
+    const actorId = isWarehouseManager(req.user!.role) ? actorIdParam : req.user!.id;
+    const held = await RequestService.listHeldByTechnicians({ actorId });
+    return res.json({ success: true, items: held });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get(
+  '/open-for-actor/:actorId',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const actorId = String(req.params.actorId);
+      const list = await RequestService.listOpenRequestsForActor(actorId);
+      return res.json({ success: true, requests: list });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const reqObj = await RequestService.getRequestById(String(req.params.id));
     if (!reqObj) {
       return res.status(404).json({ success: false, message: 'Permohonan tidak ditemukan.' });
     }
+    if (!isWarehouseManager(req.user!.role) && reqObj.pemohon_id !== req.user!.id && reqObj.actor_id !== req.user!.id) {
+      return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses melihat permohonan ini.' });
+    }
     return res.json({ success: true, data: reqObj });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/:id/timeline', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const reqObj = await RequestService.getRequestById(String(req.params.id));
+    if (!reqObj) {
+      return res.status(404).json({ success: false, message: 'Permohonan tidak ditemukan.' });
+    }
+    if (!isWarehouseManager(req.user!.role) && reqObj.pemohon_id !== req.user!.id && reqObj.actor_id !== req.user!.id) {
+      return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke timeline permohonan ini.' });
+    }
+    const timeline = await RequestService.getRequestTimeline(reqObj.id);
+    return res.json({ success: true, timeline });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -73,10 +126,66 @@ router.post(
       const result = await RequestService.approveRequest({
         requestId,
         penyetujuId: req.user!.id,
+        penyetujuRole: req.user!.role,
         confirmationToken: confirmation_token ? String(confirmation_token) : undefined,
         targetBoxId: target_box_id ? String(target_box_id) : undefined
       });
 
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/:id/pickup',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const requestId = String(req.params.id);
+      const { occurred_at, catatan } = req.body;
+      const result = await RequestService.pickupRequest({
+        requestId,
+        recordedById: req.user!.id,
+        recordedByName: req.user!.name,
+        recordedByRole: req.user!.role,
+        occurredAt: occurred_at ? String(occurred_at) : undefined,
+        catatan: catatan ? String(catatan) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/:id/return',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const requestId = String(req.params.id);
+      const { return_condition, return_notes, return_box_id, occurred_at } = req.body;
+      if (!return_box_id || !return_condition) {
+        return res.status(400).json({ success: false, message: 'Box tujuan pengembalian dan kondisi barang wajib diisi.' });
+      }
+      if (!['Baru', 'Baik', 'Perlu Perbaikan', 'Rusak'].includes(return_condition)) {
+        return res.status(400).json({ success: false, message: 'Kondisi pengembalian tidak valid.' });
+      }
+
+      const result = await RequestService.returnRequest({
+        requestId,
+        recordedById: req.user!.id,
+        recordedByName: req.user!.name,
+        recordedByRole: req.user!.role,
+        returnCondition: return_condition,
+        returnNotes: return_notes ? String(return_notes) : undefined,
+        returnBoxId: String(return_box_id),
+        occurredAt: occurred_at ? String(occurred_at) : undefined
+      });
       return res.json(result);
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
@@ -100,6 +209,26 @@ router.post(
         confirmationToken: confirmation_token ? String(confirmation_token) : undefined
       });
 
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/:id/cancel',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const requestId = String(req.params.id);
+      const { catatan } = req.body;
+      const result = await RequestService.cancelRequest({
+        requestId,
+        userId: req.user!.id,
+        userRole: req.user!.role,
+        catatan: catatan ? String(catatan) : undefined
+      });
       return res.json(result);
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });

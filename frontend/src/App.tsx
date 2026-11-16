@@ -12,16 +12,14 @@ import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
 import { InventoryCatalog } from './components/InventoryCatalog';
 import { TransactionHistory } from './components/TransactionHistory';
-import { CategoryManager } from './components/CategoryManager';
 import { StockInOutModal } from './components/StockInOutModal';
-import { ItemDetailModal } from './components/ItemDetailModal';
-import { ItemFormModal } from './components/ItemFormModal';
+import { StockInputModal } from './components/stock/StockInputModal';
+import { TechnicianRequestsView } from './components/requests/TechnicianRequestsView';
 import { LoginScreen } from './components/LoginScreen';
 import { ToastContainer } from './components/ToastContainer';
 import type { PrintDocumentData } from './components/PrintDocumentModal';
-import { InventoryItem, Transaction } from './types';
+import type { CanonicalTransactionView } from './services/activityApi';
 
-// Lazy-loaded heavy modules and infrequent modals for performance & memory efficiency
 const WeeklyReport = lazy(() => import('./components/WeeklyReport').then(m => ({ default: m.WeeklyReport })));
 const TicketIntegrationHub = lazy(() => import('./components/TicketIntegrationHub').then(m => ({ default: m.TicketIntegrationHub })));
 const FieldTripChecklistModal = lazy(() => import('./components/FieldTripChecklistModal').then(m => ({ default: m.FieldTripChecklistModal })));
@@ -37,26 +35,19 @@ const BatchLabelPrintModal = lazy(() => import('./components/BatchLabelPrintModa
 const SNPatternSettingsModal = lazy(() => import('./components/SNPatternSettingsModal').then(m => ({ default: m.SNPatternSettingsModal })));
 
 const TabLoadingFallback: React.FC = () => (
-  <div className="bg-white rounded-xl border border-slate-200 p-12 text-center flex flex-col items-center justify-center space-y-3">
-    <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
-    <span className="text-xs text-slate-500 font-medium">Memuat modul...</span>
+  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center flex flex-col items-center justify-center space-y-3">
+    <div className="w-8 h-8 border-2 border-slate-200 dark:border-slate-700 border-t-emerald-500 rounded-full animate-spin" />
+    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Memuat modul...</span>
   </div>
 );
 
 const AppContent: React.FC = () => {
-  const { activeTab, setActiveTab, VERSION } = useInventory();
+  const { activeTab, setActiveTab, refreshData, VERSION } = useInventory();
   const { isAuthenticated, isLoading } = useAuth();
 
-  // Modals state
-  const [isStockInOutOpen, setIsStockInOutOpen] = useState(false);
-  const [stockInOutMode, setStockInOutMode] = useState<'IN' | 'OUT'>('OUT');
-  const [selectedItemForStock, setSelectedItemForStock] = useState<InventoryItem | null>(null);
-
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [detailItem, setDetailItem] = useState<InventoryItem | null>(null);
-
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [isStockInputOpen, setIsStockInputOpen] = useState(false);
+  const [isStockOutOpen, setIsStockOutOpen] = useState(false);
+  const [selectedItemForStockOut, setSelectedItemForStockOut] = useState<{ kode_id?: string; tipe_id?: number } | null>(null);
 
   const [isChecklistOpen, setIsChecklistOpen] = useState(false);
   const [isUserRoleOpen, setIsUserRoleOpen] = useState(false);
@@ -72,46 +63,29 @@ const AppContent: React.FC = () => {
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printData, setPrintData] = useState<PrintDocumentData | null>(null);
 
-  // Modal open helpers
-  const handleOpenStockIn = (item?: InventoryItem) => {
-    setStockInOutMode('IN');
-    setSelectedItemForStock(item || null);
-    setIsStockInOutOpen(true);
+  const handleOpenStockIn = () => {
+    setIsStockInputOpen(true);
   };
 
-  const handleOpenStockOut = (item?: InventoryItem) => {
-    setStockInOutMode('OUT');
-    setSelectedItemForStock(item || null);
-    setIsStockInOutOpen(true);
+  const handleOpenStockOut = (item?: { kode_id?: string; tipe_id?: number }) => {
+    setSelectedItemForStockOut(item || null);
+    setIsStockOutOpen(true);
   };
 
-  const handleOpenDetail = (item: InventoryItem) => {
-    setDetailItem(item);
-    setIsDetailOpen(true);
-  };
-
-  const handleOpenAddItem = () => {
-    setEditingItem(null);
-    setIsFormOpen(true);
-  };
-
-  const handleOpenEditItem = (item: InventoryItem) => {
-    setEditingItem(item);
-    setIsFormOpen(true);
-  };
-
-  const handlePrintTransaction = (tx: Transaction) => {
+  const handlePrintTransaction = (tx: CanonicalTransactionView) => {
     setPrintData({
       type: tx.type === 'OUT' ? 'OUT' : 'IN',
-      itemName: tx.itemName || tx.item_name || '-',
-      itemSku: tx.itemSku || tx.item_sku || '-',
+      itemName: tx.item_name || '-',
+      itemSku: tx.item_sku || '-',
       quantity: tx.quantity,
-      unit: tx.unit || tx.item_unit || 'unit',
-      referenceNumber: tx.referenceNumber || tx.reference_number || '-',
-      recipientOrDestination: tx.recipientOrDestination || tx.recipient_destination || '-',
-      performedBy: tx.performedBy || tx.performed_by || '-',
+      unit: tx.item_unit || 'unit',
+      referenceNumber: tx.reference_number || tx.id_aktivitas,
+      recipientOrDestination: tx.recipient_destination || '-',
+      performedBy: tx.is_on_behalf
+        ? `${tx.actor_nama} (dicatat ${tx.recorded_by_nama})`
+        : tx.actor_nama || tx.performed_by || '-',
       notes: tx.notes || '',
-      date: tx.date || tx.created_at || new Date().toISOString(),
+      date: tx.occurred_at || tx.waktu || new Date().toISOString(),
     });
     setIsPrintOpen(true);
   };
@@ -135,7 +109,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-[100dvh] w-full overflow-x-hidden flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
-      <Navbar 
+      <Navbar
         onOpenChecklist={() => setIsChecklistOpen(true)}
         onOpenUserModal={() => setIsUserRoleOpen(true)}
         onOpenDownload={() => setIsDownloadOpen(true)}
@@ -159,10 +133,8 @@ const AppContent: React.FC = () => {
 
         {activeTab === 'catalog' && (
           <InventoryCatalog
-            onOpenAddItem={handleOpenAddItem}
-            onOpenStockIn={(it) => handleOpenStockIn(it)}
+            onOpenStockIn={() => handleOpenStockIn()}
             onOpenStockOut={(it) => handleOpenStockOut(it)}
-            onOpenDetail={handleOpenDetail}
             onOpenChecklist={() => setIsChecklistOpen(true)}
             onOpenRestore={() => setIsRestoreOpen(true)}
           />
@@ -176,14 +148,12 @@ const AppContent: React.FC = () => {
           />
         )}
 
+        {activeTab === 'requests' && <TechnicianRequestsView />}
+
         {activeTab === 'weekly-report' && (
           <Suspense fallback={<TabLoadingFallback />}>
             <WeeklyReport />
           </Suspense>
-        )}
-
-        {activeTab === 'categories' && (
-          <CategoryManager />
         )}
 
         {activeTab === 'integration' && (
@@ -193,7 +163,6 @@ const AppContent: React.FC = () => {
         )}
       </main>
 
-      {/* Quiet Glass Footer */}
       <footer className="no-print border-t border-slate-200/60 dark:border-slate-800/80 glass py-4 pb-24 md:pb-6 mt-12 text-xs text-slate-600 dark:text-slate-400">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -214,36 +183,25 @@ const AppContent: React.FC = () => {
               Download Source Code (.ZIP)
             </button>
             <span>·</span>
-            <span>REST API v1 Ready · Cloud Synced</span>
+            <span>MariaDB Single Ledger · WIB (Asia/Jakarta)</span>
           </div>
         </div>
       </footer>
 
-      {/* Modals: conditional mounting and lazy loading */}
+      <StockInputModal
+        isOpen={isStockInputOpen}
+        onClose={() => setIsStockInputOpen(false)}
+        onSuccess={() => refreshData()}
+      />
+
       <StockInOutModal
-        isOpen={isStockInOutOpen}
-        onClose={() => setIsStockInOutOpen(false)}
-        mode={stockInOutMode}
-        initialItem={selectedItemForStock}
+        isOpen={isStockOutOpen}
+        onClose={() => setIsStockOutOpen(false)}
+        initialItem={selectedItemForStockOut}
         onSuccessPrint={(data) => {
           setPrintData(data);
           setIsPrintOpen(true);
         }}
-      />
-
-      <ItemDetailModal
-        item={detailItem}
-        isOpen={isDetailOpen}
-        onClose={() => setIsDetailOpen(false)}
-        onOpenStockOut={(it) => handleOpenStockOut(it)}
-        onOpenStockIn={(it) => handleOpenStockIn(it)}
-        onOpenEdit={(it) => handleOpenEditItem(it)}
-      />
-
-      <ItemFormModal
-        isOpen={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
-        editingItem={editingItem}
       />
 
       {isChecklistOpen && (

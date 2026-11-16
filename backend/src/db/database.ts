@@ -1,6 +1,7 @@
 /**
  * Database Connection & Migration Engine
  * FieldOps IT Inventory - MariaDB 11.x Local Driver with Autonomous Development Fallback
+ * Strict UTC session timezone (+00:00)
  */
 
 import mysql from 'mysql2/promise';
@@ -12,6 +13,7 @@ import { handleLegacyMemoryQuery } from './memoryHandlers/legacyMemory';
 import { handleAuthMemoryQuery } from './memoryHandlers/authMemory';
 import { handleCatalogMemoryQuery } from './memoryHandlers/catalogMemory';
 import { handleStockMemoryQuery } from './memoryHandlers/stockMemory';
+import { normalizeDbDateToIso } from '../utils/timezone';
 
 export interface DbConfig {
   host: string;
@@ -20,6 +22,7 @@ export interface DbConfig {
   password?: string;
   database: string;
   connectionLimit: number;
+  timezone: string;
 }
 
 export const dbConfig: DbConfig = {
@@ -29,10 +32,50 @@ export const dbConfig: DbConfig = {
   password: process.env.DB_PASSWORD || process.env.MARIADB_PASSWORD || 'fieldops_secret',
   database: process.env.DB_NAME || process.env.MARIADB_DATABASE || 'fieldops_inventory',
   connectionLimit: 10,
+  timezone: '+00:00'
 };
 
 let pool: mysql.Pool | null = null;
 let isMariaDbActive = false;
+
+const DATE_COLUMNS = new Set([
+  'waktu',
+  'occurred_at',
+  'recorded_at',
+  'created_at',
+  'updated_at',
+  'dibuat_pada',
+  'diproses_pada',
+  'taken_at',
+  'returned_at',
+  'diperbarui_pada',
+  'dihapus_pada',
+  'purge_setelah',
+  'expires_at',
+  'used_at',
+  'dicabut_pada',
+  'aktivitas_terakhir',
+  'kedaluwarsa_mutlak',
+  'last_used_at'
+]);
+
+function normalizeRowDates<T>(rows: T): T {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row: any) => {
+    if (!row || typeof row !== 'object') return row;
+    const out: Record<string, any> = { ...row };
+    for (const key of Object.keys(out)) {
+      const val = out[key];
+      if (val instanceof Date) {
+        out[key] = val.toISOString();
+      } else if (DATE_COLUMNS.has(key) && typeof val === 'string' && val.trim() !== '') {
+        const iso = normalizeDbDateToIso(val);
+        if (iso) out[key] = iso;
+      }
+    }
+    return out;
+  }) as unknown as T;
+}
 
 /**
  * Inisialisasi Database & Eksekusi Migrasi Skema
@@ -40,36 +83,39 @@ let isMariaDbActive = false;
 export async function initDatabase(): Promise<{ isMariaDb: boolean }> {
   try {
     const testPool = mysql.createPool(dbConfig);
+    testPool.on('connection', (connection) => {
+      connection.query("SET time_zone = '+00:00'");
+    });
     const conn = await testPool.getConnection();
+    await conn.query("SET time_zone = '+00:00'");
     await conn.ping();
     conn.release();
     pool = testPool;
     isMariaDbActive = true;
-    console.log(`[FieldOps Database] Terhubung ke MariaDB di ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
+    console.log(`[FieldOps Database] Terhubung ke MariaDB (UTC +00:00) di ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
 
     // Jalankan migrasi file skema berversi
     await runMigrations(pool);
 
-    // Jalankan migrasi legacy ke v2 secara otomatis dan idempotent
+    // Konsolidasi & backup data historis ke model tunggal secara idempotent
     try {
-      const { LegacyMigrationService } = await import('../services/legacyMigrationService');
-      await LegacyMigrationService.runMigration();
+      const { DataConsolidationService } = await import('../services/dataConsolidationService');
+      await DataConsolidationService.consolidateAll();
     } catch (migErr: unknown) {
-      console.warn('[FieldOps Database] Warning saat migrasi v2 katalog:', getErrorMessage(migErr));
+      console.warn('[FieldOps Database] Warning saat konsolidasi data:', getErrorMessage(migErr));
     }
 
     return { isMariaDb: true };
   } catch {
-    console.warn(`[FieldOps Database] MariaDB (${dbConfig.host}:${dbConfig.port}) belum terhubung. Mengaktifkan adapter lokal mandiri.`);
+    console.warn(`[FieldOps Database] MariaDB (${dbConfig.host}:${dbConfig.port}) belum terhubung. Mengaktifkan adapter lokal mandiri (UTC).`);
     isMariaDbActive = false;
     await seedMemoryDb();
 
-    // Jalankan migrasi legacy ke v2 pada memory store
     try {
-      const { LegacyMigrationService } = await import('../services/legacyMigrationService');
-      await LegacyMigrationService.runMigration();
+      const { DataConsolidationService } = await import('../services/dataConsolidationService');
+      await DataConsolidationService.consolidateAll();
     } catch (migErr: unknown) {
-      console.warn('[FieldOps Database] Warning saat migrasi v2 katalog lokal:', getErrorMessage(migErr));
+      console.warn('[FieldOps Database] Warning saat konsolidasi data lokal:', getErrorMessage(migErr));
     }
 
     return { isMariaDb: false };
@@ -82,7 +128,7 @@ export async function initDatabase(): Promise<{ isMariaDb: boolean }> {
 export async function executeQuery<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
   if (isMariaDbActive && pool) {
     const [rows] = await pool.query(sql, params);
-    return rows as T[];
+    return normalizeRowDates(rows) as T[];
   }
 
   return runMemoryQuery(sql, params);
@@ -100,12 +146,13 @@ export async function runTransaction<T>(
 ): Promise<T> {
   if (isMariaDbActive && pool) {
     const conn = await pool.getConnection();
+    await conn.query("SET time_zone = '+00:00'");
     await conn.beginTransaction();
     try {
       const result = await callback({
         query: async <T = any>(sql: string, params?: unknown[]): Promise<T> => {
           const [res] = await conn.query(sql, params);
-          return res as T;
+          return normalizeRowDates(res) as T;
         }
       });
       await conn.commit();
@@ -125,10 +172,10 @@ export async function runTransaction<T>(
 }
 
 const MEMORY_HANDLERS = [
-  handleLegacyMemoryQuery,
   handleAuthMemoryQuery,
   handleCatalogMemoryQuery,
-  handleStockMemoryQuery
+  handleStockMemoryQuery,
+  handleLegacyMemoryQuery
 ];
 
 /**

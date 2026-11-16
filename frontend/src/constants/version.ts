@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const APP_VERSION = '1.2.5.3';
-export const APP_VERSION_TAG = 'v1.2.5.3';
-export const APP_RELEASE_NAME = 'v1.2.5.3 (Restrukturisasi Subtab Katalog, Agregasi Status WhatsApp Alert, & Audit Trail Terpadu)';
-export const APP_BUILD_DATE = '2026-11-10';
+export const APP_VERSION = '1.2.6';
+export const APP_VERSION_TAG = 'v1.2.6';
+export const APP_RELEASE_NAME = 'v1.2.6 (Unifikasi Model Data Tunggal, Alur Output & Request Teknisi, Akuntabilitas Audit, & Zona Waktu UTC/WIB)';
+export const APP_BUILD_DATE = '2026-11-15';
 
 export const SYSTEM_METADATA = {
   version: APP_VERSION,

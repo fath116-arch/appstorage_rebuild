@@ -266,6 +266,27 @@ router.post('/logout', async (req: AuthenticatedRequest, res: express.Response) 
 });
 
 /**
+ * GET /api/auth/actors
+ * Daftar pengguna aktif untuk pilihan "Atas Nama" pada pencatatan mutasi (Developer, Admin, Admin Gudang)
+ */
+router.get('/actors', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (_req, res) => {
+  try {
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role' | 'department' | 'status'>>(
+      'SELECT id, username, name, role, department, status FROM users ORDER BY name ASC'
+    );
+    const active = (users || [])
+      .filter(u => u.status === 'ACTIVE')
+      .map(u => ({
+        ...u,
+        role: u.role === 'superadmin' ? 'developer' : u.role
+      }));
+    return res.json({ success: true, actors: active });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
+  }
+});
+
+/**
  * GET /api/auth/users
  * Mendapatkan daftar seluruh pengguna (Akses: Developer & Admin)
  */

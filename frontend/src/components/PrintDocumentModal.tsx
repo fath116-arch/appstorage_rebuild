@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { X, Printer } from 'lucide-react';
+import { formatWibDateTime } from '../utils/timezone';
 
 export interface PrintDocumentData {
   type: 'IN' | 'OUT';
@@ -92,7 +93,7 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
           <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded border border-slate-200 text-xs">
             <div>
               <span className="text-slate-400 block text-[10px] uppercase font-bold">Waktu Transaksi</span>
-              <span className="font-medium text-slate-800">{new Date(data.date).toLocaleString('id-ID')}</span>
+              <span className="font-medium text-slate-800">{formatWibDateTime(data.date)}</span>
             </div>
             <div>
               <span className="text-slate-400 block text-[10px] uppercase font-bold">Teknisi / Petugas PIC</span>

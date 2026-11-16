@@ -1,45 +1,47 @@
 /**
  * Excel Exporter Engine using ExcelJS
  * FieldOps IT Inventory - Generates valid .xlsx spreadsheet files
+ * Enforces WIB (Asia/Jakarta) wall-clock timestamps & CWE-1236 formula sanitization
  */
 
 import ExcelJS from 'exceljs';
-import { InventoryItem, Transaction } from '../types/inventory';
+import { Produk } from '../services/catalogApi';
+import { CanonicalTransactionView } from '../services/activityApi';
 import { sanitizeFormulaInput } from './security';
+import { formatWibDateTime, getWibDateKey, toExcelWibWallDate } from './timezone';
 
 export { sanitizeFormulaInput };
 
 /**
- * Generate Excel workbook buffer for testing or server-side usage
+ * Generate Excel workbook buffer for testing or server-side usage.
+ * Supports canonical Produk[] as well as lightweight test objects.
  */
-export async function generateInventoryExcelBuffer(items: any[]): Promise<Buffer> {
+export async function generateInventoryExcelBuffer(items: Array<Produk | Record<string, any>>): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'FieldOps IT';
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet('Katalog Inventori');
 
-  // Title rows
   const titleRow = worksheet.addRow(['LAPORAN KATALOG INVENTORI LAPANGAN IT']);
   titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: '0F172A' } };
 
   const subTitleRow = worksheet.addRow([
-    `Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Master Items: ${items.length}`
+    `Tanggal Ditarik: ${formatWibDateTime(new Date())} | Total Master Items: ${items.length}`
   ]);
   subTitleRow.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: '64748B' } };
 
   worksheet.addRow([]); // Blank spacer
 
-  // Table Headers
   const headers = [
     'No',
-    'Kode SKU',
-    'Barcode',
+    'Kode SKU / ID',
+    'Kategori / Perputaran',
     'Nama Barang Suku Cadang',
-    'Kategori / Rak',
+    'Jenis / Kategori',
     'Jumlah Stok',
     'Satuan',
-    'Batas Min Alert',
+    'Stok Dipesan',
     'Lokasi Penyimpanan',
     'Status Stok'
   ];
@@ -58,22 +60,37 @@ export async function generateInventoryExcelBuffer(items: any[]): Promise<Buffer
   });
 
   items.forEach((item: any, idx: number) => {
-    const qty = item.quantity || 0;
-    const minAlert = item.min_stock_alert ?? item.minStockAlert ?? 0;
-    const isLow = qty <= minAlert && qty > 0;
-    const isOut = qty === 0;
-    const statusText = isOut ? 'HABIS' : isLow ? 'STOK TIPIS' : 'AMAN';
+    const qty = Number(item.total_stok ?? item.quantity ?? 0);
+    const reserved = Number(item.total_dipesan ?? 0);
+    const sku = item.sku || `PROD-${item.id ?? idx + 1}`;
+    const name = item.nama ?? item.name ?? '-';
+    const categoryName = item.jenis_nama ?? item.category_name ?? item.categoryName ?? '-';
+    const unit = item.tipe_stok ?? item.unit ?? 'unit';
+    const turnover = item.kategori ?? item.barcode ?? '-';
+    const location = item.location ?? (Array.isArray(item.tipes) ? `${item.tipes.length} varian` : '-');
+    const statusRaw = String(item.status_stok || '').toUpperCase();
+    const statusText = statusRaw
+      ? statusRaw === 'HABIS'
+        ? 'HABIS'
+        : statusRaw === 'MENIPIS'
+        ? 'MENIPIS'
+        : 'AMAN'
+      : qty === 0
+      ? 'HABIS'
+      : qty <= (item.min_stock_alert ?? item.minStockAlert ?? 0)
+      ? 'STOK TIPIS'
+      : 'AMAN';
 
     worksheet.addRow([
       idx + 1,
-      sanitizeFormulaInput(item.sku || ''),
-      sanitizeFormulaInput(item.barcode || ''),
-      sanitizeFormulaInput(item.name || ''),
-      sanitizeFormulaInput(item.category_name || item.categoryName || ''),
+      sanitizeFormulaInput(String(sku)),
+      sanitizeFormulaInput(String(turnover)),
+      sanitizeFormulaInput(String(name)),
+      sanitizeFormulaInput(String(categoryName)),
       qty,
-      sanitizeFormulaInput(item.unit || 'pcs'),
-      minAlert,
-      sanitizeFormulaInput(item.location || '-'),
+      sanitizeFormulaInput(String(unit)),
+      reserved,
+      sanitizeFormulaInput(String(location)),
       statusText
     ]);
   });
@@ -101,42 +118,42 @@ async function downloadWorkbook(workbook: ExcelJS.Workbook, filename: string) {
 }
 
 /**
- * Export Inventory Items Catalog to valid Excel (.xlsx) file
+ * Export Canonical Products & Tipe Variants Catalog to Excel (.xlsx)
  */
-export async function exportInventoryToExcel(items: InventoryItem[], filename = 'fieldops-inventory-catalog.xlsx') {
+export async function exportProductsToExcel(
+  products: Produk[],
+  filename = `fieldops-katalog-${getWibDateKey(new Date())}.xlsx`
+) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'FieldOps IT';
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet('Katalog Inventori IT');
 
-  // Title rows
-  const titleRow = worksheet.addRow(['LAPORAN KATALOG INVENTORI LAPANGAN IT']);
+  const titleRow = worksheet.addRow(['LAPORAN KATALOG PRODUK & VARIAN INVENTORI IT']);
   titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: '0F172A' } };
 
   const subTitleRow = worksheet.addRow([
-    `Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Master Items: ${items.length}`
+    `Tanggal Ditarik: ${formatWibDateTime(new Date())} | Total Produk Aktif: ${products.length}`
   ]);
   subTitleRow.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: '64748B' } };
 
-  worksheet.addRow([]); // Blank spacer
+  worksheet.addRow([]);
 
-  // Table Headers
   const headers = [
     'No',
-    'Kode SKU',
-    'Barcode',
-    'Nama Barang Suku Cadang',
-    'Kategori / Rak',
-    'Jumlah Stok',
+    'Jenis Barang',
+    'Nama Produk',
+    'Tipe / Varian',
+    'Kategori Barang',
+    'Perputaran',
+    'Aturan ID',
+    'Stok Tersedia',
+    'Stok Dipesan',
+    'Stok Rusak',
     'Satuan',
-    'Batas Min Alert',
-    'Harga Satuan (IDR)',
-    'Total Nilai Aset (IDR)',
-    'Lokasi Penyimpanan',
     'Status Stok',
-    'Spesifikasi Teknis',
-    'Terakhir Diperbarui'
+    'Sebaran Box'
   ];
 
   const headerRow = worksheet.addRow(headers);
@@ -152,136 +169,156 @@ export async function exportInventoryToExcel(items: InventoryItem[], filename = 
     cell.alignment = { vertical: 'middle', horizontal: 'center' };
   });
 
-  const getItemCost = (i: any) => i.unit_cost ?? i.unitCost ?? 0;
-  const getItemMinAlert = (i: any) => i.min_stock_alert ?? i.minStockAlert ?? 0;
+  let rowNo = 0;
+  let totalTersedia = 0;
+  let totalDipesan = 0;
+  let totalRusak = 0;
 
-  let totalValue = 0;
-  let totalItemsCount = 0;
+  for (const p of products) {
+    const tipes = p.tipes || [];
+    if (tipes.length === 0) {
+      rowNo++;
+      const avail = Number(p.total_stok || 0);
+      const resv = Number(p.total_dipesan || 0);
+      const dmg = Number(p.stok_rusak || 0);
+      totalTersedia += avail;
+      totalDipesan += resv;
+      totalRusak += dmg;
 
-  items.forEach((item: any, idx: number) => {
-    const cost = getItemCost(item);
-    const minAlert = getItemMinAlert(item);
-    const qty = item.quantity || 0;
-    const itemTotal = qty * cost;
+      const statusUpper = String(p.status_stok || (avail === 0 ? 'habis' : 'aman')).toUpperCase();
 
-    totalValue += itemTotal;
-    totalItemsCount += qty;
-
-    const isLow = qty <= minAlert && qty > 0;
-    const isOut = qty === 0;
-    const statusText = isOut ? 'HABIS' : isLow ? 'STOK TIPIS' : 'AMAN';
-    const lastUpd = item.lastUpdated
-      ? new Date(item.lastUpdated).toLocaleString('id-ID')
-      : new Date().toLocaleString('id-ID');
-
-    const row = worksheet.addRow([
-      idx + 1,
-      sanitizeFormulaInput(item.sku || ''),
-      sanitizeFormulaInput(item.barcode || ''),
-      sanitizeFormulaInput(item.name || ''),
-      sanitizeFormulaInput(item.categoryName || ''),
-      qty,
-      sanitizeFormulaInput(item.unit || 'pcs'),
-      minAlert,
-      cost,
-      itemTotal,
-      sanitizeFormulaInput(item.location || '-'),
-      statusText,
-      sanitizeFormulaInput(item.specs || '-'),
-      lastUpd
-    ]);
-
-    row.height = 20;
-
-    // Alignment & Formatting
-    row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-    row.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
-    row.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' };
-    row.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
-
-    row.getCell(9).numFmt = '""#,##0';
-    row.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
-
-    row.getCell(10).numFmt = '""#,##0';
-    row.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
-
-    // Status Cell Styling
-    const statusCell = row.getCell(12);
-    statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    if (isOut) {
-      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
-      statusCell.font = { color: { argb: '991B1B' }, bold: true };
-    } else if (isLow) {
-      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
-      statusCell.font = { color: { argb: '92400E' }, bold: true };
+      const row = worksheet.addRow([
+        rowNo,
+        sanitizeFormulaInput(p.jenis_nama || '-'),
+        sanitizeFormulaInput(p.nama),
+        '-',
+        sanitizeFormulaInput(p.kategori_barang || 'Barang Habis Pakai'),
+        sanitizeFormulaInput(p.kategori === 'fast_moving' ? 'Fast Moving' : 'Recycle / Aset'),
+        '-',
+        avail,
+        resv,
+        dmg,
+        sanitizeFormulaInput(p.tipe_stok || 'unit'),
+        statusUpper,
+        '-'
+      ]);
+      row.height = 20;
+      styleStatusCell(row.getCell(12), statusUpper);
     } else {
-      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D1FAE5' } };
-      statusCell.font = { color: { argb: '065F46' }, bold: true };
-    }
-  });
+      for (const t of tipes) {
+        rowNo++;
+        const avail = Number(t.stok_tersedia || 0);
+        const resv = Number(t.stok_dipesan || 0);
+        const dmg = Number(t.stok_rusak || 0);
+        totalTersedia += avail;
+        totalDipesan += resv;
+        totalRusak += dmg;
 
-  // Summary Row
+        const statusUpper = String(t.status_stok || (avail === 0 ? 'habis' : 'aman')).toUpperCase();
+        const boxesText = (t.sebaran_box || []).map(b => `${b.box_kode}:${b.jumlah}`).join('; ') || '-';
+
+        const row = worksheet.addRow([
+          rowNo,
+          sanitizeFormulaInput(p.jenis_nama || '-'),
+          sanitizeFormulaInput(p.nama),
+          sanitizeFormulaInput(t.nama_tipe),
+          sanitizeFormulaInput(p.kategori_barang || 'Barang Habis Pakai'),
+          sanitizeFormulaInput(p.kategori === 'fast_moving' ? 'Fast Moving' : 'Recycle / Aset'),
+          sanitizeFormulaInput(t.sumber_id.toUpperCase()),
+          avail,
+          resv,
+          dmg,
+          sanitizeFormulaInput(p.tipe_stok || 'unit'),
+          statusUpper,
+          sanitizeFormulaInput(boxesText)
+        ]);
+        row.height = 20;
+        row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        row.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
+        row.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
+        row.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
+        styleStatusCell(row.getCell(12), statusUpper);
+      }
+    }
+  }
+
   const summaryRow = worksheet.addRow([
-    'TOTAL KESELURUHAN:',
-    '', '', '', '',
-    totalItemsCount,
+    'TOTAL',
+    '', '', '', '', '', '',
+    totalTersedia,
+    totalDipesan,
+    totalRusak,
     'unit',
-    '', '',
-    totalValue,
-    '', '', '', ''
+    '',
+    ''
   ]);
   summaryRow.font = { name: 'Segoe UI', size: 10, bold: true };
   summaryRow.height = 24;
 
-  summaryRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
-  summaryRow.getCell(10).numFmt = '""#,##0';
-  summaryRow.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
-
-  // Adjust Column Widths
   worksheet.columns.forEach((col, index) => {
     if (index === 0) col.width = 6;
-    else if (index === 3) col.width = 35;
+    else if (index === 2 || index === 3) col.width = 28;
     else if (index === 12) col.width = 30;
-    else col.width = 18;
+    else col.width = 16;
   });
 
   await downloadWorkbook(workbook, filename);
 }
 
+function styleStatusCell(statusCell: ExcelJS.Cell, statusUpper: string) {
+  statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  if (statusUpper === 'HABIS') {
+    statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+    statusCell.font = { color: { argb: '991B1B' }, bold: true };
+  } else if (statusUpper === 'MENIPIS') {
+    statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
+    statusCell.font = { color: { argb: '92400E' }, bold: true };
+  } else {
+    statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D1FAE5' } };
+    statusCell.font = { color: { argb: '065F46' }, bold: true };
+  }
+}
+
 /**
- * Export Weekly Report & Transactions to valid Excel (.xlsx) file
+ * Export Weekly Report & Canonical Transactions to valid Excel (.xlsx)
+ * Uses WIB wall-clock serial dates & CWE-1236 sanitization
  */
-export async function exportWeeklyReportToExcel(transactions: Transaction[], filename = 'fieldops-laporan-transaksi.xlsx') {
+export async function exportWeeklyReportToExcel(
+  transactions: CanonicalTransactionView[],
+  filename = `fieldops-laporan-transaksi-${getWibDateKey(new Date())}.xlsx`
+) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'FieldOps IT';
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet('Laporan Mutasi Barang');
 
-  // Title rows
   const titleRow = worksheet.addRow(['LAPORAN MUTASI BARANG IT LAPANGAN']);
   titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: '0F172A' } };
 
   const subTitleRow = worksheet.addRow([
-    `Tanggal Ditarik: ${new Date().toLocaleString('id-ID')} | Total Record Mutasi: ${transactions.length} Entri`
+    `Tanggal Ditarik: ${formatWibDateTime(new Date())} | Total Record Mutasi: ${transactions.length} Entri`
   ]);
   subTitleRow.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: '64748B' } };
 
-  worksheet.addRow([]); // Blank spacer
+  worksheet.addRow([]);
 
   const headers = [
     'No',
-    'Waktu Transaksi',
+    'Waktu Kejadian (WIB)',
+    'Waktu Dicatat (WIB)',
     'Jenis Transaksi',
-    'Kode SKU',
-    'Nama Barang / Suku Cadang',
+    'Barang / Suku Cadang',
+    'Kode / SKU',
     'Jumlah Mutasi',
     'Satuan',
     'No. Referensi / Tiket',
-    'Teknisi / Petugas',
-    'Tujuan / Unit Lokasi',
-    'Catatan Lapangan',
-    'Sumber Entri'
+    'Pelaku (Actor)',
+    'Dicatat Oleh',
+    'Atas Nama',
+    'Request Terkait',
+    'Tujuan / Lokasi / Box',
+    'Catatan Lapangan'
   ];
 
   const headerRow = worksheet.addRow(headers);
@@ -297,55 +334,69 @@ export async function exportWeeklyReportToExcel(transactions: Transaction[], fil
     cell.alignment = { vertical: 'middle', horizontal: 'center' };
   });
 
-  transactions.forEach((tx: any, idx: number) => {
+  transactions.forEach((tx, idx) => {
     const isOut = tx.type === 'OUT';
-    const typeLabel = isOut ? 'BARANG KELUAR' : 'BARANG MASUK';
-    const txDate = tx.created_at || tx.date || new Date().toISOString();
-    const sku = tx.item_sku || tx.itemSku || '-';
-    const name = tx.item_name || tx.itemName || '-';
-    const unit = tx.item_unit || tx.unit || 'pcs';
-    const ref = tx.reference_number || tx.referenceNumber || '-';
-    const by = tx.performed_by || tx.performedBy || '-';
-    const dest = tx.recipient_destination || tx.recipientOrDestination || '-';
+    const isIn = tx.type === 'IN';
+    const typeLabel = isOut ? 'BARANG KELUAR' : isIn ? 'BARANG MASUK' : tx.aksi.toUpperCase();
+    const qtySigned = isOut ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
+
+    const occurredWallDate = toExcelWibWallDate(tx.occurred_at || tx.waktu);
+    const recordedWallDate = toExcelWibWallDate(tx.recorded_at || tx.waktu);
 
     const row = worksheet.addRow([
       idx + 1,
-      new Date(txDate).toLocaleString('id-ID'),
+      occurredWallDate,
+      recordedWallDate,
       typeLabel,
-      sanitizeFormulaInput(sku),
-      sanitizeFormulaInput(name),
-      isOut ? -Math.abs(tx.quantity) : Math.abs(tx.quantity),
-      sanitizeFormulaInput(unit),
-      sanitizeFormulaInput(ref),
-      sanitizeFormulaInput(by),
-      sanitizeFormulaInput(dest),
-      sanitizeFormulaInput(tx.notes || '-'),
-      sanitizeFormulaInput(tx.apiSource || 'Manual')
+      sanitizeFormulaInput(tx.item_name || '-'),
+      sanitizeFormulaInput(tx.item_sku || '-'),
+      qtySigned,
+      sanitizeFormulaInput(tx.item_unit || 'unit'),
+      sanitizeFormulaInput(tx.reference_number || '-'),
+      sanitizeFormulaInput(tx.actor_nama || tx.performed_by || '-'),
+      sanitizeFormulaInput(tx.recorded_by_nama || tx.performed_by || '-'),
+      sanitizeFormulaInput(tx.is_on_behalf ? `Ya (${tx.on_behalf_reason || '-'})` : 'Tidak'),
+      sanitizeFormulaInput(tx.request_id || '-'),
+      sanitizeFormulaInput(tx.recipient_destination || tx.box_tujuan || tx.box_asal || '-'),
+      sanitizeFormulaInput(tx.notes || '-')
     ]);
 
     row.height = 20;
-
     row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-    row.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
-    row.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' };
 
-    const typeCell = row.getCell(3);
+    const occCell = row.getCell(2);
+    occCell.numFmt = 'dd/mm/yyyy hh:mm';
+    occCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    const recCell = row.getCell(3);
+    recCell.numFmt = 'dd/mm/yyyy hh:mm';
+    recCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    row.getCell(7).alignment = { horizontal: 'right', vertical: 'middle' };
+    row.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    const typeCell = row.getCell(4);
     typeCell.alignment = { horizontal: 'center', vertical: 'middle' };
     if (isOut) {
       typeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
       typeCell.font = { color: { argb: '991B1B' }, bold: true };
-    } else {
+    } else if (isIn) {
       typeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D1FAE5' } };
       typeCell.font = { color: { argb: '065F46' }, bold: true };
+    } else {
+      typeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
+      typeCell.font = { color: { argb: '1E293B' }, bold: true };
     }
   });
 
   worksheet.columns.forEach((col, index) => {
     if (index === 0) col.width = 6;
-    else if (index === 4) col.width = 35;
-    else if (index === 10) col.width = 30;
-    else col.width = 20;
+    else if (index === 1 || index === 2) col.width = 20;
+    else if (index === 4 || index === 14) col.width = 32;
+    else col.width = 18;
   });
 
   await downloadWorkbook(workbook, filename);
 }
+
+export const exportTransactionsToExcel = exportWeeklyReportToExcel;

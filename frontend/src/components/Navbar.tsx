@@ -11,7 +11,6 @@ import {
   Package,
   ArrowLeftRight,
   FileText,
-  Boxes,
   Webhook,
   ChevronDown,
   ChevronRight,
@@ -28,9 +27,10 @@ import {
   LogOut,
   MessageSquare,
   Printer,
+  ClipboardCheck,
   LucideIcon
 } from 'lucide-react';
-import { exportInventoryToExcel } from '../utils/excelExporter';
+import { exportProductsToExcel } from '../utils/excelExporter';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeSelector } from './ThemeSelector';
 import { isAdminOrDev } from '../utils/permissions';
@@ -74,6 +74,7 @@ const PRIMARY_TABS: NavTabConfig[] = [
   { id: 'dashboard', label: 'Dashboard', mobileLabel: 'Dashboard', icon: LayoutDashboard, showOnDesktop: true, showOnMobile: true },
   { id: 'catalog', label: 'Katalog', mobileLabel: 'Katalog', icon: Package, showOnDesktop: true, showOnMobile: true },
   { id: 'inout', label: 'Masuk/Keluar', mobileLabel: 'Masuk/Keluar', icon: ArrowLeftRight, showOnDesktop: true, showOnMobile: true },
+  { id: 'requests', label: 'Request & Alat', mobileLabel: 'Request', icon: ClipboardCheck, showOnDesktop: true, showOnMobile: true },
   { id: 'weekly-report', label: 'Laporan', mobileLabel: 'Laporan', icon: FileText, showOnDesktop: true, showOnMobile: true },
   { id: 'integration', label: 'Integrasi', mobileLabel: 'Integrasi', icon: Webhook, showOnDesktop: false, showOnMobile: true },
 ];
@@ -90,7 +91,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenLabelPrint,
   onOpenSNPatterns
 }) => {
-  const { activeTab, setActiveTab, items, refreshData, VERSION } = useInventory();
+  const { activeTab, setActiveTab, products, lowOrOutCount, refreshData, VERSION } = useInventory();
   const { showToast } = useToast();
   const { user, logout } = useAuth();
 
@@ -114,8 +115,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     }));
   };
 
-  const lowOrOutCount = items.filter(i => i.quantity <= (i.min_stock_alert ?? i.minStockAlert ?? 0)).length;
-
   const closeAllDropdowns = () => {
     setAppMenuOpen(false);
     setUserDropdownOpen(false);
@@ -123,8 +122,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const handleExportExcelQuick = () => {
-    exportInventoryToExcel(items);
-    showToast('File Excel inventori (.xlsx) sedang diunduh!', 'success');
+    exportProductsToExcel(products);
+    showToast('File Excel katalog inventori (.xlsx) sedang diunduh!', 'success');
   };
 
   const handleRefresh = async () => {
@@ -139,7 +138,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const stockGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string; showBadge?: boolean }> = [
     { id: 'catalog', label: 'Katalog Inventaris', icon: Package, iconClass: 'text-blue-600 dark:text-blue-400', showBadge: true },
     { id: 'inout', label: 'Barang Masuk / Keluar', icon: ArrowLeftRight, iconClass: 'text-emerald-600 dark:text-emerald-400' },
-    { id: 'categories', label: 'Kategori & Lokasi Rak', icon: Boxes, iconClass: 'text-purple-600 dark:text-purple-400' },
+    { id: 'requests', label: 'Request & Alat Teknisi', icon: ClipboardCheck, iconClass: 'text-purple-600 dark:text-purple-400' },
   ];
 
   const reportGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string }> = [
@@ -522,7 +521,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                           className="font-mono text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 px-2 py-0.5 rounded transition-colors flex items-center gap-1.5"
                           title={`Klik untuk membuka Status Uji Versi v${VERSION}`}
                         >
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                           <span>v{VERSION}</span>
                         </button>
                         <span className="text-[11px] text-slate-500 font-medium">FieldOps MariaDB</span>

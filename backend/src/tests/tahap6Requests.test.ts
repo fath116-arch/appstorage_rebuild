@@ -82,7 +82,7 @@ async function runTahap6Tests() {
 
     assert(true, 'Setup data katalog, stok, dan box awal berhasil');
 
-    // 2. Permohonan Baru oleh Teknisi (Status MENUNGGU)
+    // 2. Permohonan Baru oleh Teknisi (Status DIAJUKAN)
     const reqSN = await RequestService.createRequest({
       pemohonId: userTeknisi.id,
       tipeId: testTipeSN.id,
@@ -90,7 +90,7 @@ async function runTahap6Tests() {
       alasan: 'Perbaikan koneksi pelanggan Gedung C'
     });
 
-    assert(reqSN.status === 'menunggu', 'Permohonan item ber-ID berhasil dibuat dengan status MENUNGGU');
+    assert(reqSN.status === 'diajukan', 'Permohonan item ber-ID berhasil dibuat dengan status DIAJUKAN');
     assert(reqSN.pemohon_id === userTeknisi.id, 'Pemohon sesuai ID teknisi');
 
     const reqQty = await RequestService.createRequest({
@@ -101,13 +101,21 @@ async function runTahap6Tests() {
       alasan: 'Kebutuhan tarikan kabel pelanggan baru'
     });
 
-    assert(reqQty.status === 'menunggu' && reqQty.jumlah === 10, 'Permohonan stok jumlah 10 unit berhasil dibuat');
+    assert(reqQty.status === 'diajukan' && reqQty.jumlah === 10, 'Permohonan stok jumlah 10 unit berhasil dibuat');
+
+    const reqQtyCancel = await RequestService.createRequest({
+      pemohonId: userTeknisi.id,
+      tipeId: testTipeQty.id,
+      boxId: boxA.id,
+      jumlah: 5,
+      alasan: 'Uji batal setelah disetujui (release reserved_qty)'
+    });
 
     // 3. Uji List Request & Filter Status
-    const listPending = await RequestService.listRequests({ status: 'menunggu' });
-    assert(listPending.some(r => r.id === reqSN.id), 'Request SN ditemukan di daftar status MENUNGGU');
+    const listPending = await RequestService.listRequests({ status: 'diajukan' });
+    assert(listPending.some(r => r.id === reqSN.id), 'Request SN ditemukan di daftar status DIAJUKAN');
 
-    // 4. Uji Persetujuan Cepat Atomik oleh Admin Gudang (1 Approval Cukup) + Auto Deduct Stok
+    // 4. Uji Persetujuan Cepat Atomik oleh Admin Gudang (Reservasi 'dipesan', belum 'keluar')
     const tokenRes = await ConfirmationService.requestConfirmationToken({
       userId: userWarehouse.id,
       actionType: 'request_approve',
@@ -124,11 +132,10 @@ async function runTahap6Tests() {
     assert(approveRes.success === true, 'Persetujuan request SN oleh Admin Gudang berhasil');
 
     const reqSNAfter = await RequestService.getRequestById(reqSN.id);
-    assert(reqSNAfter?.status === 'disetujui' && reqSNAfter.penyetuju_id === userWarehouse.id, 'Status request berubah menjadi DISETUJU');
+    assert(reqSNAfter?.status === 'disetujui' && reqSNAfter.penyetuju_id === userWarehouse.id, 'Status request berubah menjadi DISETUJUI');
 
-    // Cek bahwa stok item SN otomatis dikeluarkan ke Arsip
-    const checkDupSN = await StockService.checkDuplicateKodeId(kodeSN1);
-    assert(checkDupSN.item?.status === 'keluar', 'Item fisik ber-ID otomatis KELUAR dari stok setelah request disetujui');
+    const checkReservedSN = await StockService.checkDuplicateKodeId(kodeSN1);
+    assert(checkReservedSN.item?.status === 'dipesan', 'Item fisik ber-ID berubah menjadi DIPESAN (reservasi) setelah request disetujui');
 
     // 5. Uji Pencegahan Double Approval (Race Condition Protection)
     let doubleApproveError = false;
@@ -137,12 +144,41 @@ async function runTahap6Tests() {
         requestId: reqSN.id,
         penyetujuId: userAdmin.id
       });
-    } catch (e: any) {
+    } catch {
       doubleApproveError = true;
     }
     assert(doubleApproveError, 'Sistem mencegah double approval jika request sudah diproses');
 
-    // 6. Uji Penolakan Request (Reject) oleh Admin
+    // 6. Uji Pickup ('disetujui' -> 'diambil') & Daftar Barang di Tangan Teknisi
+    const pickupRes = await RequestService.pickupRequest({
+      requestId: reqSN.id,
+      recordedById: userWarehouse.id,
+      recordedByRole: userWarehouse.role,
+      catatan: 'Diserahkan ke teknisi di gudang'
+    });
+    assert(pickupRes.success === true, 'Pickup Request SN berhasil');
+
+    const checkPickedSN = await StockService.checkDuplicateKodeId(kodeSN1);
+    assert(checkPickedSN.item?.status === 'keluar', 'Item fisik berubah menjadi KELUAR setelah diambil teknisi');
+
+    const heldList = await RequestService.listHeldByTechnicians({ actorId: userTeknisi.id });
+    assert(heldList.some(h => h.id === reqSN.id && h.status === 'diambil'), 'Item yang diambil muncul di daftar Barang di Tangan Teknisi');
+
+    // 7. Uji Pengembalian ('diambil' -> 'dikembalikan') mengembalikan item ke status 'aktif'
+    const returnRes = await RequestService.returnRequest({
+      requestId: reqSN.id,
+      recordedById: userWarehouse.id,
+      recordedByRole: userWarehouse.role,
+      returnCondition: 'Baik',
+      returnBoxId: boxA.id,
+      returnNotes: 'Kembali lengkap setelah instalasi'
+    });
+    assert(returnRes.success === true, 'Pengembalian barang dari teknisi berhasil');
+
+    const checkReturnedSN = await StockService.checkDuplicateKodeId(kodeSN1);
+    assert(checkReturnedSN.item?.status === 'aktif' && checkReturnedSN.item?.kondisi === 'Baik', 'Item fisik kembali ke status AKTIF setelah dikembalikan');
+
+    // 8. Uji Penolakan Request (Reject) oleh Admin
     const rejectRes = await RequestService.rejectRequest({
       requestId: reqQty.id,
       penyetujuId: userAdmin.id,
@@ -153,6 +189,25 @@ async function runTahap6Tests() {
 
     const reqQtyAfter = await RequestService.getRequestById(reqQty.id);
     assert(reqQtyAfter?.status === 'ditolak' && reqQtyAfter.catatan_penolakan === 'Stok dialokasikan untuk maintenance darurat', 'Status request berubah menjadi DITOLAK dengan catatan penolakan');
+
+    // 9. Uji Pembatalan Request yang Sudah Disetujui melepas reserved_qty
+    await RequestService.approveRequest({
+      requestId: reqQtyCancel.id,
+      penyetujuId: userWarehouse.id
+    });
+    const stockBeforeCancel = await StockService.getStock(testTipeQty.id);
+    await RequestService.cancelRequest({
+      requestId: reqQtyCancel.id,
+      userId: userWarehouse.id,
+      userRole: userWarehouse.role,
+      catatan: 'Teknisi batal berangkat'
+    });
+    const stockAfterCancel = await StockService.getStock(testTipeQty.id);
+    const reqCancelAfter = await RequestService.getRequestById(reqQtyCancel.id);
+    assert(
+      reqCancelAfter?.status === 'dibatalkan' && stockAfterCancel === stockBeforeCancel + 5,
+      'Pembatalan request yang sudah disetujui melepas reserved_qty (+5 unit tersedia kembali)'
+    );
 
     console.log(`\n🎉 TAHAP 6 TEST SUITE COMPLETED: ${passed}/${total} TESTS PASSED!`);
   } catch (err: any) {

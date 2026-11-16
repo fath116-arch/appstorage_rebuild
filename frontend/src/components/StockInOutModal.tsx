@@ -1,36 +1,52 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- * Uses navigator.mediaDevices.getUserMedia via scannerUtils
+ * Stock Output Modal (Catat Barang Keluar — Canonical Single Catalog)
+ * Mendukung pencarian 300ms (SN/Produk/Tipe/Box), Scan Foto/Kamera, Keranjang Keluar Multi-Item,
+ * Mode Stok Jumlah (TANPA_ID), Atas Nama + Alasan, Waktu Kejadian WIB, & 1-Klik Hubungkan Request.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useInventory } from '../context/InventoryContext';
-import { InventoryItem, ReferenceType } from '../types/inventory';
-import { 
-  X, 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  AlertCircle, 
-  FileCheck, 
-  Camera, 
-  QrCode, 
-  CheckCircle2, 
-  Scan, 
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  X,
+  ArrowUpRight,
+  AlertCircle,
+  FileCheck,
+  Camera,
+  QrCode,
   Search,
-  Sparkles,
-  Upload
+  Upload,
+  Plus,
+  Trash2,
+  ShoppingCart,
+  Package
 } from 'lucide-react';
+import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
-import { apiService } from '../services/api';
-import { extractSNFromBarcode } from '../utils/scannerUtils';
+import { SearchStockItemResult, stockApi } from '../services/stockApi';
+import { RequestRecord } from '../services/requestApi';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { extractSNFromBarcode } from '../utils/scannerUtils';
+import { getErrorMessage } from '../utils/errorUtils';
+import { getCurrentWibDateTimeLocalInput, getCurrentWibYear, wibLocalInputToUtcIso } from '../utils/timezone';
+import { TransactionAttributionFields } from './stock/TransactionAttributionFields';
+
+interface OutputCartEntry {
+  key: string;
+  kind: 'per_id' | 'quantity';
+  itemId?: string;
+  kodeId?: string;
+  tipeId: number;
+  boxId?: string;
+  boxKode?: string;
+  namaProduk: string;
+  namaTipe: string;
+  jumlah: number;
+  unit: string;
+}
 
 interface StockInOutModalProps {
   isOpen: boolean;
   onClose: () => void;
-  mode: 'IN' | 'OUT';
-  initialItem?: InventoryItem | null;
+  initialItem?: { kode_id?: string; tipe_id?: number } | null;
   onSuccessPrint?: (txData: {
     type: 'IN' | 'OUT';
     itemName: string;
@@ -48,137 +64,198 @@ interface StockInOutModalProps {
 export const StockInOutModal: React.FC<StockInOutModalProps> = ({
   isOpen,
   onClose,
-  mode,
   initialItem,
   onSuccessPrint
 }) => {
   const { user } = useAuth();
-  const { items, recordStockIn, recordStockOut, showToast } = useInventory();
+  const { products, boxes, refreshData, showToast } = useInventory();
 
-  const [selectedItemId, setSelectedItemId] = useState<string>('');
-  const [qtyInput, setQtyInput] = useState<string>('1');
-  const [qtyError, setQtyError] = useState<string | null>(null);
-  const [referenceType, setReferenceType] = useState<ReferenceType>('TICKET_EXTERNAL');
+  // Primary search (300ms debounce)
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<SearchStockItemResult[]>([]);
+  const [searching, setSearching] = useState<boolean>(false);
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+
+  // Output Cart
+  const [cart, setCart] = useState<OutputCartEntry[]>([]);
+
+  // Non-SN / TANPA_ID alternative selector
+  const [nonSnProductId, setNonSnProductId] = useState<number | ''>('');
+  const [nonSnTipeId, setNonSnTipeId] = useState<number | ''>('');
+  const [nonSnBoxId, setNonSnBoxId] = useState<string>('');
+  const [nonSnQty, setNonSnQty] = useState<string>('1');
+
+  // Metadata & Attribution
   const [referenceNumber, setReferenceNumber] = useState<string>('');
-  const [performedBy, setPerformedBy] = useState<string>('');
-  const [recipientOrDestination, setRecipientOrDestination] = useState<string>('');
+  const [recipientDestination, setRecipientDestination] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [actorId, setActorId] = useState<string>('');
+  const [onBehalfReason, setOnBehalfReason] = useState<string>('');
+  const [occurredAtLocal, setOccurredAtLocal] = useState<string>(() => getCurrentWibDateTimeLocalInput());
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [linkedRequest, setLinkedRequest] = useState<RequestRecord | null>(null);
+  const [submitting, setSubmitting] = useState<boolean>(false);
 
-  // Camera & Scan States
-  const [scanInput, setScanInput] = useState<string>('');
-  const [scanFeedback, setScanFeedback] = useState<{
-    type: 'success' | 'error' | 'warning';
-    message: string;
-  } | null>(null);
-  const [isScanning, setIsScanning] = useState<boolean>(false);
+  // Products that have at least one non-SN (jumlah / tanpa_id) type
+  const quantityProducts = useMemo(() => {
+    return products.filter((p) => (p.tipes || []).some((t) => t.mode_stok === 'jumlah' || t.sumber_id === 'tanpa_id'));
+  }, [products]);
 
-  // Initialize selected item
+  const selectedNonSnProduct = useMemo(() => {
+    return quantityProducts.find((p) => p.id === Number(nonSnProductId)) || null;
+  }, [quantityProducts, nonSnProductId]);
+
+  const nonSnTipes = useMemo(() => {
+    if (!selectedNonSnProduct) return [];
+    return (selectedNonSnProduct.tipes || []).filter((t) => t.mode_stok === 'jumlah' || t.sumber_id === 'tanpa_id');
+  }, [selectedNonSnProduct]);
+
+  const selectedNonSnTipe = useMemo(() => {
+    return nonSnTipes.find((t) => t.id === Number(nonSnTipeId)) || null;
+  }, [nonSnTipes, nonSnTipeId]);
+
+  const availableBoxesForNonSn = useMemo(() => {
+    if (!selectedNonSnTipe) return [];
+    return selectedNonSnTipe.sebaran_box || [];
+  }, [selectedNonSnTipe]);
+
+  const maxAvailNonSnBox = useMemo(() => {
+    if (!selectedNonSnTipe) return 0;
+    if (nonSnBoxId && availableBoxesForNonSn.length > 0) {
+      const b = availableBoxesForNonSn.find((sb) => sb.box_id === nonSnBoxId);
+      return b ? Number(b.jumlah || 0) : 0;
+    }
+    return Number(selectedNonSnTipe.stok_tersedia || 0);
+  }, [selectedNonSnTipe, nonSnBoxId, availableBoxesForNonSn]);
+
+  // Reset form on open
   useEffect(() => {
-    if (initialItem) {
-      setSelectedItemId(initialItem.id);
-    } else if (items.length > 0 && !selectedItemId) {
-      setSelectedItemId(items[0].id);
-    }
-  }, [initialItem, items, selectedItemId]);
-
-  // Set default values according to mode
-  useEffect(() => {
-    if (user) {
-      setPerformedBy(user.name);
-    }
-    if (mode === 'OUT') {
-      setReferenceType('TICKET_EXTERNAL');
-      setReferenceNumber(`TCK-2026-${Math.floor(1000 + Math.random() * 9000)}`);
-      setRecipientOrDestination('');
-      setNotes('Penggantian suku cadang saat perbaikan lapangan');
-    } else {
-      setReferenceType('PURCHASE_ORDER');
-      setReferenceNumber(`PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
-      setRecipientOrDestination('Gudang Utama IT');
-      setNotes('Penerimaan pengadaan suku cadang baru');
-    }
-    setQtyInput('1');
-    setQtyError(null);
+    if (!isOpen) return;
+    const year = getCurrentWibYear();
+    setSearchQuery(initialItem?.kode_id || '');
+    setSearchResults([]);
+    setCart([]);
     setScanFeedback(null);
-  }, [mode, user, isOpen]);
+    setReferenceNumber(`TCK-${year}-${Math.floor(1000 + Math.random() * 9000)}`);
+    setRecipientDestination('');
+    setNotes('');
+    setActorId(user?.id || '');
+    setOnBehalfReason('');
+    setOccurredAtLocal(getCurrentWibDateTimeLocalInput());
+    setLinkedRequest(null);
+    setNonSnQty('1');
 
+    if (quantityProducts.length > 0) {
+      setNonSnProductId(quantityProducts[0].id);
+    } else {
+      setNonSnProductId('');
+    }
+  }, [isOpen, initialItem?.kode_id, user?.id, quantityProducts.length]);
 
+  // Sync non-SN tipe & box defaults
+  useEffect(() => {
+    if (nonSnTipes.length > 0) {
+      setNonSnTipeId(nonSnTipes[0].id);
+    } else {
+      setNonSnTipeId('');
+    }
+  }, [selectedNonSnProduct?.id]);
 
-  // Handle scanned code (from camera or barcode scanner input)
-  const handleProcessCode = useCallback(async (rawCode: string) => {
+  useEffect(() => {
+    if (availableBoxesForNonSn.length > 0) {
+      setNonSnBoxId(availableBoxesForNonSn[0].box_id);
+    } else if (boxes.length > 0) {
+      setNonSnBoxId(boxes[0].id);
+    } else {
+      setNonSnBoxId('');
+    }
+  }, [selectedNonSnTipe?.id, availableBoxesForNonSn.length]);
+
+  // 300ms debounced search
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await stockApi.searchItems(searchQuery.trim());
+        setSearchResults(res);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [isOpen, searchQuery]);
+
+  const addPerIdItemToCart = useCallback((item: SearchStockItemResult) => {
+    if (!item.selectable) {
+      const reason = item.unselectableReason || `Item "${item.kode_id}" tidak tersedia (${item.status}).`;
+      setScanFeedback({ type: 'error', message: reason });
+      showToast(reason, 'error');
+      return;
+    }
+
+    const key = `id-${item.id}`;
+    if (cart.some((c) => c.key === key)) {
+      showToast(`SN [${item.kode_id}] sudah ada di Keranjang Keluar.`, 'warning');
+      return;
+    }
+
+    setCart((prev) => [
+      ...prev,
+      {
+        key,
+        kind: 'per_id',
+        itemId: item.id,
+        kodeId: item.kode_id,
+        tipeId: item.tipe_id,
+        boxId: item.box_id,
+        boxKode: item.box_kode,
+        namaProduk: item.nama_produk,
+        namaTipe: item.nama_tipe,
+        jumlah: 1,
+        unit: item.tipe_stok || 'unit'
+      }
+    ]);
+    setScanFeedback({
+      type: 'success',
+      message: `[${item.kode_id}] ${item.nama_produk} (${item.nama_tipe}) ditambahkan ke Keranjang Keluar.`
+    });
+  }, [cart, showToast]);
+
+  const handleScannedCode = useCallback(async (rawCode: string) => {
     const filter = extractSNFromBarcode(rawCode);
-    if (!filter.isSN) {
+    const code = filter.isSN ? filter.cleanValue.trim() : rawCode.trim();
+    if (!code) {
       const msg = 'SN tidak terdeteksi, coba foto ulang';
       setScanFeedback({ type: 'error', message: msg });
       showToast(msg, 'error');
       return;
     }
-    const code = filter.cleanValue.trim();
-    if (!code) return;
 
-    setIsScanning(true);
-    setScanFeedback(null);
-
+    setSearchQuery(code);
     try {
-      // 1. Cek langsung pada koleksi items lokal
-      let matched = items.find(it => {
-        const kodeId = (it as InventoryItem & { kode_id?: string }).kode_id;
-        return (
-          it.sku.toLowerCase() === code.toLowerCase() ||
-          (it.barcode && it.barcode.toLowerCase() === code.toLowerCase()) ||
-          it.id.toLowerCase() === code.toLowerCase() ||
-          (kodeId && String(kodeId).toLowerCase() === code.toLowerCase())
-        );
-      });
+      const matches = await stockApi.searchItems(code);
+      setSearchResults(matches);
 
-      // 2. Jika tidak ditemukan lokal, panggil API scan backend
-      if (!matched) {
-        try {
-          const apiRes = await apiService.scanItem(code);
-          if (apiRes.found && apiRes.item) {
-            matched = apiRes.item;
-          }
-        } catch {
-          // fallback jika offline/backend error
-        }
+      const exact = matches.find((m) => m.kode_id.toLowerCase() === code.toLowerCase());
+      const target = exact || (matches.length === 1 ? matches[0] : null);
+
+      if (!target) {
+        const msg = matches.length === 0
+          ? `SN "${code}" tidak ditemukan di database stok.`
+          : `Ditemukan ${matches.length} kandidat untuk "${code}". Pilih langsung dari daftar di bawah.`;
+        setScanFeedback({ type: matches.length === 0 ? 'error' : 'warning', message: msg });
+        showToast(msg, matches.length === 0 ? 'error' : 'info');
+        return;
       }
 
-      if (matched) {
-        setSelectedItemId(matched.id);
-        setScanInput('');
-
-        if (mode === 'OUT') {
-          if (matched.quantity === 0) {
-            setScanFeedback({
-              type: 'error',
-              message: `Stok [${matched.sku}] "${matched.name}" habis (0 ${matched.unit})! Tidak dapat melakukan pengeluaran.`
-            });
-            showToast(`Stok ${matched.name} habis!`, 'error');
-          } else {
-            setScanFeedback({
-              type: 'success',
-              message: `Barang terdeteksi: [${matched.sku}] ${matched.name} (Tersedia: ${matched.quantity} ${matched.unit})`
-            });
-            showToast(`Barang terdeteksi: ${matched.name}`, 'success');
-          }
-        } else {
-          setScanFeedback({
-            type: 'success',
-            message: `Barang terdeteksi: [${matched.sku}] ${matched.name} (Stok saat ini: ${matched.quantity} ${matched.unit})`
-          });
-          showToast(`Barang terdeteksi: ${matched.name}`, 'success');
-        }
-      } else {
-        setScanFeedback({
-          type: 'error',
-          message: `Kode "${code}" tidak valid atau barang tidak ditemukan dalam database inventori.`
-        });
-        showToast(`Kode "${code}" tidak terdaftar!`, 'error');
-      }
-    } finally {
-      setIsScanning(false);
+      addPerIdItemToCart(target);
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
     }
-  }, [items, mode, showToast]);
+  }, [addPerIdItemToCart, showToast]);
 
   const {
     videoRef,
@@ -191,182 +268,222 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
     tipePolaRegex: '',
     stopOnDetect: true,
     onCameraStart: () => setScanFeedback(null),
-    onDetected: (filter) => {
-      handleProcessCode(filter.cleanValue);
-    },
+    onDetected: (filter) => handleScannedCode(filter.cleanValue),
     onIgnored: () => {
-      setScanFeedback({
-        type: 'error',
-        message: 'SN tidak terdeteksi, coba foto ulang'
-      });
+      setScanFeedback({ type: 'error', message: 'SN tidak terdeteksi, coba foto ulang' });
     },
     onCameraError: (diag) => {
       showToast(diag.message, diag.type === 'insecure' ? 'error' : 'warning');
       setScanFeedback({ type: 'error', message: diag.message });
     },
     onPhotoStart: () => setScanFeedback(null),
-    onPhotoDetected: (filter) => {
-      showToast(`SN [${filter.cleanValue}] berhasil diekstrak dari foto!`, 'success');
-      handleProcessCode(filter.cleanValue);
-    },
+    onPhotoDetected: (filter) => handleScannedCode(filter.cleanValue),
     onPhotoError: (msg) => {
       showToast(msg, 'error');
       setScanFeedback({ type: 'error', message: msg });
     }
   });
 
-  if (!isOpen) return null;
+  // Auto-fill when linking an open request
+  const handleSelectRequest = async (req: RequestRecord | null) => {
+    setLinkedRequest(req);
+    if (!req) return;
 
-  const currentItem = items.find(it => it.id === selectedItemId);
-  const isStockOut = mode === 'OUT';
+    setReferenceNumber(req.id);
+    if (!notes.trim()) {
+      setNotes(`Realisasi Request ${req.id}: ${req.alasan}`);
+    }
+    if (!recipientDestination.trim() && req.nama_pemohon) {
+      setRecipientDestination(`Teknisi ${req.nama_pemohon}`);
+    }
+
+    if (req.kode_id) {
+      try {
+        const res = await stockApi.searchItems(req.kode_id);
+        const match = res.find((r) => r.kode_id.toUpperCase() === req.kode_id!.toUpperCase());
+        if (match) {
+          setCart((prev) => {
+            if (prev.some((c) => c.kodeId?.toUpperCase() === match.kode_id.toUpperCase())) return prev;
+            return [
+              ...prev,
+              {
+                key: `id-${match.id}`,
+                kind: 'per_id',
+                itemId: match.id,
+                kodeId: match.kode_id,
+                tipeId: match.tipe_id,
+                boxId: match.box_id,
+                boxKode: match.box_kode,
+                namaProduk: match.nama_produk,
+                namaTipe: match.nama_tipe,
+                jumlah: 1,
+                unit: match.tipe_stok || 'unit'
+              }
+            ];
+          });
+        }
+      } catch {
+        // Ignore if not found locally
+      }
+    }
+    showToast(`Terhubung ke ${req.id}`, 'info');
+  };
+
+  if (!isOpen) return null;
 
   const handleClose = () => {
     stopCamera();
     onClose();
   };
 
-  const handleQtyChange = (val: string) => {
-    const digits = val.replace(/\D/g, '');
-    setQtyInput(digits);
-    if (digits !== '') {
-      const n = parseInt(digits, 10);
-      if (n <= 0) {
-        setQtyError('Jumlah harus lebih besar dari 0');
-      } else if (isStockOut && currentItem && n > currentItem.quantity) {
-        setQtyError(`Maksimal stok tersedia: ${currentItem.quantity} ${currentItem.unit}`);
-      } else {
-        setQtyError(null);
-      }
-    } else {
-      setQtyError(null);
+  const handleAddNonSnToCart = () => {
+    if (!selectedNonSnProduct || !selectedNonSnTipe || !nonSnBoxId) {
+      showToast('Pilih Produk, Tipe, dan Box untuk mode tanpa SN.', 'warning');
+      return;
     }
-  };
+    const qty = parseInt(nonSnQty, 10) || 0;
+    if (qty <= 0) {
+      showToast('Jumlah keluar harus lebih besar dari 0.', 'warning');
+      return;
+    }
 
-  const handleQtyBlur = () => {
-    if (!qtyInput || qtyInput === '0') {
-      setQtyInput('1');
-      setQtyError(null);
-    } else if (isStockOut && currentItem && parseInt(qtyInput, 10) > currentItem.quantity) {
-      setQtyError(`Maksimal stok tersedia: ${currentItem.quantity} ${currentItem.unit}`);
+    const alreadyInCart = cart
+      .filter((c) => c.kind === 'quantity' && c.tipeId === selectedNonSnTipe.id && c.boxId === nonSnBoxId)
+      .reduce((sum, c) => sum + c.jumlah, 0);
+
+    if (qty + alreadyInCart > maxAvailNonSnBox) {
+      showToast(`Jumlah melebihi stok tersedia (${maxAvailNonSnBox} ${selectedNonSnProduct.tipe_stok || 'unit'}).`, 'error');
+      return;
     }
+
+    const boxObj = boxes.find((b) => b.id === nonSnBoxId);
+    const key = `qty-${selectedNonSnTipe.id}-${nonSnBoxId}`;
+    setCart((prev) => {
+      const existing = prev.find((c) => c.key === key);
+      if (existing) {
+        return prev.map((c) => (c.key === key ? { ...c, jumlah: c.jumlah + qty } : c));
+      }
+      return [
+        ...prev,
+        {
+          key,
+          kind: 'quantity',
+          tipeId: selectedNonSnTipe.id,
+          boxId: nonSnBoxId,
+          boxKode: boxObj?.kode || nonSnBoxId,
+          namaProduk: selectedNonSnProduct.nama,
+          namaTipe: selectedNonSnTipe.nama_tipe,
+          jumlah: qty,
+          unit: selectedNonSnProduct.tipe_stok || 'unit'
+        }
+      ];
+    });
+    setNonSnQty('1');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentItem) {
-      showToast('Pilih barang terlebih dahulu.', 'warning');
+    if (cart.length === 0) {
+      showToast('Keranjang Keluar masih kosong. Pilih minimal 1 barang.', 'warning');
+      return;
+    }
+    if (timeError) {
+      showToast(timeError, 'error');
+      return;
+    }
+    const isOnBehalf = Boolean(user && actorId && actorId !== user.id);
+    if (isOnBehalf && onBehalfReason.trim().length < 3) {
+      showToast('Alasan mencatat atas nama orang lain wajib diisi minimal 3 karakter.', 'warning');
       return;
     }
 
-    const parsedQty = parseInt(qtyInput, 10) || 0;
-    if (parsedQty <= 0) {
-      setQtyError('Jumlah harus lebih besar dari 0.');
-      showToast('Jumlah harus lebih besar dari 0.', 'warning');
-      return;
-    }
+    const occurredIso = wibLocalInputToUtcIso(occurredAtLocal);
+    const payloadItems = cart.map((c) =>
+      c.kind === 'per_id'
+        ? { itemId: c.itemId, kodeId: c.kodeId, tipeId: c.tipeId }
+        : { tipeId: c.tipeId, boxId: c.boxId, jumlah: c.jumlah }
+    );
 
-    if (isStockOut && currentItem.quantity < parsedQty) {
-      setQtyError(`Maksimal stok tersedia: ${currentItem.quantity} ${currentItem.unit}`);
-      showToast(`Stok ${currentItem.name} tidak mencukupi (tersedia: ${currentItem.quantity}).`, 'error');
-      return;
-    }
-
+    setSubmitting(true);
     try {
-      const refNum = referenceNumber.trim() || `${mode}-${Date.now().toString().slice(-6)}`;
-      const destination = recipientOrDestination.trim() || (isStockOut ? 'Lokasi Pekerjaan Lapangan' : 'Gudang Utama IT');
+      const res = await stockApi.outBulk({
+        items: payloadItems,
+        actor_id: actorId || user?.id,
+        on_behalf_reason: isOnBehalf ? onBehalfReason.trim() : undefined,
+        occurred_at: occurredIso,
+        request_id: linkedRequest?.id,
+        reference_number: referenceNumber.trim() || undefined,
+        recipient_destination: recipientDestination.trim() || 'Pekerjaan Lapangan',
+        catatan: notes.trim() || undefined
+      });
 
-      if (mode === 'IN') {
-        await recordStockIn({
-          itemId: currentItem.id,
-          quantity: parsedQty,
-          referenceNumber: refNum,
-          sourceOrVendor: destination,
-          notes: notes.trim()
-        });
-        showToast(`Stok masuk berhasil dicatat: +${parsedQty} ${currentItem.unit} (${currentItem.name})`, 'success');
-      } else {
-        await recordStockOut({
-          itemId: currentItem.id,
-          quantity: parsedQty,
-          referenceNumber: refNum,
-          recipientOrDestination: destination,
-          notes: notes.trim()
-        });
-        showToast(`Stok keluar berhasil dicatat: -${parsedQty} ${currentItem.unit} (${currentItem.name})`, 'success');
-      }
+      showToast(res.message || 'Barang keluar berhasil dicatat.', res.lowStockAlert ? 'warning' : 'success');
+      await refreshData();
 
       if (onSuccessPrint) {
+        const first = cart[0];
+        const totalQty = cart.reduce((s, c) => s + c.jumlah, 0);
+        const actorName = actorId && actorId !== user?.id ? recipientDestination || actorId : user?.name || 'Petugas IT';
         onSuccessPrint({
-          type: mode,
-          itemName: currentItem.name,
-          itemSku: currentItem.sku,
-          quantity: parsedQty,
-          unit: currentItem.unit,
-          referenceNumber: refNum,
-          recipientOrDestination: destination,
-          performedBy: performedBy || user?.name || 'Petugas IT',
+          type: 'OUT',
+          itemName: cart.length === 1 ? `${first.namaProduk} - ${first.namaTipe}` : `${cart.length} Item Suku Cadang`,
+          itemSku: cart.length === 1 ? (first.kodeId || `TIPE-${first.tipeId}`) : `BULK-${cart.length}`,
+          quantity: totalQty,
+          unit: first.unit,
+          referenceNumber: referenceNumber.trim() || res.activityId || '-',
+          recipientOrDestination: recipientDestination.trim() || 'Lokasi Lapangan',
+          performedBy: actorName,
           notes: notes.trim(),
-          date: new Date().toISOString()
+          date: occurredIso
         });
       }
 
       stopCamera();
       onClose();
-    } catch (err: any) {
-      showToast(err.message || 'Gagal menyimpan transaksi stok.', 'error');
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-colors max-h-[92vh] flex flex-col">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className={`px-5 py-4 border-b flex items-center justify-between shrink-0 ${
-          isStockOut ? 'bg-slate-900 text-white border-slate-800' : 'bg-emerald-800 text-white border-emerald-900'
-        }`}>
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            {isStockOut ? (
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
-                <ArrowUpRight className="w-5 h-5" />
-              </div>
-            ) : (
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
-                <ArrowDownLeft className="w-5 h-5" />
-              </div>
-            )}
+            <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <ArrowUpRight className="w-5 h-5" />
+            </div>
             <div>
-              <h2 className="text-base font-bold">
-                {isStockOut ? 'Catat Barang Keluar (Pekerjaan / Tiket)' : 'Catat Barang Masuk (Restock / Pembelian)'}
-              </h2>
-              <p className="text-xs text-white/80">
-                {isStockOut ? 'Kurangi stok untuk tiket perbaikan lapangan' : 'Tambah jumlah stok fisik ke gudang'}
+              <h2 className="text-base font-bold">Output Barang Keluar (Katalog Tunggal)</h2>
+              <p className="text-xs text-slate-300">
+                Cari SN / Produk / Box atau scan barcode · Hanya item tersedia &amp; non-rusak
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={handleClose}
-            className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body with scrollable content */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs overflow-y-auto">
-          {/* Quick Camera Barcode / QR Scanner Section */}
-          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 space-y-3">
+          {/* Primary Search + Scan Module */}
+          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <QrCode className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  Scan Barcode / QR Kamera
-                </span>
-              </div>
+                <span>Cari Item Tersedia atau Scan SN</span>
+              </span>
               <div className="flex flex-wrap items-center gap-1.5">
-                {/* Jalur Utama: Scan dari Foto / Galeri HP */}
-                <label className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs">
+                <label className="px-2.5 py-1.5 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-md flex items-center gap-1.5 cursor-pointer">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan dari Foto / Galeri (Jalur Utama)'}</span>
+                  <span>{isPhotoScanning ? 'Membaca Foto...' : 'Scan Foto'}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -377,290 +494,351 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
                   />
                 </label>
 
-                {/* Jalur Sekunder: Kamera Live (Eksperimental) */}
                 {!isCameraActive ? (
                   <button
                     type="button"
                     onClick={startCamera}
-                    className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-md transition-colors flex items-center gap-1.5"
+                    className="px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-md flex items-center gap-1.5"
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span>Kamera Live (Eksperimental)</span>
+                    <span>Kamera</span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={stopCamera}
-                    className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors flex items-center gap-1.5"
+                    className="px-2.5 py-1.5 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-md flex items-center gap-1.5"
                   >
                     <X className="w-3.5 h-3.5" />
-                    <span>Matikan Kamera</span>
+                    <span>Matikan</span>
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Video Preview dengan Frame Persegi Panjang Lebar untuk Barcode 1D SN Router/Modem */}
             {isCameraActive && (
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-slate-700">
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-                <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-                  {/* Frame Pipih Lebar Ideal untuk Barcode 1D / Code 128 */}
-                  <div className="w-full max-w-[280px] sm:max-w-xs h-24 sm:h-28 border-2 border-emerald-400 rounded-xl relative overflow-hidden shadow-lg shadow-emerald-500/20 bg-emerald-950/10">
-                    <div className="w-full h-0.5 bg-emerald-400 shadow-md shadow-emerald-500 absolute top-1/2 -translate-y-1/2 animate-pulse" />
-                    <div className="absolute top-1 left-2 text-[9px] font-mono text-emerald-300 font-bold bg-slate-900/80 px-1.5 py-0.5 rounded">
-                      BARCODE 1D (SN) / QR
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-1.5 left-0 right-0 text-center text-[10px] text-emerald-300 font-medium bg-slate-900/80 py-1 px-2">
-                  Arahkan Barcode 1D Serial Number (S/N) atau QR ke dalam kotak hijau
-                </div>
               </div>
             )}
 
-            {/* Manual Code Input / Barcode Scanner Gun */}
-            <div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    placeholder="Scan barcode scanner atau ketik SKU / ID..."
-                    value={scanInput}
-                    onChange={(e) => setScanInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleProcessCode(scanInput);
-                      }
-                    }}
-                    className="w-full py-1.5 pl-8 pr-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <Scan className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleProcessCode(scanInput)}
-                  disabled={isScanning || !scanInput.trim()}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Cari</span>
-                </button>
-              </div>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Ketik SN (misal ZTEGD...), nama produk, tipe, atau kode box..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (searchQuery.trim()) handleScannedCode(searchQuery);
+                  }
+                }}
+                className="w-full py-2 pl-9 pr-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-white"
+              />
             </div>
 
-            {/* Scan Feedback Banner */}
             {scanFeedback && (
-              <div className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
-                scanFeedback.type === 'success'
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-                  : scanFeedback.type === 'error'
-                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
-                  : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-              }`}>
-                {scanFeedback.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
-                )}
-                <div className="flex-1 font-medium">{scanFeedback.message}</div>
-                <button
-                  type="button"
-                  onClick={() => setScanFeedback(null)}
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                >
+              <div
+                className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                  scanFeedback.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                    : scanFeedback.type === 'error'
+                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+                    : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                }`}
+              >
+                <span>{scanFeedback.message}</span>
+                <button type="button" onClick={() => setScanFeedback(null)}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
-          </div>
 
-          {/* Item Selector */}
-          <div>
-            <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Pilih Barang / Suku Cadang <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={selectedItemId}
-              onChange={(e) => {
-                setSelectedItemId(e.target.value);
-                setScanFeedback(null);
-              }}
-              className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500"
-            >
-              {items.map((it) => (
-                <option key={it.id} value={it.id}>
-                  [{it.sku}] {it.name} (Stok: {it.quantity} {it.unit})
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Search results table */}
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 max-h-44 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+              {searching ? (
+                <div className="p-4 text-center text-slate-500">Mencari item di katalog...</div>
+              ) : searchResults.length === 0 ? (
+                <div className="p-4 text-center text-slate-500">
+                  {searchQuery.trim()
+                    ? `Tidak ada item cocok untuk "${searchQuery}".`
+                    : 'Ketik kata kunci atau pilih dari daftar item ber-ID.'}
+                </div>
+              ) : (
+                searchResults.map((item) => {
+                  const statusLabel =
+                    item.status === 'aktif'
+                      ? item.kondisi === 'Rusak'
+                        ? 'Rusak'
+                        : 'Tersedia'
+                      : item.status === 'dipesan'
+                      ? 'Dipesan'
+                      : item.status === 'keluar'
+                      ? 'Sudah Keluar'
+                      : item.status;
 
-          {/* Current Stock Banner */}
-          {currentItem && (
-            <div className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
-              currentItem.quantity === 0
-                ? 'bg-red-50 dark:bg-rose-950/40 border-red-200 dark:border-rose-800 text-red-800 dark:text-rose-300'
-                : currentItem.quantity <= (currentItem.min_stock_alert ?? currentItem.minStockAlert ?? 0)
-                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-                : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'
-            }`}>
-              <div>
-                <span className="font-semibold">Stok Saat Ini:</span>{' '}
-                <span className="font-mono font-bold tabular-nums text-sm">
-                  {currentItem.quantity} {currentItem.unit}
-                </span>
-                <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Lokasi: {currentItem.location || 'Gudang Utama'} · SKU: {currentItem.sku}
-                </span>
-              </div>
-              {isStockOut && currentItem.quantity === 0 && (
-                <span className="text-red-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5" /> Stok Habis!
-                </span>
+                  const inCart = cart.some((c) => c.itemId === item.id);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-2.5 flex items-center justify-between gap-2 ${
+                        !item.selectable ? 'opacity-65 bg-slate-50 dark:bg-slate-900/50' : 'hover:bg-slate-50 dark:hover:bg-slate-900/40'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-900 dark:text-white">{item.kode_id}</span>
+                          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                            · Box {item.box_kode}
+                          </span>
+                          <span
+                            className={`text-[10px] font-mono font-bold ${
+                              item.selectable
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-rose-600 dark:text-rose-400'
+                            }`}
+                          >
+                            · {statusLabel}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
+                          {item.nama_produk} — {item.nama_tipe} · Kondisi: {item.kondisi}
+                        </div>
+                        {!item.selectable && item.unselectableReason && (
+                          <div className="text-[10px] text-rose-600 dark:text-rose-400">
+                            {item.unselectableReason}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={!item.selectable || inCart}
+                        onClick={() => addPerIdItemToCart(item)}
+                        className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold shrink-0 flex items-center gap-1 ${
+                          inCart
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            : item.selectable
+                            ? 'bg-slate-900 dark:bg-emerald-600 text-white hover:bg-slate-800 dark:hover:bg-emerald-500'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{inCart ? 'Di Keranjang' : 'Pilih'}</span>
+                      </button>
+                    </div>
+                  );
+                })
               )}
+            </div>
+          </div>
+
+          {/* Non-SN / TANPA_ID Alternative Selector */}
+          {quantityProducts.length > 0 && (
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 space-y-2.5">
+              <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <span>Tambah Item Tanpa SN (Mode Stok Jumlah)</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+                <div>
+                  <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Produk</label>
+                  <select
+                    value={nonSnProductId}
+                    onChange={(e) => setNonSnProductId(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  >
+                    {quantityProducts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nama}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tipe</label>
+                  <select
+                    value={nonSnTipeId}
+                    onChange={(e) => setNonSnTipeId(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  >
+                    {nonSnTipes.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nama_tipe} (Sisa: {t.stok_tersedia ?? 0})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Box</label>
+                  <select
+                    value={nonSnBoxId}
+                    onChange={(e) => setNonSnBoxId(e.target.value)}
+                    className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
+                  >
+                    {availableBoxesForNonSn.length > 0 ? (
+                      availableBoxesForNonSn.map((sb) => (
+                        <option key={sb.box_id} value={sb.box_id}>
+                          {sb.box_kode} ({sb.jumlah})
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">Stok box kosong</option>
+                    )}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1">
+                    <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                      Qty (Maks {maxAvailNonSnBox})
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={nonSnQty}
+                      onChange={(e) => setNonSnQty(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddNonSnToCart}
+                    disabled={maxAvailNonSnBox <= 0}
+                    className="mt-4 px-2.5 py-1.5 font-bold text-white bg-sky-600 hover:bg-sky-500 disabled:opacity-40 rounded-lg shrink-0"
+                  >
+                    + Keranjang
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Quantity and Unit */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Jumlah {isStockOut ? 'Keluar' : 'Masuk'} <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={qtyInput}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => handleQtyChange(e.target.value)}
-                  onBlur={handleQtyBlur}
-                  required
-                  placeholder="1"
-                  className={`w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border rounded-lg text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
-                    qtyError
-                      ? 'border-red-500 focus:ring-red-500'
-                      : 'border-slate-200 dark:border-slate-700 focus:ring-slate-900 dark:focus:ring-emerald-500'
-                  }`}
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 font-sans text-xs">
-                  {currentItem?.unit || 'unit'}
-                </span>
-              </div>
-              {qtyError && (
-                <p className="text-[11px] text-red-600 dark:text-red-400 mt-1 font-medium">{qtyError}</p>
+          {/* Keranjang Keluar */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 tabular-nums">
+                <ShoppingCart className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Keranjang Keluar ({cart.length} baris · Total {cart.reduce((s, c) => s + c.jumlah, 0)} unit)</span>
+              </span>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCart([])}
+                  className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
+                >
+                  Kosongkan Keranjang
+                </button>
               )}
             </div>
 
-            <div>
-              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Tipe Keperluan / Referensi
-              </label>
-              <select
-                value={referenceType}
-                onChange={(e) => setReferenceType(e.target.value as ReferenceType)}
-                className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500"
-              >
-                {isStockOut ? (
-                  <>
-                    <option value="TICKET_EXTERNAL">Tiket Insiden / Gangguan</option>
-                    <option value="ROUTINE_MAINTENANCE">Pemeliharaan Rutin (Preventive)</option>
-                    <option value="EMERGENCY_REPAIR">Perbaikan Darurat (Emergency)</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="PURCHASE_ORDER">Purchase Order / Pengadaan Baru</option>
-                    <option value="RETURN_RESTOCK">Retur Sisa Pemakaian Lapangan</option>
-                    <option value="INITIAL_COUNT">Penyesuaian Stok / Audit Fisik</option>
-                  </>
-                )}
-              </select>
-            </div>
+            {cart.length === 0 ? (
+              <div className="py-3 text-center text-slate-500 dark:text-slate-400 text-[11px]">
+                Belum ada item di Keranjang Keluar. Pilih item dari pencarian di atas.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950">
+                {cart.map((entry) => (
+                  <div key={entry.key} className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {entry.namaProduk} — {entry.namaTipe}
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                        {entry.kodeId ? `SN: ${entry.kodeId}` : `Stok Jumlah`} · Box {entry.boxKode} · Qty: {entry.jumlah} {entry.unit}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCart((prev) => prev.filter((c) => c.key !== entry.key))}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded"
+                      title="Hapus dari keranjang"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Reference Number & Performed By */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Attribution, WIB Time, & 1-Click Link to Request */}
+          <TransactionAttributionFields
+            mode="OUT"
+            actorId={actorId}
+            onActorIdChange={setActorId}
+            onBehalfReason={onBehalfReason}
+            onBehalfReasonChange={setOnBehalfReason}
+            occurredAtLocal={occurredAtLocal}
+            onOccurredAtLocalChange={setOccurredAtLocal}
+            selectedRequest={linkedRequest}
+            onSelectRequest={handleSelectRequest}
+            onTimeValidationChange={setTimeError}
+          />
+
+          {/* Reference & Destination */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                {isStockOut ? 'Nomor Tiket Insiden' : 'Nomor PO / Surat Jalan'} <span className="text-red-500">*</span>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Nomor Tiket / Referensi *
               </label>
               <input
                 type="text"
+                required
                 value={referenceNumber}
                 onChange={(e) => setReferenceNumber(e.target.value)}
-                placeholder={isStockOut ? 'Contoh: TCK-2026-9480' : 'Contoh: PO-2026-0811'}
-                required
-                className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500"
+                placeholder={`Contoh: TCK-${getCurrentWibYear()}-1042`}
+                className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Nama Teknisi / Petugas (Otentikasi Akun) <span className="text-red-500">*</span>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Tujuan Pemasangan / Teknisi Penerima
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={`${user?.name || 'Petugas IT'} (${user?.role || 'user'})`}
-                  readOnly
-                  disabled
-                  className="w-full py-2 px-3 bg-slate-100 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-not-allowed select-none"
-                />
-              </div>
+              <input
+                type="text"
+                value={recipientDestination}
+                onChange={(e) => setRecipientDestination(e.target.value)}
+                placeholder="Misal: Pelanggan Cluster A / ODP Sektor 2"
+                className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              />
             </div>
           </div>
 
-          {/* Destination / Location */}
           <div>
-            <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-              {isStockOut ? 'Tujuan Pemasangan / Ruangan / Cabang' : 'Lokasi Simpan di Gudang'}
-            </label>
-            <input
-              type="text"
-              value={recipientOrDestination}
-              onChange={(e) => setRecipientOrDestination(e.target.value)}
-              placeholder={isStockOut ? 'Contoh: Ruang Rapat Lt 3 / Cabang Sudirman' : 'Contoh: Rak A-02 Gudang Utama'}
-              className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500"
-            />
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Catatan Lapangan / Keterangan Masalah
+            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Keterangan / Catatan Lapangan
             </label>
             <textarea
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Jelaskan detail perbaikan, penyebab penggantian, atau kondisi barang..."
-              className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500"
+              placeholder="Alasan pengeluaran barang atau detail perbaikan..."
+              className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
             />
           </div>
 
-          {/* Actions */}
-          <div className="pt-2 flex items-center justify-end gap-2.5">
+          <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
               onClick={handleClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg"
             >
               Batal
             </button>
             <button
               type="submit"
-              disabled={!qtyInput || parseInt(qtyInput, 10) <= 0 || (isStockOut && currentItem ? currentItem.quantity < (parseInt(qtyInput, 10) || 0) : false)}
-              className={`px-4 py-2 text-xs font-semibold text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-xs ${
-                isStockOut
-                  ? 'bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed'
-                  : 'bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed'
-              }`}
+              disabled={submitting || cart.length === 0 || Boolean(timeError)}
+              className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 disabled:opacity-40 rounded-lg flex items-center gap-1.5"
             >
               <FileCheck className="w-4 h-4" />
-              <span>{isStockOut ? 'Konfirmasi Pengeluaran Barang' : 'Simpan Barang Masuk'}</span>
+              <span>{submitting ? 'Memproses...' : `Catat Keluar (${cart.reduce((s, c) => s + c.jumlah, 0)} unit)`}</span>
             </button>
           </div>
         </form>

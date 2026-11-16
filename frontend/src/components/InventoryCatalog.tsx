@@ -5,14 +5,10 @@
 
 import React from 'react';
 import { CatalogV2Manager } from './catalog/CatalogV2Manager';
-import { InventoryItem } from '../types';
 
 interface InventoryCatalogProps {
-  onOpenAddItem?: () => void;
-  onOpenEditItem?: (item: InventoryItem) => void;
-  onOpenStockIn?: (item?: any) => void;
-  onOpenStockOut?: (item?: any) => void;
-  onOpenDetail?: (item: InventoryItem) => void;
+  onOpenStockIn?: (item?: { kode_id?: string; tipe_id?: number }) => void;
+  onOpenStockOut?: (item?: { kode_id?: string; tipe_id?: number }) => void;
   onOpenChecklist?: () => void;
   onOpenRestore?: () => void;
 }

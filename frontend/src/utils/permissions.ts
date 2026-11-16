@@ -14,3 +14,16 @@ export function isAdminOrDev(role?: string | null): boolean {
 export function isWarehouseManager(role?: string | null): boolean {
   return isAdminOrDev(role) || role === 'warehouse_admin';
 }
+
+export function canActOnBehalf(role?: string | null): boolean {
+  return isWarehouseManager(role);
+}
+
+export function canOverrideOccurredAtLimit(role?: string | null): boolean {
+  return isAdminOrDev(role);
+}
+
+export function canManageRequests(role?: string | null): boolean {
+  return isWarehouseManager(role);
+}
+

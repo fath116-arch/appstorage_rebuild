@@ -1,7 +1,7 @@
-# PELACAK PROGRES REBUILD FIELDOPS IT (PROGRESS.MD)
-**Aplikasi**: FieldOps IT Inventory Rebuild  
-**Database**: MariaDB 11.x (Server Lokal)  
-**Status Versi**: Tahap 5 Selesai & Terverifikasi  
+# PELACAK PROGRES FIELDOPS IT (PROGRESS.MD)
+**Aplikasi**: FieldOps IT Inventory  
+**Database**: MariaDB 11.x (Server Lokal, UTC)  
+**Status Versi**: v1.2.6 Selesai & Terverifikasi  
 **Format Status**: `belum` | `dikerjakan` | `selesai` | `terverifikasi`
 
 ---
@@ -50,10 +50,22 @@
 | **Paket 1** | Hak Akses RBAC (Setting API, Katalog, WA Alert) | **terverifikasi** | `v125Paket1AccessControl.test.ts` (23/23 Lulus) | Modul `permissions.ts` terpusat; Setting API (`/api/tickets/keys`, `/api/auth/settings`, `/api/auth/users`, `/api/auth/trash`) khusus `developer` & `admin` (403 untuk `warehouse_admin` & `technician`); Katalog & Box read untuk semua role (termasuk `technician`); Katalog & Box write untuk `developer`, `admin`, `warehouse_admin` (403 untuk `technician`); WA Alert config 403 untuk `technician`. |
 | **Paket 2** | Perbaikan Bug Transaksi Keluar/Masuk & Ekspor Excel | **terverifikasi** | `v125Paket2StockAndExport.test.ts` (19/19 Lulus) | Memperbaiki bug pergeseran parameter SQL pada `transactions` (penggunaan 12 parameter terikat `?` menggantikan string SQL hardcoded `'IN'`/`'OUT'`) sehingga tipe transaksi dan kuantitas sebelum/sesudah tercatat akurat; memperbarui `excelExporter.ts` menggunakan library `exceljs` untuk menghasilkan berkas `.xlsx` biner valid (content-type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) yang terbebas dari ancaman CWE-1236 Formula Injection. |
 | **Paket 3** | Konsolidasi Menu Tools Navbar | **terverifikasi** | `v125Paket3Tools.test.ts` (24/24 Lulus) | Pemindahan tombol Database, Akses HP, WA Alert, Audit, Ekspor Excel ke dropdown **Tools** di navbar; quick access **Cetak Label** Batch A4; penegakan hak akses berbasis role pada UI dan backend (Database & Audit hanya untuk `developer` & `admin`, 403 untuk `warehouse_admin` & `technician`; WA Alert config write 403 untuk `technician`; WA Alert logs, Akses HP, Excel, Cetak Label untuk semua role); sanitasi CWE-1236 dan proteksi kerahasiaan kredensial pada ekspor Excel. |
-| **Paket 4** | Katalog, Tipe Stok, Kategori Barang, & Kondisi Item | **belum** | - | Mendatang |
-| **Paket 5** | Input Stok via Kamera & Template Cetak Laporan A4 | **belum** | - | Mendatang |
-| **Paket 6** | WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m | **belum** | - | Mendatang |
-| **Paket 7** | Branding Logo Baru & Kotak Logo Top Navigation | **belum** | - | Mendatang |
+| **Paket 4** | Katalog, Tipe Stok, Kategori Barang, & Kondisi Item | **terverifikasi** | `v125Paket4Catalog.test.ts` (13/13 Lulus) | Storage Box campuran, satuan stok dinamis, `Alat` vs `Barang Habis Pakai`, & kondisi item |
+| **Paket 5** | Input Stok via Kamera & Template Cetak Laporan A4 | **terverifikasi** | `v125Paket5CameraPrint.test.ts` (15/15 Lulus) | Scanner kamera terintegrasi & kop surat laporan cetak A4 |
+| **Paket 6** | WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m | **terverifikasi** | `v125Paket6WaAlert.test.ts` (13/13 Lulus) | Ambang tipe > produk > global, watchlist, & cooldown 15 menit |
+| **Paket 7** | Branding Logo Baru & Kotak Logo Top Navigation | **terverifikasi** | `v125Paket7Branding.test.ts` (6/6 Lulus) | Kotak logo terpadu, favicon, PWA icons, & responsif mobile |
+
+---
+
+## 🚀 Road Map v1.2.6 (Unifikasi Model Data Tunggal, Output Cart, Request Lifecycle & UTC/WIB)
+
+| Paket / Modul | Deskripsi Cakupan | Status | Pengujian Otomatis | Catatan Kunci |
+| :--- | :--- | :--- | :--- | :--- |
+| **Unifikasi Data** | Penghapusan jalur legacy v1 (`items`/`transactions`) ke 1 model kanonik | **terverifikasi** | `canonicalSystem.test.ts` (19/19 Lulus) | Seluruh menu memakai Katalog + Ledger tunggal & `refreshData()` otomatis |
+| **Input `SCAN_SN` & Output Cart** | Ekstraksi token regex ketat & Keranjang Keluar multi-item | **terverifikasi** | `scanSnExtraction.test.ts` (6/6 Lulus), `tahap3Stock.test.ts` (17/17 Lulus) | Uji Regex, debounce search 300ms, guard `Rusak`/`dipesan`, & cap `TANPA_ID` |
+| **Akuntabilitas & Koreksi** | Pemisahan `actor_id` vs `recorded_by_id`, `occurred_at`, & koreksi append-only | **terverifikasi** | `canonicalSystem.test.ts` | Alasan `on_behalf` wajib, validasi backdate 7H (`warehouse_admin`), `POST /api/activities/:id/correct` |
+| **Siklus Request Teknisi** | `diajukan → disetujui (reservasi) → diambil → dikembalikan` & *Held Items* | **terverifikasi** | `tahap6Requests.test.ts` (17/17 Lulus) | Reservasi `'dipesan'` / `reserved_qty`, 1-klik Hubungkan ke Request, & Barang di Tangan Teknisi |
+| **Zona Waktu UTC ↔ WIB** | Penyimpanan UTC, tampilan WIB, Laporan Mingguan & ExcelJS WIB | **terverifikasi** | `canonicalSystem.test.ts`, `v125Paket3Tools.test.ts` (24/24 Lulus) | Senin 00:00 – Minggu 23:59:59 WIB, `debug-clock`, CWE-1236 `sanitizeFormulaInput()` |
 
 ---
 
@@ -70,5 +82,4 @@
 - **v1.2.5 Paket 1 Selesai**: Penegakan Hak Akses RBAC terpusat di `backend/src/utils/permissions.ts`. Modul Setting API (`/api/tickets/keys`, `/api/auth/settings`, `/api/auth/users`, `/api/auth/trash`) khusus `developer` dan `admin` (ditolak HTTP 403 untuk `warehouse_admin` dan `technician`). Katalog & Storage Box read terbuka untuk seluruh role. Katalog write terbuka untuk `developer`, `admin`, `warehouse_admin` (ditolak HTTP 403 untuk `technician`). Pengaturan WA Alert ditolak HTTP 403 untuk `technician`. Pengujian otomatis `v125Paket1AccessControl.test.ts` LULUS 23/23 (100% PASS, total akumulatif 125/125 test PASS).
 - **v1.2.5 Paket 2 Selesai**: Perbaikan bug transaksi barang masuk/keluar (penyelarasan 12 parameter SQL terikat `?` pada tabel `transactions`) dan ekspor Excel biner asli menggunakan `exceljs` dengan Blob type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` serta sanitasi CWE-1236. Pengujian otomatis `v125Paket2StockAndExport.test.ts` LULUS 19/19 (100% PASS, total akumulatif 144/144 test PASS).
 - **v1.2.5 Paket 3 Selesai**: Konsolidasi menu **Tools** di navbar (`Navbar.tsx` & `App.tsx`) dengan quick access Cetak Label Batch A4 dan penegakan hak akses berbasis role pada UI dan backend (`/api/backup/inventory/download`, `/api/auth/trash`, `/api/whatsapp/config`, dll.). Header atas bersih dari tombol berdiri sendiri. Pengujian otomatis `v125Paket3Tools.test.ts` LULUS 24/24 (100% PASS, total akumulatif 168/168 test PASS).
-
-
+- **v1.2.6 (Unifikasi Model Data Tunggal & UTC/WIB) Selesai**: Penghapusan seluruh kode legacy v1/v2 sehingga seluruh aplikasi beroperasi di atas satu sumber kanonik tunggal; ekstraksi token ketat `SCAN_SN` + Output Keranjang Keluar; akuntabilitas `actor_id` vs `recorded_by_id` + koreksi audit append-only; siklus request lengkap (`diajukan → disetujui → diambil → dikembalikan`) & daftar *Barang di Tangan Teknisi*; serta standarisasi penyimpanan UTC ↔ tampilan/laporan/ExcelJS WIB. Seluruh suite aktif (`canonicalSystem.test.ts`, `tahap2-6`, `scanSnExtraction`, `v125Paket3Tools`, `testReportsAndChecklists`), `tsc --noEmit`, dan `npm run build` LULUS 100%.

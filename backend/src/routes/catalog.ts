@@ -173,7 +173,7 @@ router.get('/tipe-stok-suggestions', requireAuth, async (_req, res) => {
   }
 });
 
-router.get(['/products', '/products-v2'], requireAuth, async (req, res) => {
+router.get('/products', requireAuth, async (req, res) => {
   try {
     const { jenis_id, kategori_id, kategori, kategori_barang, search, status } = req.query;
     const prods = await CatalogService.listProdukWithFullDetails({

@@ -1,89 +1,123 @@
 /**
- * Inventory Context (Modular & Focused Business State)
- * FieldOps IT Inventory Rebuild - Under 250 Lines
+ * Canonical Inventory Context — Single Unified Source of Truth
+ * FieldOps IT
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { api, InventoryItem, Category, Transaction, StockMutationResponse } from '../services/api';
+import { api, TrashEntry } from '../services/api';
+import { catalogApi, Jenis, Produk } from '../services/catalogApi';
+import { Box, stockApi } from '../services/stockApi';
+import { requestApi, RequestRecord } from '../services/requestApi';
+import { activityApi, ActorOption, CanonicalTransactionView } from '../services/activityApi';
 import { useAuth } from './AuthContext';
 import { ToastMessage, ToastType, useToast } from './ToastContext';
 import { APP_VERSION } from '../constants/version';
 import { getErrorMessage } from '../utils/errorUtils';
+import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
 
 export type { ToastMessage };
-export type TabType = 'dashboard' | 'catalog' | 'inout' | 'weekly-report' | 'categories' | 'integration';
+export type TabType = 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'integration';
 
 interface InventoryContextType {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
-  items: InventoryItem[];
-  categories: Category[];
-  transactions: Transaction[];
-  trashItems: InventoryItem[];
+  products: Produk[];
+  jenisList: Jenis[];
+  boxes: Box[];
+  transactions: CanonicalTransactionView[];
+  requests: RequestRecord[];
+  heldItems: RequestRecord[];
+  actors: ActorOption[];
+  trashItems: TrashEntry[];
+  lowOrOutCount: number;
   isLoading: boolean;
   refreshData: () => Promise<void>;
-  createItem: (item: Partial<InventoryItem>) => Promise<void>;
-  updateItem: (id: string, updates: Partial<InventoryItem>) => Promise<void>;
-  deleteItem: (id: string) => Promise<void>;
-  restoreItem: (id: string) => Promise<void>;
-  permanentDeleteItem: (id: string) => Promise<void>;
-  createCategory: (code: string, name: string, description?: string) => Promise<void>;
-  recordStockIn: (payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }) => Promise<StockMutationResponse>;
-  recordStockOut: (payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => Promise<StockMutationResponse>;
-  recordBatchStockOut: (payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => Promise<StockMutationResponse>;
+  purgeExpiredTrash: () => Promise<void>;
   toasts: ToastMessage[];
   showToast: (message: string, type?: ToastType) => void;
   removeToast: (id: string) => void;
-  itemMap: Map<string, InventoryItem>;
-  categoryMap: Map<string, Category>;
   VERSION: string;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { toasts, showToast, removeToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [trashItems, setTrashItems] = useState<InventoryItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  const [products, setProducts] = useState<Produk[]>([]);
+  const [jenisList, setJenisList] = useState<Jenis[]>([]);
+  const [boxes, setBoxes] = useState<Box[]>([]);
+  const [transactions, setTransactions] = useState<CanonicalTransactionView[]>([]);
+  const [requests, setRequests] = useState<RequestRecord[]>([]);
+  const [heldItems, setHeldItems] = useState<RequestRecord[]>([]);
+  const [actors, setActors] = useState<ActorOption[]>([]);
+  const [trashItems, setTrashItems] = useState<TrashEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const VERSION = APP_VERSION;
 
-  // Memuat data dari backend
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [allCats, activeIt, deletedIt, allTxs] = await Promise.all([
-        api.getCategories(),
-        api.getItems(false),
-        api.getItems(true).then(its => its.filter(it => it.is_deleted)),
-        api.getTransactions(100)
+      const canSeeActors = isWarehouseManager(user?.role);
+      const canSeeTrash = isAdminOrDev(user?.role);
+
+      const [
+        prodsRes,
+        jenisRes,
+        boxesRes,
+        txsRes,
+        reqsRes,
+        heldRes,
+        actorsRes,
+        trashRes
+      ] = await Promise.all([
+        catalogApi.listProduk(),
+        catalogApi.listJenis(),
+        stockApi.listBoxes(),
+        activityApi.getTransactions({ limit: 300 }),
+        requestApi.list(),
+        requestApi.listHeld(),
+        canSeeActors ? activityApi.getActors().catch(() => []) : Promise.resolve([]),
+        canSeeTrash ? api.getTrash().catch(() => []) : Promise.resolve([])
       ]);
-      setCategories(allCats);
-      setItems(activeIt);
-      setTrashItems(deletedIt);
-      setTransactions(allTxs);
+
+      setProducts(prodsRes);
+      setJenisList(jenisRes);
+      setBoxes(boxesRes);
+      setTransactions(txsRes);
+      setRequests(reqsRes);
+      setHeldItems(heldRes);
+      setActors(actorsRes);
+      setTrashItems(trashRes);
     } catch (err: unknown) {
       showToast(getErrorMessage(err, 'Gagal menyinkronkan data dengan server.'), 'error');
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, user?.role]);
 
   useEffect(() => {
     if (isAuthenticated) {
       refreshData();
+    } else {
+      setProducts([]);
+      setJenisList([]);
+      setBoxes([]);
+      setTransactions([]);
+      setRequests([]);
+      setHeldItems([]);
+      setActors([]);
+      setTrashItems([]);
     }
   }, [isAuthenticated, refreshData]);
 
-  const createItem = async (itemData: Partial<InventoryItem>) => {
+  const purgeExpiredTrash = async () => {
     try {
-      await api.createItem(itemData);
-      showToast('Barang berhasil ditambahkan ke inventori.', 'success');
+      const res = await api.purgeTrash();
+      showToast(`Pembersihan selesai: ${res.purgedCount} entri kedaluwarsa dihapus permanen.`, 'info');
       await refreshData();
     } catch (err: unknown) {
       showToast(getErrorMessage(err), 'error');
@@ -91,126 +125,42 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const updateItem = async (id: string, updates: Partial<InventoryItem>) => {
-    try {
-      await api.updateItem(id, updates);
-      showToast('Data barang berhasil diperbarui.', 'success');
-      await refreshData();
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
+  const lowOrOutCount = useMemo(() => {
+    let count = 0;
+    for (const p of products) {
+      const tipes = p.tipes || [];
+      if (tipes.length === 0) {
+        if (p.status_stok === 'menipis' || p.status_stok === 'habis') count++;
+      } else {
+        for (const t of tipes) {
+          if (t.status_stok === 'menipis' || t.status_stok === 'habis') count++;
+        }
+      }
     }
-  };
-
-  const deleteItem = async (id: string) => {
-    try {
-      await api.deleteItem(id);
-      showToast('Barang dipindahkan ke kotak sampah.', 'info');
-      await refreshData();
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const restoreItem = async (id: string) => {
-    try {
-      await api.restoreItem(id);
-      showToast('Barang berhasil dipulihkan dari kotak sampah.', 'success');
-      await refreshData();
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const permanentDeleteItem = async (id: string) => {
-    try {
-      await api.permanentDeleteItem(id);
-      showToast('Barang telah dihapus permanen dari sistem.', 'info');
-      await refreshData();
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const createCategory = async (code: string, name: string, description?: string) => {
-    try {
-      await api.createCategory({ code, name, description });
-      showToast('Kategori baru berhasil dibuat.', 'success');
-      await refreshData();
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const recordStockIn = async (payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }) => {
-    try {
-      const res = await api.stockIn(payload);
-      showToast(res.message, 'success');
-      await refreshData();
-      return res;
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const recordStockOut = async (payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => {
-    try {
-      const res = await api.stockOut(payload);
-      showToast(res.message, res.lowStockAlertTriggered ? 'warning' : 'success');
-      await refreshData();
-      return res;
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const recordBatchStockOut = async (payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }) => {
-    try {
-      const res = await api.batchStockOut(payload);
-      showToast(res.message, res.lowStockAlertTriggered ? 'warning' : 'success');
-      await refreshData();
-      return res;
-    } catch (err: unknown) {
-      showToast(getErrorMessage(err), 'error');
-      throw err;
-    }
-  };
-
-  const itemMap = useMemo(() => new Map(items.map(it => [it.id, it])), [items]);
-  const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
+    return count;
+  }, [products]);
 
   return (
     <InventoryContext.Provider
       value={{
         activeTab,
         setActiveTab,
-        items,
-        categories,
+        products,
+        jenisList,
+        boxes,
         transactions,
+        requests,
+        heldItems,
+        actors,
         trashItems,
+        lowOrOutCount,
         isLoading,
         refreshData,
-        createItem,
-        updateItem,
-        deleteItem,
-        restoreItem,
-        permanentDeleteItem,
-        createCategory,
-        recordStockIn,
-        recordStockOut,
-        recordBatchStockOut,
+        purgeExpiredTrash,
         toasts,
         showToast,
         removeToast,
-        itemMap,
-        categoryMap,
-        VERSION,
+        VERSION
       }}
     >
       {children}

@@ -244,9 +244,6 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
                 <span>Pengaturan Pola Serial Number (SN)</span>
-                <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  v1.2.5 Update 2
-                </span>
               </h2>
               <p className="text-xs text-slate-300">
                 Konfigurasi format sederhana (#, A, ?, *) untuk memilih barcode SN murni dari router/modem

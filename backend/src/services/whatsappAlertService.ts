@@ -14,6 +14,7 @@ import { FonnteProvider } from '../integrations/whatsapp/fonnte';
 import { WhatsAppProvider } from '../integrations/whatsapp/provider';
 import { formatConsolidatedStockAlertMessage, formatTestConnectionMessage } from '../integrations/whatsapp/templates';
 import { getErrorMessage } from '../utils/errorUtils';
+import { formatWibTimeHHmm } from '../utils/timezone';
 
 export interface WaConfigData {
   id: string;
@@ -108,6 +109,7 @@ interface ProdukSummaryRow {
 interface TipeSummaryRow {
   id: number;
   nama_tipe: string;
+  prefix_id?: string | null;
   kode_tipe?: string;
   mode_stok?: 'per_id' | 'jumlah';
 }
@@ -445,7 +447,7 @@ export class WhatsappAlertService {
     if (modeStok === 'jumlah') {
       try {
         const sjRows = await executeQuery<CountRow>(
-          'SELECT COALESCE(SUM(jumlah), 0) as total FROM stok_jumlah WHERE tipe_id = ?',
+          'SELECT COALESCE(SUM(GREATEST(0, jumlah - COALESCE(reserved_qty, 0))), 0) as total FROM stok_jumlah WHERE tipe_id = ?',
           [tipeId]
         );
         if (sjRows && sjRows.length > 0 && sjRows[0].total !== undefined) {
@@ -456,13 +458,13 @@ export class WhatsappAlertService {
       }
       return Array.from(memoryStore.stok_jumlah.values())
         .filter((sj) => sj.tipe_id === tipeId)
-        .reduce((acc, sj) => acc + Number(sj.jumlah || 0), 0);
+        .reduce((acc, sj) => acc + Math.max(0, Number(sj.jumlah || 0) - Number(sj.reserved_qty || 0)), 0);
     }
 
     try {
       const rows = await executeQuery<CountRow>(
         `SELECT COUNT(*) as count FROM item 
-         WHERE tipe_id = ? AND status = 'aktif' AND kondisi != 'Rusak'`,
+         WHERE tipe_id = ? AND status = 'aktif' AND (kondisi IS NULL OR kondisi != 'Rusak')`,
         [tipeId]
       );
       if (rows && rows.length > 0) {
@@ -505,7 +507,7 @@ export class WhatsappAlertService {
       kategoriBarang: prod.kategori_barang || 'Barang Habis Pakai',
       tipeId: tipe.id,
       tipeNama: tipe.nama_tipe,
-      kodeTipe: tipe.kode_tipe || `T-${tipe.id}`,
+      kodeTipe: tipe.prefix_id || tipe.kode_tipe || `T-${tipe.id}`,
       availableStock,
       lowStockThreshold: res.lowStockThreshold,
       lowStockSource: res.lowStockSource,
@@ -524,11 +526,11 @@ export class WhatsappAlertService {
     const list: ThresholdMatrixEntry[] = [];
     try {
       const prodRows = await executeQuery<ProdukSummaryRow>(
-        'SELECT id, nama, kategori_barang, tipe_stok FROM produk WHERE status != "dihapus"'
+        'SELECT id, nama, kategori_barang, tipe_stok FROM produk WHERE aktif = 1'
       );
       for (const p of prodRows) {
         const tipeRows = await executeQuery<TipeSummaryRow>(
-          'SELECT id, nama_tipe, kode_tipe, mode_stok FROM tipe WHERE produk_id = ? AND status != "dihapus"',
+          'SELECT id, nama_tipe, prefix_id, mode_stok FROM tipe WHERE produk_id = ? AND aktif = 1',
           [p.id]
         );
         for (const t of tipeRows) {
@@ -537,10 +539,10 @@ export class WhatsappAlertService {
       }
       return list;
     } catch {
-      const prods = Array.from(memoryStore.produk.values()).filter((p) => p.status !== 'dihapus');
+      const prods = Array.from(memoryStore.produk.values()).filter((p) => p.aktif === 1 || p.aktif === true);
       for (const p of prods) {
         const tipes = Array.from(memoryStore.tipe.values()).filter(
-          (t) => t.produk_id === p.id && t.status !== 'dihapus'
+          (t) => t.produk_id === p.id && (t.aktif === 1 || t.aktif === true)
         );
         for (const t of tipes) {
           list.push(await this.buildThresholdMatrixEntry(p, t));
@@ -640,11 +642,11 @@ export class WhatsappAlertService {
       return { sent: false, reason: 'ALERT_DISABLED', message: 'Sistem WA Alert sedang dinonaktifkan di konfigurasi.' };
     }
 
-    // Cek Jam Aktif jika dikonfigurasi
+    // Cek Jam Aktif (WIB) jika dikonfigurasi
     if (config.activeHoursStart && config.activeHoursEnd && !options?.force) {
-      const nowStr = new Date().toTimeString().slice(0, 5); // "HH:MM"
+      const nowStr = formatWibTimeHHmm(new Date()); // "HH:MM" WIB
       if (nowStr < config.activeHoursStart || nowStr > config.activeHoursEnd) {
-        return { sent: false, reason: 'OUTSIDE_ACTIVE_HOURS', message: `Di luar jam aktif pengiriman (${config.activeHoursStart} - ${config.activeHoursEnd}).` };
+        return { sent: false, reason: 'OUTSIDE_ACTIVE_HOURS', message: `Di luar jam aktif pengiriman WIB (${config.activeHoursStart} - ${config.activeHoursEnd}).` };
       }
     }
 

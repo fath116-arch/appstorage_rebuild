@@ -1,6 +1,6 @@
 # PANDUAN DEPLOYMENT & OPERASIONAL SERVER (DEPLOY.MD)
 
-**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.1.0)  
+**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.6)  
 **Infrastruktur**: Docker Container (Ubuntu Server / Windows Docker Desktop) / Native Node.js  
 **Database**: MariaDB 11.4 LTS (Container Terisolasi / Standalone)  
 **Akses Jarak Jauh**: Cloudflare Tunnel (HTTPS Tanpa Buka Port Router)
@@ -244,24 +244,19 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    CREATE DATABASE fieldops_inventory CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    ```
 
-3. **Impor 6 Skema Migration SQL**:
+3. **Impor Skema Migration SQL (`01` s/d `12`)**:
+   *(Catatan: `initDatabase()` saat startup backend juga menjalankan migrasi otomatis yang idempoten.)*
    - **Linux / Ubuntu**:
      ```bash
-     mysql -u root -p fieldops_inventory < backend/src/db/migrations/01_auth_schema.sql
-     mysql -u root -p fieldops_inventory < backend/src/db/migrations/02_inventory_schema.sql
-     mysql -u root -p fieldops_inventory < backend/src/db/migrations/03_audit_trail_schema.sql
-     mysql -u root -p fieldops_inventory < backend/src/db/migrations/04_v2_foundation_schema.sql
-     mysql -u root -p fieldops_inventory < backend/src/db/migrations/05_v2_catalog_schema.sql
-     mysql -u root -p fieldops_inventory < backend/src/db/migrations/06_v2_stock_schema.sql
+     for f in backend/src/db/migrations/*.sql; do
+       mysql -u root -p fieldops_inventory < "$f"
+     done
      ```
-   - **Windows (CMD / PowerShell)**:
-     ```cmd
-     mysql -u root -p fieldops_inventory < backend\src\db\migrations\01_auth_schema.sql
-     mysql -u root -p fieldops_inventory < backend\src\db\migrations\02_inventory_schema.sql
-     mysql -u root -p fieldops_inventory < backend\src\db\migrations\03_audit_trail_schema.sql
-     mysql -u root -p fieldops_inventory < backend\src\db\migrations\04_v2_foundation_schema.sql
-     mysql -u root -p fieldops_inventory < backend\src\db\migrations\05_v2_catalog_schema.sql
-     mysql -u root -p fieldops_inventory < backend\src\db\migrations\06_v2_stock_schema.sql
+   - **Windows (PowerShell)**:
+     ```powershell
+     Get-ChildItem backend\src\db\migrations\*.sql | Sort-Object Name | ForEach-Object {
+       Get-Content $_.FullName | mysql -u root -p fieldops_inventory
+     }
      ```
 
 4. **Konfigurasi File `.env`**:
@@ -295,4 +290,23 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    npm run start
    ```
    *Aplikasi kini aktif dan dapat diakses dari PC lain di jaringan lokal melalui `http://<IP-SERVER-KANTOR>:3000`.*
+
+---
+
+## 🌐 9. Daftar Endpoint API Kanonik Aktif (v1.2.6)
+
+| Prefix Route | Endpoint Utama | Keterangan |
+| :--- | :--- | :--- |
+| `/api/auth` | `POST /login`, `/refresh`, `/logout`, `/confirm-token`, `GET /me`, `GET /actors`, `/users`, `/settings`, `/trash` | Autentikasi cookie server-authoritative, RBAC, daftar aktor lapangan, & sampah 14 hari |
+| `/api/catalog` | `GET /jenis`, `GET /products`, `POST /products`, `PUT /products/:id`, `DELETE /products/:id`, `POST /types`, `PUT /types/:id`, `GET /labels` | Katalog produk & varian tipe tunggal beserta stok tersedia, rusak, & dipesan |
+| `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move` | Manajemen storage box & relokasi antar box |
+| `/api/stock` | `GET /search`, `GET /check-id/:kode_id`, `GET /types/:id/items`, `POST /single`, `/bulk`, `/quantity`, `/out`, `/out/bulk`, `GET /archive`, `POST /restore`, `PUT /items/:id/condition` | Pencarian 300ms, input stok, keranjang keluar, arsip, restore, & update kondisi item |
+| `/api/activities` | `GET /`, `GET /:id/details`, `POST /:id/correct` | Feed transaksi kanonik & pencatatan koreksi audit append-only (`correction_of_id`) |
+| `/api/requests` | `POST /`, `GET /`, `GET /held`, `GET /open-for-actor/:actorId`, `GET /:id/timeline`, `POST /:id/approve`, `/pickup`, `/return`, `/reject`, `/cancel` | Siklus permohonan teknisi (`diajukan → disetujui → diambil → dikembalikan`) & barang di tangan teknisi |
+| `/api/reports` | `GET /weekly`, `GET /debug-clock`, `GET /export/csv` | Rekap mingguan WIB (Senin 00:00 – Minggu 23:59:59 WIB), debug jam UTC/WIB, & ekspor CSV CWE-1236 |
+| `/api/sn-patterns` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` | Pola regex validasi & ekstraksi `SCAN_SN` |
+| `/api/whatsapp` | `GET /config`, `POST /config`, `GET /thresholds`, `POST /thresholds`, `POST /evaluate`, `POST /send`, `POST /test`, `GET /logs` | Konfigurasi alert Fonnte, ambang berjenjang 15 menit, & log pengiriman |
+| `/api/tickets` | `POST /consume`, `GET /keys`, `POST /keys`, `DELETE /keys/:id` | Integrasi tiket eksternal via Bearer API key |
+| `/api/checklists` | `GET /`, `POST /` | Checklist tas lapangan teknisi |
+| `/api/backup` | `GET /inventory/download` | Unduh snapshot backup data inventaris bebas akun |
 

@@ -1,9 +1,9 @@
 /**
- * Frontend API Service Layer
- * Single communication gateway to FieldOps IT Express backend
+ * Frontend Auth, Checklist & Trash API Service Layer
+ * FieldOps IT — Single Unified Model
  */
 
-import { apiFetch, clearAuthToken, requestJson, setAuthToken } from './httpClient';
+import { clearAuthToken, requestJson, setAuthToken, apiFetch } from './httpClient';
 
 export interface UserProfile {
   id: string;
@@ -18,62 +18,18 @@ export interface UserProfile {
   is_master_admin?: boolean;
 }
 
-export interface InventoryItem {
+export interface TrashEntry {
   id: string;
-  sku: string;
-  barcode?: string;
-  name: string;
-  category_id?: string;
-  categoryId?: string;
-  categoryName?: string;
-  quantity: number;
-  min_stock_alert?: number;
-  minStockAlert?: number;
-  unit: string;
-  location?: string;
-  specs?: string;
-  unit_cost?: number;
-  unitCost?: number;
-  status?: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'IN_STOCK';
-  is_deleted?: boolean;
-  deleted_at?: string | null;
-  notes?: string;
-  lastUpdated?: string;
-}
-
-export interface Category {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-}
-
-export interface Transaction {
-  id: string;
-  type: 'IN' | 'OUT' | 'ADJUST';
-  item_id?: string;
-  itemId?: string;
-  item_name?: string;
-  itemName?: string;
-  item_sku?: string;
-  itemSku?: string;
-  item_unit?: string;
-  unit?: string;
-  quantity: number;
-  previous_qty?: number;
-  new_qty?: number;
-  reference_type?: string;
-  referenceType?: string;
-  reference_number?: string;
-  referenceNumber?: string;
-  recipient_destination?: string;
-  recipientOrDestination?: string;
-  performed_by?: string;
-  performedBy?: string;
-  notes?: string;
-  apiSource?: string;
-  created_at?: string;
-  date?: string;
+  jenis_objek: 'item' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
+  objek_id: string;
+  snapshot: string;
+  dihapus_oleh: string;
+  nama_penghapus?: string;
+  dihapus_pada: string;
+  aktivitas_id: string;
+  purge_setelah: string;
+  status: 'menunggu' | 'dipulihkan' | 'dibersihkan';
+  sisa_hari?: number;
 }
 
 interface AuthResponse {
@@ -87,13 +43,6 @@ interface BasicResponse {
   success: boolean;
   message: string;
   user?: UserProfile;
-}
-
-export interface StockMutationResponse {
-  success: boolean;
-  message: string;
-  lowStockAlertTriggered?: boolean;
-  [key: string]: unknown;
 }
 
 export const api = {
@@ -193,96 +142,24 @@ export const api = {
     return data;
   },
 
-  // Inventory API
-  async getItems(includeDeleted: boolean = false): Promise<InventoryItem[]> {
-    const { data } = await requestJson<{ items?: InventoryItem[] }>(`/api/inventory/items?includeDeleted=${includeDeleted}`);
-    return data.items || [];
+  // Trash (14-Day Retention)
+  async getTrash(): Promise<TrashEntry[]> {
+    const { ok, data } = await requestJson<{ trash?: TrashEntry[] }>('/api/auth/trash');
+    if (!ok) return [];
+    return data.trash || [];
   },
 
-  async scanItem(code: string): Promise<{ success: boolean; found: boolean; message: string; item?: InventoryItem }> {
-    const { data } = await requestJson<{ success: boolean; found: boolean; message: string; item?: InventoryItem }>(
-      `/api/inventory/scan/${encodeURIComponent(code)}`
-    );
-    return data;
-  },
-
-  async getCategories(): Promise<Category[]> {
-    const { data } = await requestJson<{ categories?: Category[] }>('/api/inventory/categories');
-    return data.categories || [];
-  },
-
-  async createItem(item: Partial<InventoryItem>): Promise<InventoryItem> {
-    const data = await apiFetch<{ item: InventoryItem }>(
-      '/api/inventory/items',
-      { method: 'POST', body: JSON.stringify(item) },
-      'Gagal menambahkan barang.'
-    );
-    return data.item;
-  },
-
-  async updateItem(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem> {
-    const data = await apiFetch<{ item: InventoryItem }>(
-      `/api/inventory/items/${id}`,
-      { method: 'PUT', body: JSON.stringify(updates) },
-      'Gagal memperbarui barang.'
-    );
-    return data.item;
-  },
-
-  async deleteItem(id: string): Promise<void> {
-    await apiFetch(`/api/inventory/items/${id}`, { method: 'DELETE' }, 'Gagal menghapus barang.');
-  },
-
-  async restoreItem(id: string): Promise<void> {
-    await apiFetch(`/api/inventory/items/${id}/restore`, { method: 'POST' }, 'Gagal memulihkan barang.');
-  },
-
-  async permanentDeleteItem(id: string): Promise<void> {
-    await apiFetch(`/api/inventory/items/${id}/permanent`, { method: 'DELETE' }, 'Gagal menghapus barang permanen.');
-  },
-
-  async createCategory(cat: { code: string; name: string; description?: string }): Promise<Category> {
-    const data = await apiFetch<{ category: Category }>(
-      '/api/inventory/categories',
-      { method: 'POST', body: JSON.stringify(cat) },
-      'Gagal membuat kategori.'
-    );
-    return data.category;
-  },
-
-  // Transactions API
-  async getTransactions(limit: number = 100): Promise<Transaction[]> {
-    const { data } = await requestJson<{ transactions?: Transaction[] }>(`/api/transactions?limit=${limit}`);
-    return data.transactions || [];
-  },
-
-  async stockIn(payload: { itemId: string; quantity: number; referenceNumber?: string; sourceOrVendor?: string; notes?: string }): Promise<StockMutationResponse> {
-    return apiFetch<StockMutationResponse>(
-      '/api/transactions/in',
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Gagal mencatat stok masuk.'
+  async purgeTrash(): Promise<{ success: boolean; purgedCount: number }> {
+    return apiFetch<{ success: boolean; purgedCount: number }>(
+      '/api/auth/trash/purge',
+      { method: 'POST' },
+      'Gagal membersihkan tempat sampah kedaluwarsa.'
     );
   },
 
-  async stockOut(payload: { itemId: string; quantity: number; referenceNumber?: string; recipientOrDestination?: string; notes?: string }): Promise<StockMutationResponse> {
-    return apiFetch<StockMutationResponse>(
-      '/api/transactions/out',
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Gagal mencatat stok keluar.'
-    );
-  },
-
-  async batchStockOut(payload: { items: Array<{ itemId: string; quantity: number }>; referenceNumber?: string; recipientOrDestination?: string; notes?: string }): Promise<StockMutationResponse> {
-    return apiFetch<StockMutationResponse>(
-      '/api/transactions/batch-out',
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Gagal mencatat batch stok keluar.'
-    );
-  },
-
-  // Weekly Reports
-  async getWeeklyReport(): Promise<Record<string, unknown>> {
-    const { data } = await requestJson<Record<string, unknown>>('/api/reports/weekly');
+  // Weekly Reports (canonical)
+  async getWeeklyReport(week: 'current' | 'previous' | 'all' = 'current'): Promise<Record<string, unknown>> {
+    const { data } = await requestJson<Record<string, unknown>>(`/api/reports/weekly?week=${encodeURIComponent(week)}`);
     return data;
   },
 

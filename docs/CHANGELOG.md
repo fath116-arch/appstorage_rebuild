@@ -1,8 +1,18 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.1.0-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.6-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+---
+
+## 🚀 [v1.2.6] - 2026-11-15 (Unifikasi Model Data Tunggal, Output Keranjang, Siklus Request Teknisi, Akuntabilitas Audit & UTC/WIB)
+- **Model Data & API Kanonik Tunggal**: Mengeliminasi pemisahan v1/v2; seluruh menu memakai satu model `jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request` dengan `refreshData()` otomatis.
+- **Output Keranjang & Ekstraksi `SCAN_SN` Ketat**: Pencarian multi-atribut 300ms, scanner bersama dengan validasi token regex ketat tanpa fallback ke MAC/D-SN, proteksi item `Rusak`/`dipesan`, dan keranjang keluar multi-item.
+- **Akuntabilitas `actor_id` vs `recorded_by_id` & Koreksi Append-Only**: Dukungan transaksi atas nama teknisi dengan `on_behalf_reason` wajib, validasi `occurred_at` (7 hari untuk `warehouse_admin`, bebas untuk `admin`/`developer`), dan `POST /api/activities/:id/correct`.
+- **Siklus Request Teknisi & Barang di Tangan Teknisi**: Alur `diajukan → disetujui (reservasi 'dipesan') → diambil ('keluar') → dikembalikan (wajib untuk Alat)` plus tautan cepat **Hubungkan ke Request**.
+- **Kebijakan Zona Waktu UTC ↔ WIB**: Penyimpanan UTC penuh, tampilan `DD/MM/YYYY HH:mm WIB`, rentang laporan mingguan Senin 00:00 – Minggu 23:59:59.999 WIB, ekspor ExcelJS wall-clock WIB tersanitasi CWE-1236, dan `GET /api/reports/debug-clock`.
+*(Lihat rincian historis lengkap pada file [`CHANGELOG.md`](../CHANGELOG.md) di root repositori.)*
 
 ---
 

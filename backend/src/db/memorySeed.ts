@@ -155,6 +155,53 @@ export async function seedMemoryDb(): Promise<void> {
     memoryStore.box.set('box-2', { id: 'box-2', kode: 'BOX-A-02', keterangan: 'Rak Utama Suku Cadang - Rak A Level 2', aktif: 1, dibuat_pada: new Date().toISOString() });
     memoryStore.box.set('box-3', { id: 'box-3', kode: 'BOX-A-03', keterangan: 'Box Penyimpanan Material Campuran', aktif: 1, dibuat_pada: new Date().toISOString() });
   }
+
+  // Seed Default Canonical Stock (item_v2 & stok_jumlah) if empty
+  if (memoryStore.item_v2.size === 0) {
+    const nowIso = new Date().toISOString();
+    memoryStore.item_v2.set('item-seed-1', {
+      id: 'item-seed-1',
+      kode_id: 'ZTEGD1A2B3C4',
+      tipe_id: 5,
+      box_id: 'box-1',
+      status: 'aktif',
+      kondisi: 'Baru',
+      catatan_kondisi: null,
+      reserved_for_request_id: null,
+      reserved_for_user_id: null,
+      dibuat_pada: nowIso
+    });
+    memoryStore.item_v2.set('item-seed-2', {
+      id: 'item-seed-2',
+      kode_id: 'ZTEGD9F8E7D6',
+      tipe_id: 5,
+      box_id: 'box-1',
+      status: 'aktif',
+      kondisi: 'Baik',
+      catatan_kondisi: null,
+      reserved_for_request_id: null,
+      reserved_for_user_id: null,
+      dibuat_pada: nowIso
+    });
+    memoryStore.item_v2.set('item-seed-3', {
+      id: 'item-seed-3',
+      kode_id: 'ADP12-1A-0001',
+      tipe_id: 1,
+      box_id: 'box-2',
+      status: 'aktif',
+      kondisi: 'Baik',
+      catatan_kondisi: null,
+      reserved_for_request_id: null,
+      reserved_for_user_id: null,
+      dibuat_pada: nowIso
+    });
+    memoryStore.stok_jumlah.set('4_box-3', {
+      tipe_id: 4,
+      box_id: 'box-3',
+      jumlah: 8,
+      reserved_qty: 0
+    });
+  }
 }
 
 /**

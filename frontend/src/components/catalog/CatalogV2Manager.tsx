@@ -31,6 +31,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { catalogApi, Jenis, Atribut, Produk, Tipe } from '../../services/catalogApi';
+import { stockApi } from '../../services/stockApi';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { StockInputModal } from '../stock/StockInputModal';
@@ -56,7 +57,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
   onOpenStockOutItem,
 }) => {
   const { user } = useAuth();
-  const { showToast, trashItems } = useInventory();
+  const { showToast, trashItems, refreshData } = useInventory();
 
   // Role check
   const isTechnician = user?.role === 'technician';
@@ -177,7 +178,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       const [jList, pList, bList, suggestions] = await Promise.all([
         catalogApi.listJenis(),
         catalogApi.listProduk(),
-        catalogApi.listBoxes().catch(() => []),
+        stockApi.listBoxes().catch(() => []),
         catalogApi.getTipeStokSuggestions().catch(() => ['unit', 'roll', 'meter', 'pcs', 'box', 'set'])
       ]);
       setJenisList(jList);
@@ -292,7 +293,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
 
       return true;
     });
-  }, [products, statusFilter, selectedJenisId, selectedKategori, searchQuery, attrOptionFilters, attrMinNumberFilters]);
+  }, [products, statusFilter, selectedJenisId, selectedKategori, selectedKategoriBarang, searchQuery, attrOptionFilters, attrMinNumberFilters]);
 
   // Toggle detail produk & muat tipe
   const toggleProductExpand = async (productId: number) => {
@@ -351,7 +352,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       setNewProdStokAwal('0');
       setNewProdKategoriBarang('Barang Habis Pakai');
       setNewProdTipeStok('unit');
-      await loadData();
+      await Promise.all([loadData(), refreshData()]);
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -416,9 +417,10 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
 
       showToast(`Tipe varian "${computedAutoTypeName}" berhasil dibuat!`, 'success');
       setIsAddTypeOpen(false);
-      // Reload tipe produk
+      // Reload tipe produk & sinkronkan global context
       const updatedTypes = await catalogApi.listTipeByProduk(selectedProductForType.id);
       setProducts(prev => prev.map(p => p.id === selectedProductForType.id ? { ...p, tipes: updatedTypes, total_tipe: updatedTypes.length } : p));
+      await refreshData();
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -454,7 +456,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       setNewAttrNama('');
       setNewAttrSatuan('');
       setNewAttrOpsiText('');
-      await loadData();
+      await Promise.all([loadData(), refreshData()]);
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -479,7 +481,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       setIsAddJenisOpen(false);
       setNewJenisNama('');
       setNewJenisPrefix('');
-      await loadData();
+      await Promise.all([loadData(), refreshData()]);
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -519,6 +521,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
         const updated = await catalogApi.listTipeByProduk(selectedTypeForIdRule.produk_id);
         setProducts(prev => prev.map(p => p.id === selectedTypeForIdRule.produk_id ? { ...p, tipes: updated } : p));
       }
+      await refreshData();
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -531,7 +534,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
-              <span>FieldOps IT Inventory v2</span>
+              <span>FieldOps IT Inventory</span>
               <span aria-hidden="true">·</span>
               <span>Katalog Terpadu</span>
               <span aria-hidden="true">·</span>
@@ -779,7 +782,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
               <Tag className="w-10 h-10 text-slate-400 mx-auto mb-3" />
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Tidak ada produk ditemukan</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Sesuaikan kata kunci pencarian atau buat produk baru untuk memulai katalog v2.
+                Sesuaikan kata kunci pencarian atau buat produk baru untuk memulai katalog.
               </p>
             </div>
           ) : (
@@ -823,11 +826,16 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                             >
                               {prod.kategori_barang || 'Barang Habis Pakai'}
                             </span>
-                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                              Stok Tersedia: {prod.total_stok ?? 0} {prod.tipe_stok || 'Unit'}
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-mono tabular-nums">
+                              Tersedia: {prod.total_stok ?? 0} {prod.tipe_stok || 'Unit'}
                             </span>
+                            {Number(prod.total_dipesan || 0) > 0 && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-mono tabular-nums" title="Stok sedang dipesan (reserved) untuk request yang disetujui">
+                                Dipesan: {prod.total_dipesan}
+                              </span>
+                            )}
                             {prod.stok_rusak !== undefined && prod.stok_rusak > 0 && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800" title="Item rusak tidak dihitung dalam stok tersedia">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800 font-mono tabular-nums" title="Item rusak tidak dihitung dalam stok tersedia">
                                 Rusak: {prod.stok_rusak}
                               </span>
                             )}
@@ -918,11 +926,16 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     <button
                                       onClick={() => handleOpenTypeItems(t)}
-                                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors flex items-center gap-1 cursor-pointer"
+                                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors flex items-center gap-1 cursor-pointer font-mono tabular-nums"
                                       title="Klik untuk melihat daftar ID item fisik dan lokasi box"
                                     >
                                       <BoxIcon className="w-3.5 h-3.5" />
-                                      <span>{t.stok_total ?? 0} Unit</span>
+                                      <span>{t.stok_tersedia ?? t.stok_total ?? 0} {prod.tipe_stok || 'Unit'}</span>
+                                      {Number(t.stok_dipesan || 0) > 0 && (
+                                        <span className="ml-1 text-[10px] text-amber-700 dark:text-amber-300">
+                                          (+{t.stok_dipesan} dipesan)
+                                        </span>
+                                      )}
                                     </button>
 
                                     {canManageCatalog && (
@@ -1026,7 +1039,11 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
           products={products}
           onOpenTypeDetail={handleOpenTypeItems}
           onOpenStockOut={(tipe) => {
-            setIsStockInputOpen(true);
+            if (onOpenStockOutItem) {
+              onOpenStockOutItem({ tipe_id: tipe.id });
+            } else {
+              setIsStockInputOpen(true);
+            }
           }}
         />
       )}
@@ -1971,7 +1988,10 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       <StockInputModal
         isOpen={isStockInputOpen}
         onClose={() => setIsStockInputOpen(false)}
-        onSuccess={() => loadData()}
+        onSuccess={() => {
+          loadData();
+          refreshData();
+        }}
       />
 
       <BoxManagerModal
@@ -1984,7 +2004,10 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
         isOpen={!!selectedBoxForContent}
         boxIdOrKode={selectedBoxForContent}
         onClose={() => setSelectedBoxForContent(null)}
-        onRefreshParent={() => loadData()}
+        onRefreshParent={() => {
+          loadData();
+          refreshData();
+        }}
       />
 
       {/* Modal Detail Item Fisik per Tipe (Klik Angka Stok) */}
@@ -2124,7 +2147,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                                               const updated = await catalogApi.getItemsByTipe(selectedTypeForItems.id);
                                               setTypeItemsData(updated);
                                             }
-                                            await loadData();
+                                            await Promise.all([loadData(), refreshData()]);
                                           } catch (err: any) {
                                             showToast(err.message, 'error');
                                           }

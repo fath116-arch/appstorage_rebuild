@@ -1,14 +1,14 @@
 /**
- * Ticket Integration Router (Auto-Deduct Stock Webhook API)
- * FieldOps IT Inventory Rebuild - MariaDB 11.x
+ * Ticket Integration Router (Auto-Deduct Stock Webhook API — Canonical Catalog)
+ * FieldOps IT — Single Unified Model
  */
 
 import express from 'express';
 import crypto from 'crypto';
 import { executeQuery, runTransaction } from '../db/database';
 import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
-import { ItemRecord } from '../repositories/inventoryRepository';
-import { TransactionService } from '../services/transactionService';
+import { ActivityLogService } from '../services/activityLogService';
+import { StockService } from '../services/stockService';
 import { getErrorMessage } from '../utils/errorUtils';
 
 interface ApiKeyRecord {
@@ -21,9 +21,6 @@ interface ApiKeyRecord {
 
 const router = express.Router();
 
-/**
- * Helper untuk verifikasi API Key eksternal (Jira / GLPI / Webhook)
- */
 async function authenticateApiKey(req: express.Request): Promise<{ valid: boolean; keyRecord?: ApiKeyRecord; error?: string }> {
   const apiKeyHeader = req.headers['x-api-key'] || req.headers['x-app-api-key'];
   const authHeader = req.headers['authorization'];
@@ -34,7 +31,6 @@ async function authenticateApiKey(req: express.Request): Promise<{ valid: boolea
     return { valid: false, error: 'API Key wajib disertakan pada header X-API-Key atau Bearer Token.' };
   }
 
-  // Hash key untuk dicocokkan dengan database
   const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
   const rows = await executeQuery<ApiKeyRecord>(
@@ -43,7 +39,6 @@ async function authenticateApiKey(req: express.Request): Promise<{ valid: boolea
   );
 
   if (rows.length === 0) {
-    // Juga dukung demo key hash awal untuk integrasi
     const demoRows = await executeQuery<ApiKeyRecord>('SELECT * FROM api_keys WHERE is_active = TRUE');
     const matched = demoRows.find(k => k.api_key_hash === rawKey || k.api_key_hash === keyHash);
     if (matched) {
@@ -58,10 +53,10 @@ async function authenticateApiKey(req: express.Request): Promise<{ valid: boolea
 /**
  * POST /api/tickets/consume
  * Webhook resmi auto-deduct suku cadang oleh sistem tiket eksternal (Jira, GLPI, Zendesk)
+ * Menggunakan katalog & stok kanonis (item fisik atau stok_jumlah).
  */
 router.post('/consume', async (req: express.Request, res: express.Response) => {
   try {
-    // 1. Verifikasi API Key
     const authRes = await authenticateApiKey(req);
     if (!authRes.valid) {
       return res.status(401).json({ success: false, message: authRes.error });
@@ -76,34 +71,7 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
       });
     }
 
-    // 2. Transaksi Atomik Pemotongan Stok
     const result = await runTransaction(async (conn) => {
-      const resolvedItems: Array<{ item: ItemRecord; requestedQty: number }> = [];
-
-      // Validasi semua SKU dan ketersediaan stok
-      for (const reqIt of requestedItems) {
-        const sku = String(reqIt.sku || '').trim().toUpperCase();
-        const qty = parseInt(String(reqIt.quantity), 10);
-
-        if (!sku || !qty || qty <= 0) {
-          throw new Error(`Item ${JSON.stringify(reqIt)} tidak valid. SKU dan kuantitas (> 0) wajib diisi.`);
-        }
-
-        const rows = (await conn.query('SELECT * FROM items WHERE sku = ? AND is_deleted = FALSE', [sku])) as ItemRecord[];
-        const it = rows[0];
-
-        if (!it) {
-          throw new Error(`SKU "${sku}" tidak ditemukan di master inventori.`);
-        }
-
-        if (it.quantity < qty) {
-          throw new Error(`Stok "${it.name}" (${sku}) tidak mencukupi! Tersedia: ${it.quantity} ${it.unit}, Diminta: ${qty} ${it.unit}.`);
-        }
-
-        resolvedItems.push({ item: it, requestedQty: qty });
-      }
-
-      // Potong stok dan catat mutasi jika semua item lolos validasi
       const processed: Array<{
         sku: string;
         name: string;
@@ -114,44 +82,146 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
       }> = [];
       const lowStockAlerts: string[] = [];
 
-      for (const pair of resolvedItems) {
-        const prev = pair.item.quantity;
-        const next = prev - pair.requestedQty;
-        const updated = await TransactionService.syncLegacyItemStock(conn, pair.item, next);
+      for (const reqIt of requestedItems) {
+        const sku = String(reqIt.sku || reqIt.kode_id || '').trim();
+        const qty = parseInt(String(reqIt.quantity || 1), 10);
 
-        await TransactionService.recordStockTransaction({
-          type: 'OUT',
+        if (!sku || !qty || qty <= 0) {
+          throw new Error(`Item ${JSON.stringify(reqIt)} tidak valid. SKU/Kode dan kuantitas (> 0) wajib diisi.`);
+        }
+
+        // 1. Cek jika cocok langsung ke kode_id item fisik
+        const itemDup = await StockService.checkDuplicateKodeId(sku);
+        if (itemDup.exists && itemDup.item) {
+          if (itemDup.item.status !== 'aktif' || itemDup.item.kondisi === 'Rusak') {
+            throw new Error(`Item "${sku}" tidak tersedia (${itemDup.item.status} / ${itemDup.item.kondisi || 'Baik'}).`);
+          }
+          await conn.query('UPDATE item SET status = "keluar" WHERE id = ?', [itemDup.item.id]);
+          const remaining = Math.max(0, (await StockService.getStock(itemDup.item.tipe_id)) - 1);
+
+          await ActivityLogService.recordActivity({
+            aksi: 'barang_keluar',
+            pelaku_id: 'api-system',
+            actor_id: 'api-system',
+            actor_nama: technicianName || 'Teknisi Tiket',
+            recorded_by_id: 'api-system',
+            recorded_by_nama: systemName || 'Sistem Tiket',
+            tipe_mutasi: 'KELUAR',
+            reference_type: 'EXTERNAL_TICKET',
+            reference_number: ticketId,
+            recipient_destination: technicianName || 'Teknisi Lapangan Tiket',
+            box_asal: itemDup.item.kode_box,
+            qty_total: 1,
+            catatan: `${systemName || 'Sistem Tiket'}: ${ticketTitle}`,
+            details: [
+              {
+                tipe_id: itemDup.item.tipe_id,
+                item_id: itemDup.item.id,
+                kode_id: itemDup.item.kode_id,
+                nama_snapshot: `${itemDup.item.nama_produk} - ${itemDup.item.nama_tipe}`,
+                jumlah: 1,
+                status_sebelum: 'aktif',
+                status_sesudah: 'keluar'
+              }
+            ]
+          }, conn);
+
+          processed.push({
+            sku: itemDup.item.kode_id,
+            name: `${itemDup.item.nama_produk} - ${itemDup.item.nama_tipe}`,
+            deductedQty: 1,
+            remainingQty: remaining,
+            unit: 'unit',
+            status: remaining === 0 ? 'OUT_OF_STOCK' : remaining <= 3 ? 'LOW_STOCK' : 'NORMAL'
+          });
+          if (remaining <= 3) lowStockAlerts.push(`${itemDup.item.nama_produk} - ${itemDup.item.nama_tipe}`);
+          continue;
+        }
+
+        // 2. Cocokkan ke tipe berdasarkan prefix_id, nama_tipe, atau TIPE-<id>
+        const tipeRows = await executeQuery<{ id: number; nama_tipe: string; prefix_id?: string; produk_nama?: string; tipe_stok?: string }>(
+          `SELECT t.id, t.nama_tipe, t.prefix_id, p.nama as produk_nama, p.tipe_stok
+           FROM tipe t
+           JOIN produk p ON t.produk_id = p.id
+           WHERE t.aktif = 1 AND p.aktif = 1
+             AND (UPPER(t.prefix_id) = UPPER(?) OR UPPER(t.nama_tipe) = UPPER(?) OR CONCAT('TIPE-', t.id) = UPPER(?) OR UPPER(p.nama) = UPPER(?))
+           LIMIT 1`,
+          [sku, sku, sku, sku]
+        );
+
+        const matchedTipe = tipeRows[0];
+        if (!matchedTipe) {
+          throw new Error(`SKU / Tipe "${sku}" tidak ditemukan di master katalog.`);
+        }
+
+        const tipeItems = await StockService.getItemsByTipe(matchedTipe.id, { excludeRusak: true });
+        const totalAvail = await StockService.getStock(matchedTipe.id);
+        if (totalAvail < qty) {
+          throw new Error(`Stok "${matchedTipe.produk_nama} - ${matchedTipe.nama_tipe}" (${sku}) tidak mencukupi! Tersedia: ${totalAvail}, Diminta: ${qty}.`);
+        }
+
+        // Potong dari stok_jumlah atau item aktif
+        if (tipeItems.stokJumlah.length > 0) {
+          let remainingToDeduct = qty;
+          for (const sj of tipeItems.stokJumlah) {
+            if (remainingToDeduct <= 0) break;
+            const availBox = Math.max(0, sj.jumlah - (sj.reserved_qty || 0));
+            if (availBox <= 0) continue;
+            const take = Math.min(availBox, remainingToDeduct);
+            await conn.query(
+              'UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?',
+              [take, matchedTipe.id, sj.box_id]
+            );
+            remainingToDeduct -= take;
+          }
+        } else {
+          const toPick = tipeItems.items.slice(0, qty);
+          for (const it of toPick) {
+            await conn.query('UPDATE item SET status = "keluar" WHERE id = ?', [it.id]);
+          }
+        }
+
+        const nextStock = Math.max(0, totalAvail - qty);
+        await ActivityLogService.recordActivity({
+          aksi: 'barang_keluar',
+          pelaku_id: 'api-system',
+          actor_id: 'api-system',
+          actor_nama: technicianName || 'Teknisi Tiket',
+          recorded_by_id: 'api-system',
+          recorded_by_nama: systemName || 'Sistem Tiket',
           tipe_mutasi: 'KELUAR',
-          itemId: pair.item.id,
-          namaBarang: pair.item.name,
-          sku: pair.item.sku,
-          satuan: pair.item.unit,
-          quantity: pair.requestedQty,
-          previousQty: prev,
-          newQty: next,
-          referenceType: 'EXTERNAL_TICKET',
-          referenceNumber: ticketId,
-          recipientOrDestination: technicianName || 'Teknisi Lapangan Tiket',
-          userId: 'api-system',
-          performedBy: systemName || 'Sistem Tiket',
-          notes: `${systemName || 'Sistem Tiket'}: ${ticketTitle}`
+          reference_type: 'EXTERNAL_TICKET',
+          reference_number: ticketId,
+          recipient_destination: technicianName || 'Teknisi Lapangan Tiket',
+          qty_total: qty,
+          catatan: `${systemName || 'Sistem Tiket'}: ${ticketTitle}`,
+          details: [
+            {
+              tipe_id: matchedTipe.id,
+              item_id: null,
+              kode_id: matchedTipe.prefix_id || `TIPE-${matchedTipe.id}`,
+              nama_snapshot: `${matchedTipe.produk_nama} - ${matchedTipe.nama_tipe}`,
+              jumlah: qty,
+              status_sebelum: 'aktif',
+              status_sesudah: 'keluar'
+            }
+          ]
         }, conn);
 
         processed.push({
-          sku: pair.item.sku,
-          name: pair.item.name,
-          deductedQty: pair.requestedQty,
-          remainingQty: next,
-          unit: pair.item.unit,
-          status: updated.status
+          sku,
+          name: `${matchedTipe.produk_nama} - ${matchedTipe.nama_tipe}`,
+          deductedQty: qty,
+          remainingQty: nextStock,
+          unit: matchedTipe.tipe_stok || 'unit',
+          status: nextStock === 0 ? 'OUT_OF_STOCK' : nextStock <= 3 ? 'LOW_STOCK' : 'NORMAL'
         });
 
-        if (next <= pair.item.min_stock_alert) {
-          lowStockAlerts.push(pair.item.name);
+        if (nextStock <= 3) {
+          lowStockAlerts.push(`${matchedTipe.produk_nama} - ${matchedTipe.nama_tipe}`);
         }
       }
 
-      // Perbarui last_used_at API Key
       if (authRes.keyRecord?.id) {
         await conn.query('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', [authRes.keyRecord.id]);
       }
@@ -176,7 +246,7 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
   }
 });
 
-// GET /api/tickets/keys (Manajemen API Key - Setting API)
+// GET /api/tickets/keys
 router.get('/keys', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
   try {
     const keys = await executeQuery<Omit<ApiKeyRecord, 'api_key_hash'>>(
@@ -188,7 +258,7 @@ router.get('/keys', requireAuth, requireRole(['developer', 'admin']), async (_re
   }
 });
 
-// POST /api/tickets/keys (Generate API Key Baru - Setting API)
+// POST /api/tickets/keys
 router.post('/keys', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const { name, systemName } = req.body;

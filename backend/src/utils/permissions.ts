@@ -1,6 +1,6 @@
 /**
  * Centralized Role-Based Access Control (RBAC) Permission Matrix
- * FieldOps IT Inventory - v1.2.5 Paket 1
+ * FieldOps IT Inventory
  */
 
 export type UserRole =
@@ -24,6 +24,14 @@ export const PERMISSION_GROUPS = {
   // Setting API: Ticket API keys, system settings, user account management, trash purge -> ONLY developer, admin
   SETTING_API: ['developer', 'admin'] as UserRole[],
 
+  // Transaksi Atas Nama (On-Behalf) & Manajemen Request -> developer, admin, warehouse_admin
+  ON_BEHALF_TX: ['developer', 'admin', 'warehouse_admin'] as UserRole[],
+  REQUEST_MANAGE: ['developer', 'admin', 'warehouse_admin'] as UserRole[],
+  TRANSACTION_CORRECT: ['developer', 'admin', 'warehouse_admin'] as UserRole[],
+
+  // Override batas backdate 7 hari -> ONLY developer, admin
+  BACKDATE_UNLIMITED: ['developer', 'admin'] as UserRole[],
+
   // Menu Tools Items
   TOOLS_DATABASE: ['developer', 'admin'] as UserRole[],
   TOOLS_AUDIT: ['developer', 'admin'] as UserRole[],
@@ -44,6 +52,18 @@ export function isAdminOrDev(userRole?: string | null): boolean {
 
 export function isWarehouseManager(userRole?: string | null): boolean {
   return isAdminOrDev(userRole) || userRole === 'warehouse_admin';
+}
+
+export function canActOnBehalf(userRole?: string | null): boolean {
+  return isWarehouseManager(userRole);
+}
+
+export function canOverrideOccurredAtLimit(userRole?: string | null): boolean {
+  return isAdminOrDev(userRole);
+}
+
+export function canManageRequests(userRole?: string | null): boolean {
+  return isWarehouseManager(userRole);
 }
 
 export function isRoleAllowed(userRole: string, allowedRoles: readonly UserRole[]): boolean {

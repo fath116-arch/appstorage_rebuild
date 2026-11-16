@@ -32,7 +32,7 @@ import {
 interface GoLiveModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigateTab: (tab: 'dashboard' | 'catalog' | 'inout' | 'weekly-report' | 'categories' | 'integration') => void;
+  onNavigateTab: (tab: 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'integration') => void;
 }
 
 import { useAuth } from '../context/AuthContext';
@@ -43,7 +43,7 @@ export const GoLiveModal: React.FC<GoLiveModalProps> = ({
   onNavigateTab
 }) => {
   const { user } = useAuth();
-  const { items, transactions, showToast } = useInventory();
+  const { products, transactions, showToast } = useInventory();
 
   // Test scenario completion states
   const [completedSteps, setCompletedSteps] = useState<Record<string, boolean>>({
