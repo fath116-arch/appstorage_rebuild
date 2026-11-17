@@ -356,51 +356,95 @@ export class CatalogService {
     sumber_id_bawaan?: 'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id';
     prefix_id_bawaan?: string;
   }, userId: string): Promise<Jenis> {
+    const existing = await this.getJenisById(id);
+    if (!existing) {
+      throw new Error(`Kategori #${id} tidak ditemukan.`);
+    }
+
     const cleanNama = input.nama.trim();
+    if (!cleanNama) {
+      throw new Error('Nama kategori wajib diisi.');
+    }
+
+    const dup = await executeQuery<{ id: number }>(
+      'SELECT id FROM jenis WHERE LOWER(nama) = LOWER(?) AND id != ? AND aktif = 1',
+      [cleanNama, id]
+    );
+    if (dup && dup.length > 0) {
+      throw new Error(`Kategori dengan nama "${cleanNama}" sudah terdaftar.`);
+    }
+
+    const prefix = input.prefix_id_bawaan ? input.prefix_id_bawaan.trim() : null;
     await executeQuery(
       `UPDATE jenis SET nama = ?, sumber_id_bawaan = ?, prefix_id_bawaan = ? WHERE id = ?`,
-      [cleanNama, input.sumber_id_bawaan || 'manual', input.prefix_id_bawaan || null, id]
+      [cleanNama, input.sumber_id_bawaan || 'manual', prefix || null, id]
     );
 
     await ActivityLogService.recordActivity({
       aksi: 'ubah_jenis',
       pelaku_id: userId,
-      catatan: `Mengubah data Jenis #${id} (${cleanNama})`
+      catatan: `Mengubah data Kategori #${id} (${cleanNama})`
     });
 
     const updated = await this.getJenisById(id);
     return updated!;
   }
 
-  static async deleteJenis(id: number, userId: string): Promise<{ success: boolean; message: string }> {
+  static async canDeleteJenis(id: number): Promise<{ canDelete: boolean; message?: string; existing?: Jenis }> {
     const existing = await this.getJenisById(id);
-    if (!existing) {
-      return { success: false, message: 'Jenis tidak ditemukan.' };
+    if (!existing || !existing.aktif) {
+      return { canDelete: false, message: 'Kategori tidak ditemukan.' };
     }
 
     const prods = await executeQuery<{ id: number }>('SELECT id FROM produk WHERE jenis_id = ? AND aktif = 1', [id]);
     if (prods && prods.length > 0) {
       return {
-        success: false,
-        message: `Tidak dapat menghapus Jenis "${existing.nama}" karena masih memiliki ${prods.length} produk aktif di dalamnya.`
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Kategori "${existing.nama}" karena masih memiliki ${prods.length} produk aktif di dalamnya.`
       };
     }
+
+    return { canDelete: true, existing };
+  }
+
+  static async deleteJenis(id: number, userId: string): Promise<{ success: boolean; message: string }> {
+    const check = await this.canDeleteJenis(id);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Kategori tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
 
     await TrashService.moveToTrash({
       jenis_objek: 'jenis',
       objek_id: String(id),
       snapshot: existing,
       dihapus_oleh: userId,
-      catatan: `Hapus permanen Jenis "${existing.nama}"`
+      catatan: `Hapus Kategori "${existing.nama}"`
     });
 
     await executeQuery('UPDATE jenis SET aktif = 0 WHERE id = ?', [id]);
-    return { success: true, message: `Jenis "${existing.nama}" berhasil dihapus (disimpan di tempat sampah 14 hari).` };
+    return { success: true, message: `Kategori "${existing.nama}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).` };
   }
 
   // ============================================================================
   // 2. ATRIBUT & OPSI
   // ============================================================================
+
+  static async getAtributById(id: number): Promise<Atribut | null> {
+    const rows = await executeQuery<Atribut>('SELECT * FROM atribut WHERE id = ?', [id]);
+    if (!rows || rows.length === 0) return null;
+    const a = rows[0];
+    if (a.tipe_isian === 'pilihan') {
+      a.opsi = await executeQuery<AtributOpsi>(
+        'SELECT * FROM atribut_opsi WHERE atribut_id = ? ORDER BY urutan ASC, id ASC',
+        [a.id]
+      );
+    } else {
+      a.opsi = [];
+    }
+    return a;
+  }
 
   static async listAtributByJenis(jenisId: number): Promise<Atribut[]> {
     const atributs = await executeQuery<Atribut>(
@@ -481,6 +525,191 @@ export class CatalogService {
         opsi: opsiList
       };
     });
+  }
+
+  static async updateAtribut(
+    id: number,
+    input: {
+      kode: string;
+      nama: string;
+      tipe_isian?: 'angka' | 'pilihan' | 'teks';
+      satuan?: string;
+      wajib?: boolean;
+      urutan?: number;
+      masuk_nama?: boolean;
+      opsi?: Array<{ id?: number; nilai: string }> | string[];
+    },
+    userId: string
+  ): Promise<Atribut> {
+    const existing = await this.getAtributById(id);
+    if (!existing) {
+      throw new Error(`Atribut #${id} tidak ditemukan.`);
+    }
+
+    const cleanKode = input.kode.trim().toLowerCase().replace(/\s+/g, '_');
+    const cleanNama = input.nama.trim();
+    if (!cleanKode || !cleanNama) {
+      throw new Error('Kode dan nama atribut wajib diisi.');
+    }
+
+    const dupRows = await executeQuery<{ id: number }>(
+      'SELECT id FROM atribut WHERE jenis_id = ? AND LOWER(kode) = LOWER(?) AND id != ?',
+      [existing.jenis_id, cleanKode, id]
+    );
+    if (dupRows && dupRows.length > 0) {
+      throw new Error(`Kode atribut "${cleanKode}" sudah digunakan pada kategori yang sama.`);
+    }
+
+    const usedRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total
+       FROM tipe_nilai tn
+       JOIN tipe t ON tn.tipe_id = t.id
+       WHERE tn.atribut_id = ? AND t.aktif = 1`,
+      [id]
+    );
+    const activeUsageCount = Number(usedRows[0]?.total || 0);
+    const targetTipeIsian = input.tipe_isian || existing.tipe_isian;
+
+    if (targetTipeIsian !== existing.tipe_isian && activeUsageCount > 0) {
+      throw new Error(
+        `Tipe isian atribut "${existing.nama}" tidak dapat diubah karena sudah dipakai oleh ${activeUsageCount} varian tipe aktif.`
+      );
+    }
+
+    const normalizedOpsi: Array<{ id?: number; nilai: string }> = Array.isArray(input.opsi)
+      ? input.opsi
+          .map((item) => (typeof item === 'string' ? { nilai: item.trim() } : { id: item.id, nilai: String(item.nilai || '').trim() }))
+          .filter((item) => item.nilai.length > 0)
+      : [];
+
+    if (targetTipeIsian === 'pilihan' && input.opsi !== undefined) {
+      const existingOpsi = existing.opsi || [];
+      const keptIds = new Set(normalizedOpsi.map((o) => o.id).filter((v): v is number => typeof v === 'number'));
+      for (const oldOpt of existingOpsi) {
+        if (!keptIds.has(oldOpt.id)) {
+          const optUsage = await executeQuery<TotalCountRow>(
+            `SELECT COUNT(*) as total
+             FROM tipe_nilai tn
+             JOIN tipe t ON tn.tipe_id = t.id
+             WHERE tn.opsi_id = ? AND t.aktif = 1`,
+            [oldOpt.id]
+          );
+          if (Number(optUsage[0]?.total || 0) > 0) {
+            throw new Error(
+              `Opsi "${oldOpt.nilai}" tidak dapat dihapus karena masih dipakai oleh varian tipe aktif.`
+            );
+          }
+        }
+      }
+    }
+
+    await runTransaction(async (conn) => {
+      await conn.query(
+        `UPDATE atribut
+         SET kode = ?, nama = ?, tipe_isian = ?, satuan = ?, wajib = ?, urutan = ?, masuk_nama = ?
+         WHERE id = ?`,
+        [
+          cleanKode,
+          cleanNama,
+          targetTipeIsian,
+          targetTipeIsian === 'angka' ? (input.satuan ? input.satuan.trim() : null) : null,
+          input.wajib !== false ? 1 : 0,
+          typeof input.urutan === 'number' ? input.urutan : existing.urutan || 0,
+          input.masuk_nama !== false ? 1 : 0,
+          id
+        ]
+      );
+
+      if (targetTipeIsian === 'pilihan' && input.opsi !== undefined) {
+        const existingOpsi = existing.opsi || [];
+        const keptIds = new Set(normalizedOpsi.map((o) => o.id).filter((v): v is number => typeof v === 'number'));
+
+        for (const oldOpt of existingOpsi) {
+          if (!keptIds.has(oldOpt.id)) {
+            await conn.query('DELETE FROM atribut_opsi WHERE id = ?', [oldOpt.id]);
+          }
+        }
+
+        for (let i = 0; i < normalizedOpsi.length; i++) {
+          const entry = normalizedOpsi[i];
+          if (entry.id) {
+            await conn.query(
+              'UPDATE atribut_opsi SET nilai = ?, urutan = ? WHERE id = ? AND atribut_id = ?',
+              [entry.nilai, i, entry.id, id]
+            );
+          } else {
+            const existingByVal = await conn.query<AtributOpsi[]>(
+              'SELECT * FROM atribut_opsi WHERE atribut_id = ? AND LOWER(nilai) = LOWER(?)',
+              [id, entry.nilai]
+            );
+            if (!existingByVal || existingByVal.length === 0) {
+              await conn.query(
+                'INSERT INTO atribut_opsi (atribut_id, nilai, urutan) VALUES (?, ?, ?)',
+                [id, entry.nilai, i]
+              );
+            }
+          }
+        }
+      } else if (targetTipeIsian !== 'pilihan') {
+        await conn.query('DELETE FROM atribut_opsi WHERE atribut_id = ?', [id]);
+      }
+
+      await ActivityLogService.recordActivity({
+        aksi: 'ubah_atribut',
+        pelaku_id: userId,
+        catatan: `Memperbarui atribut "${cleanNama}" (${cleanKode}) pada Kategori #${existing.jenis_id}`
+      }, conn);
+    });
+
+    const updated = await this.getAtributById(id);
+    return updated!;
+  }
+
+  static async canDeleteAtribut(id: number): Promise<{ canDelete: boolean; message?: string; existing?: Atribut }> {
+    const existing = await this.getAtributById(id);
+    if (!existing) {
+      return { canDelete: false, message: 'Atribut tidak ditemukan.' };
+    }
+
+    const usedRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total
+       FROM tipe_nilai tn
+       JOIN tipe t ON tn.tipe_id = t.id
+       WHERE tn.atribut_id = ? AND t.aktif = 1`,
+      [id]
+    );
+    const activeUsageCount = Number(usedRows[0]?.total || 0);
+    if (activeUsageCount > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Atribut "${existing.nama}" karena sudah dipakai oleh ${activeUsageCount} varian tipe aktif.`
+      };
+    }
+
+    return { canDelete: true, existing };
+  }
+
+  static async deleteAtribut(id: number, userId: string): Promise<{ success: boolean; message: string }> {
+    const check = await this.canDeleteAtribut(id);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Atribut tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
+
+    await runTransaction(async (conn) => {
+      await conn.query('DELETE FROM tipe_nilai WHERE atribut_id = ?', [id]);
+      await conn.query('DELETE FROM atribut_opsi WHERE atribut_id = ?', [id]);
+      await conn.query('DELETE FROM atribut WHERE id = ?', [id]);
+
+      await ActivityLogService.recordActivity({
+        aksi: 'hapus_atribut',
+        pelaku_id: userId,
+        catatan: `Menghapus atribut "${existing.nama}" (${existing.kode}) dari Kategori #${existing.jenis_id}`
+      }, conn);
+    });
+
+    return { success: true, message: `Atribut "${existing.nama}" berhasil dihapus.` };
   }
 
   static async addAtributOpsi(atributId: number, nilai: string): Promise<AtributOpsi> {
@@ -766,22 +995,77 @@ export class CatalogService {
     return Array.from(new Set([...defaults, ...existing]));
   }
 
-  static async deleteProduk(id: number, userId: string): Promise<{ success: boolean; message: string }> {
+  static async canDeleteProduk(id: number): Promise<{ canDelete: boolean; message?: string; existing?: Produk }> {
     const existing = await this.getProdukById(id);
-    if (!existing) {
-      return { success: false, message: 'Produk tidak ditemukan.' };
+    if (!existing || !existing.aktif) {
+      return { canDelete: false, message: 'Produk tidak ditemukan.' };
     }
+
+    const itemRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total
+       FROM item i
+       JOIN tipe t ON i.tipe_id = t.id
+       WHERE t.produk_id = ? AND i.status IN ('aktif', 'dipesan')`,
+      [id]
+    );
+    const activeItems = Number(itemRows[0]?.total || 0);
+
+    const sjRows = await executeQuery<{ total: number | string; reserved: number | string }>(
+      `SELECT COALESCE(SUM(sj.jumlah), 0) as total,
+              COALESCE(SUM(COALESCE(sj.reserved_qty, 0)), 0) as reserved
+       FROM stok_jumlah sj
+       JOIN tipe t ON sj.tipe_id = t.id
+       WHERE t.produk_id = ?`,
+      [id]
+    );
+    const activeSj = Number(sjRows[0]?.total || 0);
+    const reservedSj = Number(sjRows[0]?.reserved || 0);
+
+    if (activeItems > 0 || activeSj > 0 || reservedSj > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Produk "${existing.nama}" karena masih memiliki stok aktif atau dipesan (${activeItems} item ber-ID, ${activeSj} stok jumlah).`
+      };
+    }
+
+    const reqRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total
+       FROM request r
+       JOIN tipe t ON r.tipe_id = t.id
+       WHERE t.produk_id = ? AND r.status IN ('diajukan', 'menunggu', 'disetujui', 'diambil')`,
+      [id]
+    );
+    const openReqs = Number(reqRows[0]?.total || 0);
+    if (openReqs > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Produk "${existing.nama}" karena masih ada ${openReqs} request aktif/diambil.`
+      };
+    }
+
+    return { canDelete: true, existing };
+  }
+
+  static async deleteProduk(id: number, userId: string): Promise<{ success: boolean; message: string }> {
+    const check = await this.canDeleteProduk(id);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Produk tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
 
     await TrashService.moveToTrash({
       jenis_objek: 'produk',
       objek_id: String(id),
       snapshot: existing,
       dihapus_oleh: userId,
-      catatan: `Hapus permanen Produk "${existing.nama}"`
+      catatan: `Hapus Produk "${existing.nama}"`
     });
 
+    await executeQuery('UPDATE tipe SET aktif = 0 WHERE produk_id = ?', [id]);
     await executeQuery('UPDATE produk SET aktif = 0 WHERE id = ?', [id]);
-    return { success: true, message: `Produk "${existing.nama}" berhasil dihapus (disimpan di tempat sampah 14 hari).` };
+    return { success: true, message: `Produk "${existing.nama}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).` };
   }
 
   // ============================================================================

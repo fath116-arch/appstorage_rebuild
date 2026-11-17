@@ -51,11 +51,14 @@ export interface RequestRecord {
   mode_stok?: 'per_id' | 'jumlah';
   kode_box?: string;
   held_duration_ms?: number | null;
+  request_type?: 'ambil' | 'kembalikan';
+  origin_request_id?: string | null;
+  has_pending_return?: boolean;
 }
 
 export class RequestService {
   /**
-   * Membuat permohonan barang baru (Status awal: 'diajukan')
+   * Membuat permohonan barang baru atau pengajuan pengembalian barang (Status awal: 'diajukan')
    * Teknisi hanya boleh membuat untuk dirinya sendiri; Pengelola boleh atas nama teknisi.
    */
   static async createRequest(input: {
@@ -64,16 +67,17 @@ export class RequestService {
     actorRole?: string;
     recordedByRole?: string;
     onBehalfReason?: string;
-    tipeId: number;
+    requestType?: 'ambil' | 'kembalikan';
+    originRequestId?: string;
+    returnCondition?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+    returnBoxId?: string;
+    returnNotes?: string;
+    tipeId?: number;
     boxId?: string;
     kodeId?: string;
     jumlah?: number;
-    alasan: string;
+    alasan?: string;
   }): Promise<RequestRecord> {
-    if (!input.alasan || input.alasan.trim().length === 0) {
-      throw new Error('Alasan permohonan wajib diisi.');
-    }
-
     const effectiveActorId = (input.actorId || input.pemohonId).trim();
     const isOnBehalf = effectiveActorId !== input.pemohonId;
     if (isOnBehalf && !canActOnBehalf(input.recordedByRole || input.actorRole)) {
@@ -81,6 +85,105 @@ export class RequestService {
     }
     if (isOnBehalf && (!input.onBehalfReason || input.onBehalfReason.trim().length < 3)) {
       throw new Error('Alasan pengajuan atas nama teknisi lain wajib diisi.');
+    }
+
+    // Cabang 1: Pengajuan Pengembalian Barang yang sedang dibawa teknisi ('kembalikan')
+    if (input.requestType === 'kembalikan') {
+      if (!input.originRequestId) {
+        throw new Error('Pilih barang yang sedang dibawa untuk diajukan pengembaliannya.');
+      }
+      const origin = await this.getRequestById(input.originRequestId);
+      if (!origin) {
+        throw new Error(`Data pengambilan #${input.originRequestId} tidak ditemukan.`);
+      }
+      if (origin.status !== 'diambil') {
+        throw new Error(`Barang ini tidak sedang berstatus DIAMBIL (status saat ini: ${origin.status.toUpperCase()}).`);
+      }
+
+      const originActorId = (origin.actor_id || origin.pemohon_id).trim();
+      if (originActorId !== effectiveActorId) {
+        throw new Error('Barang tersebut tercatat dibawa oleh teknisi lain.');
+      }
+
+      if (!input.returnCondition || !['Baru', 'Baik', 'Perlu Perbaikan', 'Rusak'].includes(input.returnCondition)) {
+        throw new Error('Kondisi barang yang dikembalikan wajib dipilih (Belum Terpakai / Normal / Rusak).');
+      }
+
+      const targetReturnBoxId = (input.returnBoxId || origin.box_id || '').trim();
+      if (!targetReturnBoxId) {
+        throw new Error('Storage Box tujuan pengembalian wajib dipilih.');
+      }
+      const targetBox = await StockService.getBoxById(targetReturnBoxId);
+      if (!targetBox || !targetBox.aktif) {
+        throw new Error(`Storage Box tujuan "${targetReturnBoxId}" tidak ditemukan.`);
+      }
+
+      // Cegah duplikasi pengajuan pengembalian terbuka untuk barang yang sama
+      const existingReturns = await executeQuery<{ id: string }>(
+        `SELECT id FROM request
+         WHERE transaction_out_id = ?
+           AND return_condition IS NOT NULL
+           AND status IN ('diajukan', 'menunggu', 'disetujui')`,
+        [origin.id]
+      );
+      if (existingReturns && existingReturns.length > 0) {
+        throw new Error(`Barang Request #${origin.id} sudah memiliki pengajuan pengembalian yang menunggu verifikasi gudang.`);
+      }
+
+      const reasonText = (input.alasan || input.returnNotes || `Pengajuan pengembalian barang (${input.returnCondition})`).trim();
+      const notesText = input.returnNotes ? input.returnNotes.trim() : reasonText;
+      const requestId = `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+      await executeQuery(
+        `INSERT INTO request (
+           id, pemohon_id, tipe_id, box_id, kode_id, jumlah, alasan, status,
+           actor_id, recorded_by_id, return_condition, return_notes, return_box_id,
+           allocated_item_ids, transaction_out_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          requestId,
+          effectiveActorId,
+          origin.tipe_id,
+          origin.box_id || targetBox.id,
+          origin.kode_id || null,
+          origin.jumlah,
+          reasonText,
+          'diajukan',
+          effectiveActorId,
+          input.pemohonId,
+          input.returnCondition,
+          notesText,
+          targetBox.id,
+          origin.allocated_item_ids || null,
+          origin.id
+        ]
+      );
+
+      await ActivityLogService.recordActivity({
+        aksi: 'ajukan_pengembalian',
+        pelaku_id: input.pemohonId,
+        actor_id: effectiveActorId,
+        recorded_by_id: input.pemohonId,
+        recorded_by_role: input.recordedByRole,
+        on_behalf_reason: isOnBehalf ? input.onBehalfReason : null,
+        request_id: requestId,
+        tipe_mutasi: 'SYSTEM',
+        reference_type: 'REQUEST_RETURN_SUBMIT',
+        reference_number: origin.id,
+        box_tujuan: targetBox.kode,
+        catatan: `Mengajukan pengembalian untuk Request #${origin.id}: ${origin.nama_produk} - ${origin.nama_tipe} [Kondisi: ${input.returnCondition}, Box: ${targetBox.kode}]`
+      });
+
+      const created = await this.getRequestById(requestId);
+      return created!;
+    }
+
+    // Cabang 2: Permohonan Ambil Barang / Alat (Alur Eksisting)
+    if (!input.alasan || input.alasan.trim().length === 0) {
+      throw new Error('Alasan permohonan wajib diisi.');
+    }
+    if (!input.tipeId) {
+      throw new Error('tipe_id wajib dipilih.');
     }
 
     const tipe = await CatalogService.getTipeById(input.tipeId);
@@ -184,11 +287,14 @@ export class RequestService {
         heldMs = Math.max(0, end - start);
       }
     }
+    const isReturnReq = Boolean(row.transaction_out_id && String(row.transaction_out_id).startsWith('req-'));
     return {
       ...row,
       kategori_barang: row.kategori_barang || 'Barang Habis Pakai',
       tipe_stok: row.tipe_stok || 'unit',
-      held_duration_ms: heldMs
+      held_duration_ms: heldMs,
+      request_type: isReturnReq ? 'kembalikan' : 'ambil',
+      origin_request_id: isReturnReq ? row.transaction_out_id : null
     };
   }
 
@@ -293,7 +399,16 @@ export class RequestService {
     }
     sql += ' ORDER BY COALESCE(r.taken_at, r.diproses_pada, r.dibuat_pada) ASC';
     const list = await executeQuery<RequestRecord>(sql, params);
-    return list.map(r => this.attachHeldDuration(r));
+    const pendingReturns = await executeQuery<{ transaction_out_id: string }>(
+      `SELECT transaction_out_id FROM request
+       WHERE transaction_out_id LIKE 'req-%'
+         AND status IN ('diajukan', 'menunggu', 'disetujui')`
+    );
+    const pendingOriginIds = new Set(pendingReturns.map(r => r.transaction_out_id));
+    return list.map(r => ({
+      ...this.attachHeldDuration(r),
+      has_pending_return: pendingOriginIds.has(r.id)
+    }));
   }
 
   /**
@@ -316,6 +431,10 @@ export class RequestService {
     const req = await this.getRequestById(input.requestId);
     if (!req) {
       throw new Error(`Permohonan #${input.requestId} tidak ditemukan.`);
+    }
+
+    if (req.request_type === 'kembalikan') {
+      throw new Error('Permohonan ini adalah pengajuan pengembalian barang. Gunakan tombol "Verifikasi & Terima Pengembalian".');
     }
 
     if (req.status !== 'menunggu' && req.status !== 'diajukan') {
@@ -565,7 +684,8 @@ export class RequestService {
   }
 
   /**
-   * Pengembalian barang dari Teknisi ('diambil' -> 'dikembalikan'), wajib untuk kategori Alat
+   * Pengembalian / Verifikasi Pengembalian barang dari Teknisi -> 'dikembalikan'
+   * Mendukung 2 entry: langsung pada request berstatus 'diambil', ATAU verifikasi gudang atas pengajuan 'kembalikan' berstatus 'diajukan'.
    */
   static async returnRequest(input: {
     requestId: string;
@@ -581,12 +701,25 @@ export class RequestService {
     if (!req) {
       throw new Error(`Permohonan #${input.requestId} tidak ditemukan.`);
     }
-    if (req.status !== 'diambil') {
-      throw new Error(`Hanya barang berstatus DIAMBIL yang dapat dikembalikan (Status saat ini: ${req.status.toUpperCase()}).`);
+
+    const isPendingReturnReq =
+      req.request_type === 'kembalikan' &&
+      Boolean(req.origin_request_id) &&
+      (req.status === 'diajukan' || req.status === 'menunggu');
+
+    if (req.status !== 'diambil' && !isPendingReturnReq) {
+      throw new Error(`Hanya barang berstatus DIAMBIL atau pengajuan pengembalian menunggu yang dapat diproses (Status saat ini: ${req.status.toUpperCase()}).`);
+    }
+
+    const originReq = isPendingReturnReq && req.origin_request_id
+      ? await this.getRequestById(req.origin_request_id)
+      : req;
+    if (!originReq || originReq.status !== 'diambil') {
+      throw new Error('Data pengambilan asal sudah dikembalikan atau tidak berstatus DIAMBIL.');
     }
 
     const targetBox = await StockService.getBoxById(input.returnBoxId);
-    if (!targetBox) {
+    if (!targetBox || !targetBox.aktif) {
       throw new Error(`Box tujuan pengembalian "${input.returnBoxId}" tidak ditemukan.`);
     }
 
@@ -596,9 +729,9 @@ export class RequestService {
     }
 
     return await runTransaction(async (conn) => {
-      const targetActorId = req.actor_id || req.pemohon_id;
-      const allocatedIds: string[] = req.allocated_item_ids
-        ? (typeof req.allocated_item_ids === 'string' ? JSON.parse(req.allocated_item_ids) : req.allocated_item_ids)
+      const targetActorId = originReq.actor_id || originReq.pemohon_id;
+      const allocatedIds: string[] = originReq.allocated_item_ids
+        ? (typeof originReq.allocated_item_ids === 'string' ? JSON.parse(originReq.allocated_item_ids) : originReq.allocated_item_ids)
         : [];
 
       const detailsPayload: ActivityDetailInput[] = [];
@@ -613,10 +746,10 @@ export class RequestService {
             [targetBox.id, input.returnCondition, input.returnNotes ? input.returnNotes.trim() : null, it.id]
           );
           detailsPayload.push({
-            tipe_id: req.tipe_id,
+            tipe_id: originReq.tipe_id,
             item_id: it.id,
             kode_id: it.kode_id,
-            nama_snapshot: `${req.nama_produk} - ${req.nama_tipe}`,
+            nama_snapshot: `${originReq.nama_produk} - ${originReq.nama_tipe}`,
             jumlah: 1,
             status_sebelum: 'keluar',
             status_sesudah: 'aktif'
@@ -625,48 +758,48 @@ export class RequestService {
       } else {
         const sjRows = await conn.query(
           'SELECT * FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?',
-          [req.tipe_id, targetBox.id]
+          [originReq.tipe_id, targetBox.id]
         );
         if (sjRows && sjRows.length > 0) {
           await conn.query(
             'UPDATE stok_jumlah SET jumlah = jumlah + ? WHERE tipe_id = ? AND box_id = ?',
-            [req.jumlah, req.tipe_id, targetBox.id]
+            [originReq.jumlah, originReq.tipe_id, targetBox.id]
           );
         } else {
           await conn.query(
             'INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)',
-            [req.tipe_id, targetBox.id, req.jumlah]
+            [originReq.tipe_id, targetBox.id, originReq.jumlah]
           );
         }
         detailsPayload.push({
-          tipe_id: req.tipe_id,
+          tipe_id: originReq.tipe_id,
           item_id: null,
           kode_id: null,
-          nama_snapshot: `${req.nama_produk} - ${req.nama_tipe}`,
-          jumlah: req.jumlah,
+          nama_snapshot: `${originReq.nama_produk} - ${originReq.nama_tipe}`,
+          jumlah: originReq.jumlah,
           status_sebelum: 'keluar',
           status_sesudah: 'aktif'
         });
       }
 
       const txLog = await ActivityLogService.recordActivity({
-        aksi: req.kategori_barang === 'Alat' ? 'kembali_alat' : 'kembalikan_request',
+        aksi: originReq.kategori_barang === 'Alat' ? 'kembali_alat' : 'kembalikan_request',
         pelaku_id: targetActorId,
         actor_id: targetActorId,
-        actor_nama: req.nama_pemohon,
+        actor_nama: originReq.nama_pemohon,
         recorded_by_id: input.recordedById,
         recorded_by_nama: input.recordedByName,
         recorded_by_role: input.recordedByRole,
-        on_behalf_reason: targetActorId !== input.recordedById ? `Pengembalian barang Request #${req.id} ke gudang` : null,
+        on_behalf_reason: targetActorId !== input.recordedById ? `Verifikasi pengembalian barang Request #${originReq.id} ke gudang` : null,
         occurred_at: timeCheck.utcIso,
         request_id: req.id,
         tipe_mutasi: 'MASUK',
         reference_type: 'REQUEST_RETURN',
-        reference_number: req.id,
+        reference_number: originReq.id,
         recipient_destination: targetBox.kode,
-        qty_total: req.jumlah,
+        qty_total: originReq.jumlah,
         box_tujuan: targetBox.kode,
-        catatan: `Pengembalian barang Request #${req.id} ke ${targetBox.kode} [Kondisi: ${input.returnCondition}]${input.returnNotes ? ` - ${input.returnNotes.trim()}` : ''}`,
+        catatan: `Pengembalian barang Request #${originReq.id} ke ${targetBox.kode} [Kondisi: ${input.returnCondition}]${input.returnNotes ? ` - ${input.returnNotes.trim()}` : ''}`,
         details: detailsPayload
       }, conn);
 
@@ -682,14 +815,34 @@ export class RequestService {
           input.returnNotes ? input.returnNotes.trim() : null,
           targetBox.id,
           txLog.transaksiId,
-          req.id
+          originReq.id
         ]
       );
 
+      if (isPendingReturnReq) {
+        await conn.query(
+          `UPDATE request
+           SET status = 'dikembalikan', returned_at = ?, returned_by_id = ?, return_condition = ?,
+               return_notes = ?, return_box_id = ?, transaction_in_id = ?, penyetuju_id = ?, diproses_pada = NOW()
+           WHERE id = ?`,
+          [
+            timeCheck.mysqlDatetimeUtc,
+            input.recordedById,
+            input.returnCondition,
+            input.returnNotes ? input.returnNotes.trim() : null,
+            targetBox.id,
+            txLog.transaksiId,
+            input.recordedById,
+            req.id
+          ]
+        );
+      }
+
       return {
         success: true,
-        message: `Barang Request #${req.id} berhasil dikembalikan ke ${targetBox.kode} [Kondisi: ${input.returnCondition}].`,
+        message: `Barang Request #${originReq.id} berhasil diverifikasi dan dikembalikan ke ${targetBox.kode} [Kondisi: ${input.returnCondition}].`,
         requestId: req.id,
+        originRequestId: originReq.id,
         activityId: txLog.idAktivitas,
         transaksiId: txLog.transaksiId
       };

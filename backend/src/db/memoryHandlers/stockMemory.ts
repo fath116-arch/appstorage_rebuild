@@ -42,6 +42,39 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
     return match ? [{ ...match }] : [];
   }
 
+  if (upper.startsWith('UPDATE BOX SET AKTIF = 0 WHERE ID = ?')) {
+    const b = memoryStore.box.get(params[0]);
+    if (b) {
+      b.aktif = 0;
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper.includes('FROM ITEM WHERE BOX_ID = ?')) {
+    const boxId = params[0];
+    const total = Array.from(memoryStore.item_v2.values()).filter(
+      i => i.box_id === boxId && (i.status === 'aktif' || i.status === 'dipesan')
+    ).length;
+    return [{ total }];
+  }
+
+  if (upper.includes('FROM STOK_JUMLAH WHERE BOX_ID = ?')) {
+    const boxId = params[0];
+    const rows = Array.from(memoryStore.stok_jumlah.values()).filter(s => s.box_id === boxId);
+    const total = rows.reduce((acc, s) => acc + Number(s.jumlah || 0), 0);
+    const reserved = rows.reduce((acc, s) => acc + Number(s.reserved_qty || 0), 0);
+    return [{ total, reserved }];
+  }
+
+  if (upper.includes('FROM REQUEST WHERE (BOX_ID = ? OR RETURN_BOX_ID = ?)')) {
+    const boxId = params[0];
+    const total = Array.from(memoryStore.request.values()).filter(
+      r => (r.box_id === boxId || r.return_box_id === boxId) && ['diajukan', 'menunggu', 'disetujui'].includes(r.status)
+    ).length;
+    return [{ total }];
+  }
+
   if (upper.startsWith('SELECT ID FROM BOX WHERE KODE = "BOX-A-01"')) {
     const match = Array.from(memoryStore.box.values()).find(b => b.kode === 'BOX-A-01');
     return match ? [{ id: match.id }] : [];
@@ -165,9 +198,11 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   }
 
   if (upper.startsWith('SELECT I.*') && upper.includes('FROM ITEM I')) {
-    if (upper.includes('WHERE UPPER(I.KODE_ID) = UPPER(?)')) {
+    if (upper.includes('WHERE UPPER(I.KODE_ID) = UPPER(?)') || upper.includes('WHERE I.ID = ?')) {
       const target = String(params[0]).toUpperCase();
-      const match = Array.from(memoryStore.item_v2.values()).find(i => i.kode_id.toUpperCase() === target);
+      const match = upper.includes('WHERE I.ID = ?')
+        ? memoryStore.item_v2.get(params[0])
+        : Array.from(memoryStore.item_v2.values()).find(i => i.kode_id.toUpperCase() === target);
       if (!match) return [];
       const b = memoryStore.box.get(match.box_id);
       const t = memoryStore.tipe.get(match.tipe_id);
@@ -453,7 +488,23 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   }
 
   // REQUEST
+  if (upper.startsWith('SELECT ID FROM REQUEST') && upper.includes('TRANSACTION_OUT_ID = ?')) {
+    const originId = params[0];
+    const list = Array.from(memoryStore.request.values()).filter(
+      r => r.transaction_out_id === originId && Boolean(r.return_condition) && ['diajukan', 'menunggu', 'disetujui'].includes(r.status)
+    );
+    return list.map(r => ({ id: r.id }));
+  }
+
+  if (upper.startsWith('SELECT TRANSACTION_OUT_ID FROM REQUEST')) {
+    const list = Array.from(memoryStore.request.values()).filter(
+      r => typeof r.transaction_out_id === 'string' && r.transaction_out_id.startsWith('req-') && ['diajukan', 'menunggu', 'disetujui'].includes(r.status)
+    );
+    return list.map(r => ({ transaction_out_id: r.transaction_out_id }));
+  }
+
   if (upper.startsWith('INSERT INTO REQUEST')) {
+    const isReturnSubmit = upper.includes('RETURN_CONDITION');
     const req: any = {
       id: params[0],
       pemohon_id: params[1],
@@ -472,11 +523,11 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       taken_at: null,
       returned_at: null,
       returned_by_id: null,
-      return_condition: null,
-      return_notes: null,
-      return_box_id: null,
-      allocated_item_ids: null,
-      transaction_out_id: null,
+      return_condition: isReturnSubmit ? (params[10] || null) : null,
+      return_notes: isReturnSubmit ? (params[11] || null) : null,
+      return_box_id: isReturnSubmit ? (params[12] || null) : null,
+      allocated_item_ids: isReturnSubmit ? (params[13] || null) : null,
+      transaction_out_id: isReturnSubmit ? (params[14] || null) : null,
       transaction_in_id: null
     };
     memoryStore.request.set(req.id, req);
@@ -533,6 +584,10 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       req.return_notes = params[3] || null;
       req.return_box_id = params[4] || null;
       req.transaction_in_id = params[5] || null;
+      if (upper.includes('PENYETUJU_ID')) {
+        req.penyetuju_id = params[6] || null;
+        req.diproses_pada = new Date().toISOString();
+      }
       return { affectedRows: 1 };
     }
   }

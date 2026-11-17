@@ -12,9 +12,30 @@ const router = express.Router();
 
 router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const { tipe_id, box_id, kode_id, jumlah, alasan, actor_id, on_behalf_reason } = req.body;
-    if (!tipe_id || !alasan) {
+    const {
+      tipe_id,
+      box_id,
+      kode_id,
+      jumlah,
+      alasan,
+      actor_id,
+      on_behalf_reason,
+      request_type,
+      origin_request_id,
+      return_condition,
+      return_box_id,
+      return_notes
+    } = req.body;
+
+    const reqType = request_type === 'kembalikan' ? 'kembalikan' : 'ambil';
+    if (reqType === 'ambil' && (!tipe_id || !alasan)) {
       return res.status(400).json({ success: false, message: 'tipe_id dan alasan permohonan wajib diisi.' });
+    }
+    if (reqType === 'kembalikan' && (!origin_request_id || !return_condition)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pilih barang yang dibawa dan kondisi barang yang akan dikembalikan.'
+      });
     }
 
     const requestObj = await RequestService.createRequest({
@@ -23,11 +44,16 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
       actorRole: req.user!.role,
       recordedByRole: req.user!.role,
       onBehalfReason: on_behalf_reason ? String(on_behalf_reason) : undefined,
-      tipeId: Number(tipe_id),
+      requestType: reqType,
+      originRequestId: origin_request_id ? String(origin_request_id) : undefined,
+      returnCondition: return_condition ? String(return_condition) as 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak' : undefined,
+      returnBoxId: return_box_id ? String(return_box_id) : undefined,
+      returnNotes: return_notes ? String(return_notes) : undefined,
+      tipeId: tipe_id ? Number(tipe_id) : undefined,
       boxId: box_id ? String(box_id) : undefined,
       kodeId: kode_id ? String(kode_id) : undefined,
       jumlah: jumlah ? Number(jumlah) : undefined,
-      alasan: String(alasan)
+      alasan: alasan ? String(alasan) : undefined
     });
 
     return res.status(201).json({ success: true, data: requestObj });

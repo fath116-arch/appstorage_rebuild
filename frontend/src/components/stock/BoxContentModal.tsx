@@ -17,6 +17,7 @@ import {
   Box as BoxIcon
 } from 'lucide-react';
 import { stockApi, Box, BoxContentsResponse } from '../../services/stockApi';
+import { catalogApi } from '../../services/catalogApi';
 import { useInventory } from '../../context/InventoryContext';
 
 interface BoxContentModalProps {
@@ -35,6 +36,7 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
   const { showToast } = useInventory();
   const [data, setData] = useState<BoxContentsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [allBoxes, setAllBoxes] = useState<Box[]>([]);
 
   // State Pindah Box
@@ -59,17 +61,19 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
     if (!boxIdOrKode) return;
     try {
       setLoading(true);
+      setLoadError(null);
       const [resContents, boxes] = await Promise.all([
         stockApi.getBoxContents(boxIdOrKode),
         stockApi.listBoxes()
       ]);
       setData(resContents);
       setAllBoxes(boxes);
-      // Filter out current box from target options
       const otherBoxes = boxes.filter(b => b.id !== resContents.box.id);
-      if (otherBoxes.length > 0) setTargetBoxId(otherBoxes[0].id);
-    } catch (err: any) {
-      showToast(err.message, 'error');
+      setTargetBoxId(otherBoxes.length > 0 ? otherBoxes[0].id : '');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal memuat isi storage box.';
+      setLoadError(msg);
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -77,9 +81,23 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
 
   useEffect(() => {
     if (isOpen && boxIdOrKode) {
+      setMovingItem(null);
+      setEditingConditionItem(null);
       loadContents();
+    } else if (!isOpen) {
+      setData(null);
+      setLoadError(null);
+      setMovingItem(null);
+      setEditingConditionItem(null);
     }
   }, [isOpen, boxIdOrKode, loadContents]);
+
+  useEffect(() => {
+    if (editingConditionItem) {
+      setNewKondisi(editingConditionItem.kondisi || 'Baik');
+      setCatatanKondisiInput(editingConditionItem.catatan_kondisi || '');
+    }
+  }, [editingConditionItem]);
 
   if (!isOpen || !boxIdOrKode) return null;
 
@@ -104,42 +122,29 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
       setMoveCatatan('');
       await loadContents();
       if (onRefreshParent) onRefreshParent();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memindahkan item.', 'error');
     }
   };
-
-  useEffect(() => {
-    if (editingConditionItem) {
-      setNewKondisi(editingConditionItem.kondisi || 'Baik');
-      setCatatanKondisiInput(editingConditionItem.catatan_kondisi || '');
-    }
-  }, [editingConditionItem]);
 
   const handleExecuteUpdateCondition = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingConditionItem) return;
 
     try {
-      const res = await fetch(`/api/stock/items/${encodeURIComponent(editingConditionItem.id)}/condition`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          kondisi: newKondisi,
-          catatan_kondisi: catatanKondisiInput.trim() || undefined
-        })
-      });
-      const resData = await res.json();
-      if (!res.ok) throw new Error(resData.message || 'Gagal mengubah kondisi item.');
+      const resData = await catalogApi.updateItemCondition(
+        editingConditionItem.id,
+        newKondisi,
+        catatanKondisiInput.trim() || undefined
+      );
 
-      showToast(resData.message, 'success');
+      showToast(String(resData.message || 'Kondisi item berhasil diperbarui.'), 'success');
       setEditingConditionItem(null);
       setCatatanKondisiInput('');
       await loadContents();
       if (onRefreshParent) onRefreshParent();
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah kondisi item.', 'error');
     }
   };
 
@@ -162,16 +167,28 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
             </div>
           </div>
 
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content Loading State */}
+        {/* Content Loading / Error State */}
         {loading ? (
           <div className="p-12 text-center text-slate-500">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
-            <span>Membaca isi box & memetakan suku cadang...</span>
+            <span>Membaca isi box &amp; memetakan suku cadang...</span>
+          </div>
+        ) : loadError ? (
+          <div className="p-8 text-center space-y-3 text-xs">
+            <p className="text-rose-600 dark:text-rose-400 font-semibold">{loadError}</p>
+            <button
+              type="button"
+              onClick={loadContents}
+              className="px-4 py-2 font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Muat Ulang Isi Box</span>
+            </button>
           </div>
         ) : !data ? (
           <div className="p-6 text-center text-slate-500">

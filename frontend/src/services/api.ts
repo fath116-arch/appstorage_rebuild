@@ -45,6 +45,17 @@ interface BasicResponse {
   user?: UserProfile;
 }
 
+const LAST_LOGIN_KEY = 'fieldops_last_login_ts';
+
+export function getLastLoginTime(): number {
+  try {
+    const raw = localStorage.getItem(LAST_LOGIN_KEY);
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export const api = {
   // Auth API
   async login(username: string, passwordAttempt: string): Promise<{ success: boolean; user?: UserProfile; message?: string }> {
@@ -55,6 +66,13 @@ export const api = {
     });
     if (data.token) {
       setAuthToken(data.token);
+    }
+    if (data.success) {
+      try {
+        localStorage.setItem(LAST_LOGIN_KEY, String(Date.now()));
+      } catch {
+        // Ignore storage error
+      }
     }
     return data;
   },
@@ -77,7 +95,44 @@ export const api = {
 
   async logout(): Promise<void> {
     clearAuthToken();
+    try {
+      localStorage.removeItem(LAST_LOGIN_KEY);
+    } catch {
+      // Ignore storage error
+    }
     await requestJson('/api/auth/logout', { method: 'POST' });
+  },
+
+  async requestConfirmationToken(payload: {
+    actionType: string;
+    targetId: string;
+    targetName?: string;
+    objectNameTyped?: string;
+    reauthPassword?: string;
+    lastLoginTime?: number;
+  }): Promise<{
+    success: boolean;
+    tier: number;
+    token?: string;
+    expiresInSeconds?: number;
+    message: string;
+    requiresReauth?: boolean;
+  }> {
+    const { data } = await requestJson<{
+      success: boolean;
+      tier: number;
+      token?: string;
+      expiresInSeconds?: number;
+      message: string;
+      requiresReauth?: boolean;
+    }>('/api/auth/confirm-token', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...payload,
+        lastLoginTime: payload.lastLoginTime ?? getLastLoginTime()
+      })
+    });
+    return data;
   },
 
   async getUsers(): Promise<UserProfile[]> {

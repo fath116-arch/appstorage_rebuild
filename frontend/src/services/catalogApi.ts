@@ -153,6 +153,22 @@ export const catalogApi = {
     return data.jenis;
   },
 
+  async updateJenis(
+    id: number,
+    payload: {
+      nama: string;
+      sumber_id_bawaan?: 'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id';
+      prefix_id_bawaan?: string;
+    }
+  ): Promise<Jenis> {
+    const data = await apiFetch<{ jenis: Jenis }>(
+      `/api/catalog/jenis/${id}`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+      'Gagal memperbarui kategori.'
+    );
+    return data.jenis;
+  },
+
   async deleteJenis(id: number, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
     return apiFetch<{ success: boolean; message: string }>(
       `/api/catalog/jenis/${id}`,
@@ -191,6 +207,38 @@ export const catalogApi = {
       'Gagal menambahkan atribut.'
     );
     return data.atribut;
+  },
+
+  async updateAtribut(
+    id: number,
+    payload: {
+      kode: string;
+      nama: string;
+      tipe_isian?: 'angka' | 'pilihan' | 'teks';
+      satuan?: string;
+      wajib?: boolean;
+      urutan?: number;
+      masuk_nama?: boolean;
+      opsi?: Array<{ id?: number; nilai: string }> | string[];
+    }
+  ): Promise<Atribut> {
+    const data = await apiFetch<{ atribut: Atribut }>(
+      `/api/catalog/attributes/${id}`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+      'Gagal memperbarui atribut.'
+    );
+    return data.atribut;
+  },
+
+  async deleteAtribut(id: number, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/catalog/attributes/${id}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
+      },
+      'Gagal menghapus atribut.'
+    );
   },
 
   async addAtributOpsi(atributId: number, nilai: string): Promise<AtributOpsi> {

@@ -4,8 +4,9 @@
  */
 
 import express from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole, requireConfirmation } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { CatalogService } from '../services/catalogService';
+import { ConfirmationService } from '../services/confirmationService';
 
 const router = express.Router();
 
@@ -63,6 +64,9 @@ router.put(
     try {
       const id = parseInt(String(req.params.id), 10);
       const { nama, sumber_id_bawaan, prefix_id_bawaan } = req.body;
+      if (!nama || String(nama).trim().length === 0) {
+        return res.status(400).json({ success: false, message: 'Nama kategori wajib diisi.' });
+      }
 
       const updated = await CatalogService.updateJenis(
         id,
@@ -70,9 +74,9 @@ router.put(
         req.user!.id
       );
 
-      return res.json({ success: true, message: 'Jenis berhasil diperbarui.', jenis: updated });
+      return res.json({ success: true, message: 'Kategori berhasil diperbarui.', jenis: updated });
     } catch (err: any) {
-      return res.status(500).json({ success: false, message: err.message });
+      return res.status(400).json({ success: false, message: err.message });
     }
   }
 );
@@ -80,11 +84,32 @@ router.put(
 router.delete(
   '/jenis/:id',
   requireAuth,
-  requireRole(['developer', 'admin']),
-  requireConfirmation('delete_kind', req => String(req.params.id)),
+  requireRole(['developer', 'admin', 'warehouse_admin']),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const id = parseInt(String(req.params.id), 10);
+      const preCheck = await CatalogService.canDeleteJenis(id);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Kategori tidak dapat dihapus.' });
+      }
+
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_kind',
+        String(id)
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_kind',
+          targetId: String(id)
+        });
+      }
+
       const result = await CatalogService.deleteJenis(id, req.user!.id);
       if (!result.success) {
         return res.status(400).json(result);
@@ -134,6 +159,70 @@ router.post(
       });
 
       return res.status(201).json({ success: true, message: 'Atribut berhasil ditambahkan.', atribut: created });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.put(
+  '/attributes/:id',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      const { kode, nama, tipe_isian, satuan, wajib, urutan, masuk_nama, opsi } = req.body;
+      if (!kode || !nama) {
+        return res.status(400).json({ success: false, message: 'Kode dan nama atribut wajib diisi.' });
+      }
+
+      const updated = await CatalogService.updateAtribut(
+        id,
+        { kode, nama, tipe_isian, satuan, wajib, urutan, masuk_nama, opsi },
+        req.user!.id
+      );
+      return res.json({ success: true, message: 'Atribut berhasil diperbarui.', atribut: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/attributes/:id',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      const preCheck = await CatalogService.canDeleteAtribut(id);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Atribut tidak dapat dihapus.' });
+      }
+
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_attribute',
+        String(id)
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_attribute',
+          targetId: String(id)
+        });
+      }
+
+      const result = await CatalogService.deleteAtribut(id, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
     } catch (err: any) {
       return res.status(500).json({ success: false, message: err.message });
     }
@@ -262,11 +351,32 @@ router.put(
 router.delete(
   '/products/:id',
   requireAuth,
-  requireRole(['developer', 'admin']),
-  requireConfirmation('delete_product', req => String(req.params.id)),
+  requireRole(['developer', 'admin', 'warehouse_admin']),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const id = parseInt(String(req.params.id), 10);
+      const preCheck = await CatalogService.canDeleteProduk(id);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Produk tidak dapat dihapus.' });
+      }
+
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_product',
+        String(id)
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_product',
+          targetId: String(id)
+        });
+      }
+
       const result = await CatalogService.deleteProduk(id, req.user!.id);
       if (!result.success) return res.status(400).json(result);
       return res.json(result);

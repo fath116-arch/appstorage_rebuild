@@ -6,6 +6,7 @@
 import express from 'express';
 import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { StockService } from '../services/stockService';
+import { ConfirmationService } from '../services/confirmationService';
 
 const router = express.Router();
 
@@ -82,6 +83,46 @@ router.post(
       return res.json(result);
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const id = String(req.params.id);
+      const preCheck = await StockService.canDeleteBox(id);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Storage Box tidak dapat dihapus.' });
+      }
+
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_box',
+        id
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_box',
+          targetId: id
+        });
+      }
+
+      const result = await StockService.deleteBox(id, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
     }
   }
 );

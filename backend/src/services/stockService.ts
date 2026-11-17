@@ -7,6 +7,7 @@ import { executeQuery, runTransaction } from '../db/database';
 import { ActivityDetailInput, ActivityLogService } from './activityLogService';
 import { CatalogService } from './catalogService';
 import { ConfirmationService } from './confirmationService';
+import { TrashService } from './trashService';
 import { toMysqlUtcDatetime } from '../utils/timezone';
 import crypto from 'crypto';
 
@@ -182,6 +183,71 @@ export class StockService {
 
     const created = await this.getBoxById(boxId);
     return created!;
+  }
+
+  static async canDeleteBox(id: string): Promise<{ canDelete: boolean; message?: string; existing?: Box }> {
+    const existing = await this.getBoxById(id);
+    if (!existing || !existing.aktif) {
+      return { canDelete: false, message: 'Storage Box tidak ditemukan.' };
+    }
+
+    const itemRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total FROM item WHERE box_id = ? AND status IN ('aktif', 'dipesan')`,
+      [id]
+    );
+    const activeItems = Number(itemRows[0]?.total || 0);
+
+    const sjRows = await executeQuery<{ total: number | string; reserved: number | string }>(
+      `SELECT COALESCE(SUM(jumlah), 0) as total, COALESCE(SUM(COALESCE(reserved_qty, 0)), 0) as reserved FROM stok_jumlah WHERE box_id = ?`,
+      [id]
+    );
+    const activeSj = Number(sjRows[0]?.total || 0);
+    const reservedSj = Number(sjRows[0]?.reserved || 0);
+
+    if (activeItems > 0 || activeSj > 0 || reservedSj > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Storage Box "${existing.kode}" karena masih menyimpan ${activeItems} item ber-ID dan ${activeSj} stok jumlah.`
+      };
+    }
+
+    const reqRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total FROM request WHERE (box_id = ? OR return_box_id = ?) AND status IN ('diajukan', 'menunggu', 'disetujui')`,
+      [id, id]
+    );
+    const openReqs = Number(reqRows[0]?.total || 0);
+    if (openReqs > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Storage Box "${existing.kode}" karena masih direferensikan oleh ${openReqs} request aktif.`
+      };
+    }
+
+    return { canDelete: true, existing };
+  }
+
+  static async deleteBox(id: string, userId: string): Promise<{ success: boolean; message: string }> {
+    const check = await this.canDeleteBox(id);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Storage Box tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
+
+    await TrashService.moveToTrash({
+      jenis_objek: 'box',
+      objek_id: existing.id,
+      snapshot: existing,
+      dihapus_oleh: userId,
+      catatan: `Hapus Storage Box "${existing.kode}"`
+    });
+
+    await executeQuery('UPDATE box SET aktif = 0 WHERE id = ?', [existing.id]);
+    return {
+      success: true,
+      message: `Storage Box "${existing.kode}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
   }
 
   /**

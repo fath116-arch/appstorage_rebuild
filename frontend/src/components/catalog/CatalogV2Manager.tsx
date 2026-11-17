@@ -28,7 +28,9 @@ import {
   Camera,
   ArrowRightLeft,
   Folder,
-  Briefcase
+  Briefcase,
+  Trash2,
+  Pencil
 } from 'lucide-react';
 import { catalogApi, Jenis, Atribut, Produk, Tipe } from '../../services/catalogApi';
 import { stockApi } from '../../services/stockApi';
@@ -42,6 +44,7 @@ import { CatalogBrowseCategoriesTab } from './CatalogBrowseCategoriesTab';
 import { CatalogBoxesTab } from './CatalogBoxesTab';
 import { CatalogManageTab } from './CatalogManageTab';
 import { TrashModal } from '../TrashModal';
+import { ConfirmDeleteModal, DeleteConfirmTarget } from '../common/ConfirmDeleteModal';
 
 interface CatalogV2ManagerProps {
   onOpenChecklist?: () => void;
@@ -170,6 +173,28 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
   const [newJenisNama, setNewJenisNama] = useState('');
   const [newJenisSumberId, setNewJenisSumberId] = useState<'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id'>('manual');
   const [newJenisPrefix, setNewJenisPrefix] = useState('');
+
+  // State Hapus Tier 3 (Produk, Box, Kategori, Atribut)
+  const [deleteTarget, setDeleteTarget] = useState<DeleteConfirmTarget | null>(null);
+
+  // Form Edit Kategori (Jenis)
+  const [editingJenis, setEditingJenis] = useState<Jenis | null>(null);
+  const [editJenisNama, setEditJenisNama] = useState('');
+  const [editJenisSumberId, setEditJenisSumberId] = useState<'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id'>('manual');
+  const [editJenisPrefix, setEditJenisPrefix] = useState('');
+  const [savingJenis, setSavingJenis] = useState(false);
+
+  // Form Edit Atribut
+  const [editingAttrTarget, setEditingAttrTarget] = useState<{ category: Jenis; attr: Atribut } | null>(null);
+  const [editAttrKode, setEditAttrKode] = useState('');
+  const [editAttrNama, setEditAttrNama] = useState('');
+  const [editAttrTipeIsian, setEditAttrTipeIsian] = useState<'angka' | 'pilihan' | 'teks'>('pilihan');
+  const [editAttrSatuan, setEditAttrSatuan] = useState('');
+  const [editAttrWajib, setEditAttrWajib] = useState(true);
+  const [editAttrMasukNama, setEditAttrMasukNama] = useState(true);
+  const [editAttrOpsiList, setEditAttrOpsiList] = useState<Array<{ id?: number; nilai: string }>>([]);
+  const [newEditOpsiInput, setNewEditOpsiInput] = useState('');
+  const [savingAttr, setSavingAttr] = useState(false);
 
   // Memuat data
   const loadData = useCallback(async () => {
@@ -527,6 +552,150 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
     }
   };
 
+  // Edit Kategori
+  const openEditCategory = (cat: Jenis) => {
+    setEditingJenis(cat);
+    setEditJenisNama(cat.nama);
+    setEditJenisSumberId(cat.sumber_id_bawaan || 'manual');
+    setEditJenisPrefix(cat.prefix_id_bawaan || '');
+  };
+
+  const handleUpdateJenis = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingJenis || !editJenisNama.trim()) {
+      showToast('Nama kategori wajib diisi.', 'warning');
+      return;
+    }
+    setSavingJenis(true);
+    try {
+      await catalogApi.updateJenis(editingJenis.id, {
+        nama: editJenisNama.trim(),
+        sumber_id_bawaan: editJenisSumberId,
+        prefix_id_bawaan: editJenisPrefix.trim() || undefined
+      });
+      showToast(`Kategori "${editJenisNama.trim()}" berhasil diperbarui.`, 'success');
+      setEditingJenis(null);
+      await Promise.all([loadData(), refreshData()]);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memperbarui kategori.', 'error');
+    } finally {
+      setSavingJenis(false);
+    }
+  };
+
+  // Edit Atribut
+  const openEditAttribute = (category: Jenis, attr: Atribut) => {
+    setEditingAttrTarget({ category, attr });
+    setEditAttrKode(attr.kode);
+    setEditAttrNama(attr.nama);
+    setEditAttrTipeIsian(attr.tipe_isian);
+    setEditAttrSatuan(attr.satuan || '');
+    setEditAttrWajib(Boolean(attr.wajib));
+    setEditAttrMasukNama(Boolean(attr.masuk_nama));
+    setEditAttrOpsiList((attr.opsi || []).map((o) => ({ id: o.id, nilai: o.nilai })));
+    setNewEditOpsiInput('');
+  };
+
+  const handleUpdateAtribut = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAttrTarget || !editAttrKode.trim() || !editAttrNama.trim()) {
+      showToast('Kode dan nama atribut wajib diisi.', 'warning');
+      return;
+    }
+    setSavingAttr(true);
+    try {
+      await catalogApi.updateAtribut(editingAttrTarget.attr.id, {
+        kode: editAttrKode.trim().toLowerCase(),
+        nama: editAttrNama.trim(),
+        tipe_isian: editAttrTipeIsian,
+        satuan: editAttrTipeIsian === 'angka' ? (editAttrSatuan.trim() || undefined) : undefined,
+        wajib: editAttrWajib,
+        masuk_nama: editAttrMasukNama,
+        opsi: editAttrTipeIsian === 'pilihan' ? editAttrOpsiList.filter((o) => o.nilai.trim().length > 0) : undefined
+      });
+      showToast(`Atribut "${editAttrNama.trim()}" berhasil diperbarui.`, 'success');
+      setEditingAttrTarget(null);
+      await Promise.all([loadData(), refreshData()]);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memperbarui atribut.', 'error');
+    } finally {
+      setSavingAttr(false);
+    }
+  };
+
+  // Permintaan Hapus Produk, Box, Kategori, Atribut (Diblokir bila masih ada stok/isi/produk aktif)
+  const handleRequestDeleteProduct = (prod: Produk) => {
+    const activeStock = Number(prod.total_stok || 0);
+    const reservedStock = Number(prod.total_dipesan || 0);
+    const damagedStock = Number(prod.stok_rusak || 0);
+    const hasStock = activeStock > 0 || reservedStock > 0 || damagedStock > 0;
+    setDeleteTarget({
+      actionType: 'delete_product',
+      targetId: String(prod.id),
+      targetName: prod.nama,
+      entityLabel: 'Produk',
+      blockerMessage: hasStock
+        ? `Produk "${prod.nama}" masih memiliki stok tersimpan (Tersedia: ${activeStock}, Dipesan: ${reservedStock}, Rusak: ${damagedStock}).`
+        : null,
+      onConfirm: async (token) => {
+        const res = await catalogApi.deleteProduk(prod.id, token);
+        showToast(res.message, 'success');
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteBox = (box: any) => {
+    const totalItem = Number(box.total_item || 0);
+    setDeleteTarget({
+      actionType: 'delete_box',
+      targetId: String(box.id),
+      targetName: box.kode,
+      entityLabel: 'Storage Box',
+      blockerMessage: totalItem > 0
+        ? `Storage Box "${box.kode}" masih menampung ${totalItem} item/unit aktif.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await stockApi.deleteBox(box.id, token);
+        showToast(res.message, 'success');
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteCategory = (cat: Jenis) => {
+    const prodCount = Number(cat.total_produk || 0);
+    setDeleteTarget({
+      actionType: 'delete_kind',
+      targetId: String(cat.id),
+      targetName: cat.nama,
+      entityLabel: 'Kategori',
+      blockerMessage: prodCount > 0
+        ? `Kategori "${cat.nama}" masih memiliki ${prodCount} produk aktif di dalamnya.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await catalogApi.deleteJenis(cat.id, token);
+        showToast(res.message, 'success');
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteAttribute = (_cat: Jenis, attr: Atribut) => {
+    setDeleteTarget({
+      actionType: 'delete_attribute',
+      targetId: String(attr.id),
+      targetName: attr.nama,
+      entityLabel: 'Atribut',
+      blockerMessage: null,
+      onConfirm: async (token) => {
+        const res = await catalogApi.deleteAtribut(attr.id, token);
+        showToast(res.message, 'success');
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -858,13 +1027,25 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                         </button>
 
                         {canManageCatalog && (
-                          <button
-                            onClick={() => handleOpenAddType(prod)}
-                            className="px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Tambah Tipe</span>
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAddType(prod)}
+                              className="px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs whitespace-nowrap shrink-0"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Tambah Tipe</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRequestDeleteProduct(prod)}
+                              className="p-1.5 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-lg transition-colors shrink-0"
+                              title={`Hapus Produk ${prod.nama}`}
+                              aria-label={`Hapus Produk ${prod.nama}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1058,6 +1239,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
           canManageCatalog={canManageCatalog}
           onOpenCreateBox={() => setIsBoxManagerOpen(true)}
           onSelectBox={(boxId) => setSelectedBoxForContent(boxId)}
+          onDeleteBox={handleRequestDeleteBox}
         />
       )}
 
@@ -1069,6 +1251,8 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
           categories={jenisList}
           canManageCatalog={canManageCatalog}
           onOpenAddCategory={() => setIsAddJenisOpen(true)}
+          onEditCategory={openEditCategory}
+          onDeleteCategory={handleRequestDeleteCategory}
           onOpenAddAttribute={(cat) => {
             setSelectedJenisForAttr(cat);
             setNewAttrKode('');
@@ -1077,6 +1261,8 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
             setNewAttrOpsiText('');
             setIsAddAttrOpen(true);
           }}
+          onEditAttribute={openEditAttribute}
+          onDeleteAttribute={handleRequestDeleteAttribute}
           onOpenRestore={onOpenRestore}
           onOpenTrash={() => setIsTrashOpen(true)}
           trashCount={trashItems?.length || 0}
@@ -2192,6 +2378,269 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       <TrashModal
         isOpen={isTrashOpen}
         onClose={() => setIsTrashOpen(false)}
+      />
+
+      {/* Modal Ubah Kategori */}
+      {editingJenis && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-emerald-500" />
+                <span>Ubah Kategori</span>
+              </h3>
+              <button type="button" onClick={() => setEditingJenis(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateJenis} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Kategori *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editJenisNama}
+                  onChange={(e) => setEditJenisNama(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Sumber ID Bawaan
+                </label>
+                <select
+                  value={editJenisSumberId}
+                  onChange={(e) => setEditJenisSumberId(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                >
+                  <option value="scan_sn">scan_sn (Barcode / Serial Number Pabrik)</option>
+                  <option value="otomatis">otomatis (Generate Nomor Seri Sistem &amp; QR)</option>
+                  <option value="manual">manual (Ketik Manual Pengguna)</option>
+                  <option value="tanpa_id">tanpa_id (Mode Stok Jumlah / Non-SN)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Prefix Bawaan (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={editJenisPrefix}
+                  onChange={(e) => setEditJenisPrefix(e.target.value)}
+                  placeholder="Misal: ADP"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingJenis(null)}
+                  className="px-4 py-2 text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingJenis}
+                  className="px-4 py-2 font-bold text-white bg-slate-900 dark:bg-emerald-600 rounded-lg shadow-xs disabled:opacity-50"
+                >
+                  {savingJenis ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ubah Atribut */}
+      {editingAttrTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-emerald-500" />
+                  <span>Ubah Atribut Spesifikasi</span>
+                </h3>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Kategori: <strong>{editingAttrTarget.category.nama}</strong>
+                </span>
+              </div>
+              <button type="button" onClick={() => setEditingAttrTarget(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateAtribut} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama Label Atribut *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editAttrNama}
+                    onChange={(e) => setEditAttrNama(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Kode Teknis *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editAttrKode}
+                    onChange={(e) => setEditAttrKode(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Tipe Isian
+                  </label>
+                  <select
+                    value={editAttrTipeIsian}
+                    onChange={(e) => setEditAttrTipeIsian(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="angka">Angka</option>
+                    <option value="pilihan">Pilihan Dropdown</option>
+                    <option value="teks">Teks Bebas</option>
+                  </select>
+                </div>
+                {editAttrTipeIsian === 'angka' && (
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Satuan (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      value={editAttrSatuan}
+                      onChange={(e) => setEditAttrSatuan(e.target.value)}
+                      placeholder="Misal: V, A, m"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {editAttrTipeIsian === 'pilihan' && (
+                <div className="space-y-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300 block">
+                    Kelola Daftar Opsi Dropdown
+                  </span>
+                  <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                    {editAttrOpsiList.map((opt, idx) => (
+                      <div key={opt.id || `new-${idx}`} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={opt.nilai}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditAttrOpsiList((prev) =>
+                              prev.map((item, i) => (i === idx ? { ...item, nilai: val } : item))
+                            );
+                          }}
+                          className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md font-mono text-slate-900 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEditAttrOpsiList((prev) => prev.filter((_, i) => i !== idx))}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded"
+                          title="Hapus opsi"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      placeholder="Tambah opsi baru..."
+                      value={newEditOpsiInput}
+                      onChange={(e) => setNewEditOpsiInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newEditOpsiInput.trim()) {
+                          e.preventDefault();
+                          setEditAttrOpsiList((prev) => [...prev, { nilai: newEditOpsiInput.trim() }]);
+                          setNewEditOpsiInput('');
+                        }
+                      }}
+                      className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newEditOpsiInput.trim()) return;
+                        setEditAttrOpsiList((prev) => [...prev, { nilai: newEditOpsiInput.trim() }]);
+                        setNewEditOpsiInput('');
+                      }}
+                      className="px-3 py-1.5 font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-md whitespace-nowrap"
+                    >
+                      + Tambah Opsi
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-6 pt-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editAttrWajib}
+                    onChange={(e) => setEditAttrWajib(e.target.checked)}
+                  />
+                  <span className="text-slate-800 dark:text-slate-200 font-medium">Atribut Wajib Diisi</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editAttrMasukNama}
+                    onChange={(e) => setEditAttrMasukNama(e.target.checked)}
+                  />
+                  <span className="text-slate-800 dark:text-slate-200 font-medium">Masuk ke Nama Tipe</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingAttrTarget(null)}
+                  className="px-4 py-2 text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAttr}
+                  className="px-4 py-2 font-bold text-white bg-slate-900 dark:bg-emerald-600 rounded-lg shadow-xs disabled:opacity-50"
+                >
+                  {savingAttr ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Tier 3 & Blocker Data Aktif */}
+      <ConfirmDeleteModal
+        target={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
       />
     </div>
   );

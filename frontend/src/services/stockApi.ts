@@ -107,6 +107,17 @@ export const stockApi = {
     return data.box;
   },
 
+  async deleteBox(id: string, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/boxes/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
+      },
+      'Gagal menghapus storage box.'
+    );
+  },
+
   async pindahBox(payload: {
     item_id?: string;
     tipe_id?: number;

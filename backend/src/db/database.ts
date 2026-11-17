@@ -186,7 +186,7 @@ function runMemoryQuery(sql: string, params: unknown[]): any {
     seedMemoryDb();
   }
   const cleanSql = sql.trim();
-  const upper = cleanSql.toUpperCase();
+  const upper = cleanSql.replace(/\s+/g, ' ').toUpperCase();
 
   for (const handler of MEMORY_HANDLERS) {
     const result = handler(cleanSql, upper, params);

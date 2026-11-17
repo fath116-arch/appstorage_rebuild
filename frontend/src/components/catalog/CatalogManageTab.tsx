@@ -6,22 +6,25 @@
 
 import React from 'react';
 import {
-  Layers,
   Plus,
   Trash2,
   RotateCcw,
   Sliders,
   Settings,
   Sparkles,
-  Info
+  Pencil
 } from 'lucide-react';
-import { Jenis } from '../../services/catalogApi';
+import { Jenis, Atribut } from '../../services/catalogApi';
 
 interface CatalogManageTabProps {
   categories: Jenis[];
   canManageCatalog: boolean;
   onOpenAddCategory: () => void;
+  onEditCategory?: (category: Jenis) => void;
+  onDeleteCategory?: (category: Jenis) => void;
   onOpenAddAttribute: (category: Jenis) => void;
+  onEditAttribute?: (category: Jenis, attr: Atribut) => void;
+  onDeleteAttribute?: (category: Jenis, attr: Atribut) => void;
   onOpenSNPatterns?: () => void;
   onOpenTrash?: () => void;
   onOpenRestore?: () => void;
@@ -32,7 +35,11 @@ export const CatalogManageTab: React.FC<CatalogManageTabProps> = ({
   categories,
   canManageCatalog,
   onOpenAddCategory,
+  onEditCategory,
+  onDeleteCategory,
   onOpenAddAttribute,
+  onEditAttribute,
+  onDeleteAttribute,
   onOpenSNPatterns,
   onOpenTrash,
   onOpenRestore,
@@ -132,13 +139,38 @@ export const CatalogManageTab: React.FC<CatalogManageTabProps> = ({
               </div>
 
               {canManageCatalog && (
-                <button
-                  onClick={() => onOpenAddAttribute(cat)}
-                  className="px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Tambah Atribut</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onEditCategory && (
+                    <button
+                      type="button"
+                      onClick={() => onEditCategory(cat)}
+                      className="px-2 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
+                      title={`Ubah Kategori ${cat.nama}`}
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>Ubah</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenAddAttribute(cat)}
+                    className="px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Atribut</span>
+                  </button>
+                  {onDeleteCategory && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteCategory(cat)}
+                      className="p-1.5 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-lg transition-colors shrink-0"
+                      title={`Hapus Kategori ${cat.nama}`}
+                      aria-label={`Hapus Kategori ${cat.nama}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -159,8 +191,8 @@ export const CatalogManageTab: React.FC<CatalogManageTabProps> = ({
                       key={a.id}
                       className="bg-slate-50 dark:bg-slate-800/60 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800 text-xs flex flex-col gap-1.5"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
                           <span className="font-bold text-slate-800 dark:text-slate-200">
                             {a.nama}
                           </span>
@@ -171,17 +203,39 @@ export const CatalogManageTab: React.FC<CatalogManageTabProps> = ({
                             {a.tipe_isian} {a.satuan ? `(${a.satuan})` : ''}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 text-[10px]">
-                          {a.wajib && (
+                        <div className="flex items-center gap-2 text-[10px] shrink-0">
+                          {Boolean(a.wajib) && (
                             <span className="text-red-500 font-semibold font-mono">
                               *Wajib
                             </span>
                           )}
-                          {a.masuk_nama && (
+                          {Boolean(a.masuk_nama) && (
                             <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5">
                               <Sparkles className="w-2.5 h-2.5" />
                               Masuk Nama Tipe
                             </span>
+                          )}
+                          {canManageCatalog && onEditAttribute && (
+                            <button
+                              type="button"
+                              onClick={() => onEditAttribute(cat, a)}
+                              className="p-1 text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 hover:bg-white dark:hover:bg-slate-700 rounded transition-colors"
+                              title={`Ubah Atribut ${a.nama}`}
+                              aria-label={`Ubah Atribut ${a.nama}`}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
+                          {canManageCatalog && onDeleteAttribute && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteAttribute(cat, a)}
+                              className="p-1 text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded transition-colors"
+                              title={`Hapus Atribut ${a.nama}`}
+                              aria-label={`Hapus Atribut ${a.nama}`}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
                           )}
                         </div>
                       </div>

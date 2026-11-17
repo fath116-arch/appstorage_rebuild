@@ -50,6 +50,9 @@ export interface RequestRecord {
   mode_stok?: 'per_id' | 'jumlah';
   kode_box?: string;
   held_duration_ms?: number | null;
+  request_type?: 'ambil' | 'kembalikan';
+  origin_request_id?: string | null;
+  has_pending_return?: boolean;
 }
 
 export interface RequestTimelineEntry {
@@ -119,13 +122,18 @@ export const requestApi = {
   },
 
   async create(payload: {
-    tipe_id: number;
+    tipe_id?: number;
     box_id?: string;
     kode_id?: string;
     jumlah?: number;
-    alasan: string;
+    alasan?: string;
     actor_id?: string;
     on_behalf_reason?: string;
+    request_type?: 'ambil' | 'kembalikan';
+    origin_request_id?: string;
+    return_condition?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
+    return_box_id?: string;
+    return_notes?: string;
   }): Promise<RequestRecord> {
     const data = await apiFetch<{ data: RequestRecord }>(
       '/api/requests',

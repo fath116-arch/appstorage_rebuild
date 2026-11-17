@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Box as BoxIcon, Plus, RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { Box as BoxIcon, Plus, RefreshCw, ArrowRightLeft, Trash2 } from 'lucide-react';
 
 interface CatalogBoxesTabProps {
   boxesList: any[];
@@ -12,6 +12,7 @@ interface CatalogBoxesTabProps {
   canManageCatalog: boolean;
   onOpenCreateBox: () => void;
   onSelectBox: (boxId: string) => void;
+  onDeleteBox?: (box: any) => void;
 }
 
 export const CatalogBoxesTab: React.FC<CatalogBoxesTabProps> = ({
@@ -20,6 +21,7 @@ export const CatalogBoxesTab: React.FC<CatalogBoxesTabProps> = ({
   canManageCatalog,
   onOpenCreateBox,
   onSelectBox,
+  onDeleteBox,
 }) => {
   return (
     <div className="space-y-4">
@@ -81,7 +83,7 @@ export const CatalogBoxesTab: React.FC<CatalogBoxesTabProps> = ({
                   <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
                     <BoxIcon className="w-5 h-5" />
                   </div>
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 tabular-nums">
                     {box.total_item ?? 0} item
                   </span>
                 </div>
@@ -94,14 +96,26 @@ export const CatalogBoxesTab: React.FC<CatalogBoxesTabProps> = ({
                 </p>
               </div>
 
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => onSelectBox(box.id)}
-                  className="w-full py-2 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
                 >
                   <span>Buka Isi Box</span>
                   <ArrowRightLeft className="w-3.5 h-3.5" />
                 </button>
+                {canManageCatalog && onDeleteBox && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteBox(box)}
+                    className="p-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-lg transition-colors shrink-0"
+                    title={`Hapus Box ${box.kode}`}
+                    aria-label={`Hapus Box ${box.kode}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
