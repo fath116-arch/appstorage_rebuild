@@ -17,7 +17,8 @@ import {
   UserCheck,
   Wrench,
   Search,
-  X
+  X,
+  Briefcase
 } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
@@ -31,6 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
   menunggu: 'Menunggu',
   disetujui: 'Disetujui (Dipesan)',
   diambil: 'Diambil / Dipakai',
+  selesai: 'Selesai (Terpakai Pelanggan)',
   dikembalikan: 'Dikembalikan',
   ditolak: 'Ditolak',
   dibatalkan: 'Dibatalkan'
@@ -45,7 +47,7 @@ const CONDITION_DISPLAY: Record<string, string> = {
 
 export const TechnicianRequestsView: React.FC = () => {
   const { user } = useAuth();
-  const { products, boxes, requests, heldItems, actors, refreshData, showToast } = useInventory();
+  const { products, boxes, requests, heldItems, actors, bags, refreshData, showToast } = useInventory();
 
   const isManager = canManageRequests(user?.role);
   const allowOnBehalf = canActOnBehalf(user?.role);
@@ -60,9 +62,11 @@ export const TechnicianRequestsView: React.FC = () => {
   const [timelines, setTimelines] = useState<Record<string, RequestTimelineEntry[]>>({});
   const [loadingTimelineId, setLoadingTimelineId] = useState<string | null>(null);
 
-  // Create Request Modal (Ambil vs Kembalikan)
+  // Create Request Modal (Ambil vs Kembalikan; Satuan vs Paket Tas)
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [reqMode, setReqMode] = useState<'ambil' | 'kembalikan'>('ambil');
+  const [takeScope, setTakeScope] = useState<'satuan' | 'tas'>('satuan');
+  const [reqBagId, setReqBagId] = useState<string>('');
   const [reqProdId, setReqProdId] = useState<number | ''>('');
   const [reqTipeId, setReqTipeId] = useState<number | ''>('');
   const [reqBoxId, setReqBoxId] = useState<string>('');
@@ -90,6 +94,13 @@ export const TechnicianRequestsView: React.FC = () => {
   const [pickupNotes, setPickupNotes] = useState<string>('');
   const [pickingUp, setPickingUp] = useState(false);
 
+  // Complete (Selesai Terpakai Pelanggan) Modal
+  const [completeTarget, setCompleteTarget] = useState<RequestRecord | null>(null);
+  const [customerName, setCustomerName] = useState<string>('');
+  const [usageNotes, setUsageNotes] = useState<string>('');
+  const [completeOccurredLocal, setCompleteOccurredLocal] = useState<string>(() => getCurrentWibDateTimeLocalInput());
+  const [completing, setCompleting] = useState(false);
+
   // Reject Reason Modal
   const [rejectTarget, setRejectTarget] = useState<RequestRecord | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
@@ -105,6 +116,29 @@ export const TechnicianRequestsView: React.FC = () => {
     [tipesForProduct, reqTipeId]
   );
 
+  const selectedBag = useMemo(() => bags.find((b) => b.id === reqBagId) || null, [bags, reqBagId]);
+  const bagHasInsufficientStock = useMemo(() => {
+    if (!selectedBag) return false;
+    return selectedBag.items.some((it) => Number(it.stok_tersedia ?? 0) < (it.jumlah || 1));
+  }, [selectedBag]);
+
+  const pendingReturnOriginIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of requests) {
+      if (
+        r.request_type === 'kembalikan' &&
+        r.origin_request_id &&
+        (r.status === 'diajukan' || r.status === 'menunggu' || r.status === 'disetujui')
+      ) {
+        set.add(r.origin_request_id);
+      }
+    }
+    for (const h of heldItems) {
+      if (h.has_pending_return) set.add(h.id);
+    }
+    return set;
+  }, [requests, heldItems]);
+
   const effectiveActorForForm = reqActorId || user?.id || '';
   const actorHeldItems = useMemo(() => {
     return heldItems.filter((h) => (h.actor_id || h.pemohon_id) === effectiveActorForForm);
@@ -119,6 +153,8 @@ export const TechnicianRequestsView: React.FC = () => {
     const actorId = user?.id || '';
     const firstHeld = heldItems.find((h) => (h.actor_id || h.pemohon_id) === actorId && !h.has_pending_return);
     setReqMode('ambil');
+    setTakeScope('satuan');
+    setReqBagId(bags[0]?.id || '');
     setReqProdId(firstProd?.id || '');
     setReqTipeId(firstTipe?.id || '');
     setReqBoxId(firstTipe?.sebaran_box?.[0]?.box_id || boxes[0]?.id || '');
@@ -185,6 +221,34 @@ export const TechnicianRequestsView: React.FC = () => {
           on_behalf_reason: isOnBehalf ? reqOnBehalfReason.trim() : undefined
         });
         showToast('Pengajuan pengembalian berhasil dikirim dan menunggu verifikasi gudang.', 'success');
+        setIsCreateOpen(false);
+        await refreshData();
+      } catch (err: unknown) {
+        showToast(getErrorMessage(err), 'error');
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
+    if (takeScope === 'tas') {
+      if (!reqBagId || !selectedBag) {
+        showToast('Pilih paket Tas Kerja terlebih dahulu.', 'warning');
+        return;
+      }
+      if (!reqAlasan.trim()) {
+        showToast('Alasan atau nomor tiket penggunaan tas wajib diisi.', 'warning');
+        return;
+      }
+      setCreating(true);
+      try {
+        const res = await requestApi.createBagRequest({
+          bag_id: reqBagId,
+          alasan: reqAlasan.trim(),
+          actor_id: isOnBehalf ? reqActorId : undefined,
+          on_behalf_reason: isOnBehalf ? reqOnBehalfReason.trim() : undefined
+        });
+        showToast(res.message || `Permohonan untuk Tas "${selectedBag.nama_tas}" berhasil diajukan.`, 'success');
         setIsCreateOpen(false);
         await refreshData();
       } catch (err: unknown) {
@@ -322,6 +386,41 @@ export const TechnicianRequestsView: React.FC = () => {
     }
   };
 
+  const openCompleteDialog = (req: RequestRecord) => {
+    setCompleteTarget(req);
+    setCustomerName('');
+    setUsageNotes('');
+    setCompleteOccurredLocal(getCurrentWibDateTimeLocalInput());
+  };
+
+  const handleConfirmComplete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completeTarget) return;
+    if (customerName.trim().length < 2) {
+      showToast('Nama atau ID Pelanggan wajib diisi (minimal 2 karakter).', 'warning');
+      return;
+    }
+    if (usageNotes.trim().length < 3) {
+      showToast('Catatan pemasangan pada pelanggan wajib diisi.', 'warning');
+      return;
+    }
+    setCompleting(true);
+    try {
+      const res = await requestApi.completeRequest(completeTarget.id, {
+        customer_name: customerName.trim(),
+        usage_notes: usageNotes.trim(),
+        occurred_at: wibLocalInputToUtcIso(completeOccurredLocal)
+      });
+      showToast(res.message || 'Barang ditandai selesai terpakai untuk pelanggan.', 'success');
+      setCompleteTarget(null);
+      await refreshData();
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err), 'error');
+    } finally {
+      setCompleting(false);
+    }
+  };
+
   const filteredRequests = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return requests.filter((r) => {
@@ -339,7 +438,9 @@ export const TechnicianRequestsView: React.FC = () => {
         (r.nama_tipe && r.nama_tipe.toLowerCase().includes(q)) ||
         (r.kode_id && r.kode_id.toLowerCase().includes(q)) ||
         (r.nama_pemohon && r.nama_pemohon.toLowerCase().includes(q)) ||
-        (r.alasan && r.alasan.toLowerCase().includes(q))
+        (r.alasan && r.alasan.toLowerCase().includes(q)) ||
+        (r.bag_name && r.bag_name.toLowerCase().includes(q)) ||
+        (r.return_notes && r.return_notes.toLowerCase().includes(q))
       );
     });
   }, [requests, statusFilter, searchQuery]);
@@ -353,7 +454,8 @@ export const TechnicianRequestsView: React.FC = () => {
         (h.nama_produk && h.nama_produk.toLowerCase().includes(q)) ||
         (h.nama_tipe && h.nama_tipe.toLowerCase().includes(q)) ||
         (h.kode_id && h.kode_id.toLowerCase().includes(q)) ||
-        (h.nama_pemohon && h.nama_pemohon.toLowerCase().includes(q))
+        (h.nama_pemohon && h.nama_pemohon.toLowerCase().includes(q)) ||
+        (h.bag_name && h.bag_name.toLowerCase().includes(q))
     );
   }, [heldItems, searchQuery]);
 
@@ -431,6 +533,7 @@ export const TechnicianRequestsView: React.FC = () => {
               <option value="diajukan">Diajukan</option>
               <option value="disetujui">Disetujui (Dipesan)</option>
               <option value="diambil">Diambil</option>
+              <option value="selesai">Selesai (Terpakai Pelanggan)</option>
               <option value="dikembalikan">Dikembalikan</option>
               <option value="ditolak">Ditolak</option>
               <option value="dibatalkan">Dibatalkan</option>
@@ -475,6 +578,8 @@ export const TechnicianRequestsView: React.FC = () => {
                               ? 'text-sky-600 dark:text-sky-400'
                               : isPickedUp
                               ? 'text-emerald-600 dark:text-emerald-400'
+                              : req.status === 'selesai'
+                              ? 'text-teal-600 dark:text-teal-400'
                               : req.status === 'dikembalikan'
                               ? 'text-indigo-600 dark:text-indigo-400'
                               : 'text-slate-500 dark:text-slate-400'
@@ -482,6 +587,14 @@ export const TechnicianRequestsView: React.FC = () => {
                         >
                           {STATUS_LABELS[req.status] || req.status.toUpperCase()}
                         </span>
+                        {req.bag_name && (
+                          <>
+                            <span className="text-slate-400">·</span>
+                            <span className="font-sans font-semibold text-sky-600 dark:text-sky-400">
+                              Tas: {req.bag_name}
+                            </span>
+                          </>
+                        )}
                         {req.kategori_barang === 'Alat' && (
                           <>
                             <span className="text-slate-400">·</span>
@@ -519,7 +632,10 @@ export const TechnicianRequestsView: React.FC = () => {
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         {isReturnReq ? 'Catatan Kembali: ' : 'Alasan: '}{req.alasan}
                         {req.catatan_penolakan ? ` · Catatan Tolak: ${req.catatan_penolakan}` : ''}
-                        {req.return_condition ? ` · Kondisi: ${CONDITION_DISPLAY[req.return_condition] || req.return_condition} (Box ${req.return_box_kode || req.return_box_id})` : ''}
+                        {req.status === 'selesai' && req.return_notes ? ` · Pemakaian: ${req.return_notes}` : ''}
+                        {req.status !== 'selesai' && req.return_condition
+                          ? ` · Kondisi: ${CONDITION_DISPLAY[req.return_condition] || req.return_condition} (Box ${req.return_box_kode || req.return_box_id})`
+                          : ''}
                       </p>
                     </div>
 
@@ -587,12 +703,24 @@ export const TechnicianRequestsView: React.FC = () => {
                         </button>
                       )}
 
+                      {isPickedUp && req.kategori_barang !== 'Alat' && (isManager || isOwner) && !pendingReturnOriginIds.has(req.id) && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => openCompleteDialog(req)}
+                          className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-semibold flex items-center gap-1 whitespace-nowrap"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Selesai (Terpakai)</span>
+                        </button>
+                      )}
+
                       {isManager && isPickedUp && (
                         <button
                           type="button"
                           disabled={isBusy}
                           onClick={() => openReturnDialog(req)}
-                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center gap-1"
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center gap-1 whitespace-nowrap"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
                           <span>Kembalikan Barang</span>
@@ -695,50 +823,66 @@ export const TechnicianRequestsView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredHeld.map((h) => (
-                    <tr key={h.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900 dark:text-slate-100">{h.nama_pemohon || h.pemohon_id}</div>
-                        <div className="font-mono text-[10px] text-slate-500 dark:text-slate-400">{h.id}</div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900 dark:text-slate-100">
-                          {h.nama_produk} — {h.nama_tipe}
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {h.kategori_barang || 'Barang Habis Pakai'}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200 tabular-nums">
-                        {h.kode_id || `${h.jumlah} ${h.tipe_stok || 'unit'}`}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300 tabular-nums">
-                        {formatWibDateTime(h.taken_at || h.diproses_pada || h.dibuat_pada)}
-                      </td>
-                      <td className="py-3 px-4 font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums">
-                        {formatDurationSince(h.taken_at || h.diproses_pada, h.held_duration_ms)}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        {h.has_pending_return && (
-                          <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mr-2">
-                            Menunggu Verifikasi
-                          </span>
-                        )}
-                        {isManager ? (
-                          <button
-                            type="button"
-                            onClick={() => openReturnDialog(h)}
-                            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold inline-flex items-center gap-1"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Kembalikan</span>
-                          </button>
-                        ) : !h.has_pending_return ? (
-                          <span className="text-[11px] text-slate-400">Ajukan via Kembalikan Barang</span>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredHeld.map((h) => {
+                    const isHeldOwner = Boolean(user && (h.pemohon_id === user.id || h.actor_id === user.id));
+                    return (
+                      <tr key={h.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900 dark:text-slate-100">{h.nama_pemohon || h.pemohon_id}</div>
+                          <div className="font-mono text-[10px] text-slate-500 dark:text-slate-400">{h.id}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">
+                            {h.nama_produk} — {h.nama_tipe}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {h.kategori_barang || 'Barang Habis Pakai'}
+                            {h.bag_name ? ` · Tas: ${h.bag_name}` : ''}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200 tabular-nums">
+                          {h.kode_id || `${h.jumlah} ${h.tipe_stok || 'unit'}`}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300 tabular-nums">
+                          {formatWibDateTime(h.taken_at || h.diproses_pada || h.dibuat_pada)}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                          {formatDurationSince(h.taken_at || h.diproses_pada, h.held_duration_ms)}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                            {h.has_pending_return && (
+                              <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mr-1">
+                                Menunggu Verifikasi
+                              </span>
+                            )}
+                            {!h.has_pending_return && h.kategori_barang !== 'Alat' && (isManager || isHeldOwner) && (
+                              <button
+                                type="button"
+                                onClick={() => openCompleteDialog(h)}
+                                className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Selesai (Terpakai)</span>
+                              </button>
+                            )}
+                            {isManager ? (
+                              <button
+                                type="button"
+                                onClick={() => openReturnDialog(h)}
+                                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Kembalikan</span>
+                              </button>
+                            ) : !h.has_pending_return && h.kategori_barang === 'Alat' ? (
+                              <span className="text-[11px] text-slate-400">Ajukan via Kembalikan Barang</span>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -922,106 +1066,222 @@ export const TechnicianRequestsView: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Produk *</label>
-                      <select
-                        value={reqProdId}
-                        onChange={(e) => {
-                          const pId = Number(e.target.value);
-                          setReqProdId(pId);
-                          const prod = products.find((p) => p.id === pId);
-                          const firstT = prod?.tipes?.[0];
-                          setReqTipeId(firstT?.id || '');
-                          setReqBoxId(firstT?.sebaran_box?.[0]?.box_id || boxes[0]?.id || '');
-                        }}
-                        className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Pilih Kebutuhan Pengambilan *
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setTakeScope('satuan')}
+                        className={`py-2 px-3 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          takeScope === 'satuan'
+                            ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                        }`}
                       >
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.nama} ({p.kategori_barang || 'Habis Pakai'})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tipe *</label>
-                      <select
-                        value={reqTipeId}
-                        onChange={(e) => {
-                          const tId = Number(e.target.value);
-                          setReqTipeId(tId);
-                          const t = tipesForProduct.find((x) => x.id === tId);
-                          if (t?.sebaran_box?.[0]?.box_id) setReqBoxId(t.sebaran_box[0].box_id);
+                        <Wrench className="w-3.5 h-3.5" />
+                        <span>Alat / Barang Satuan</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTakeScope('tas');
+                          if (!reqBagId && bags[0]?.id) setReqBagId(bags[0].id);
                         }}
-                        className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                        className={`py-2 px-3 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          takeScope === 'tas'
+                            ? 'bg-white dark:bg-slate-800 text-sky-700 dark:text-sky-400 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                        }`}
                       >
-                        {tipesForProduct.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.nama_tipe} (Tersedia: {t.stok_tersedia ?? 0})
-                          </option>
-                        ))}
-                      </select>
+                        <Briefcase className="w-3.5 h-3.5" />
+                        <span>Pilih Paket Tas ({bags.length})</span>
+                      </button>
                     </div>
                   </div>
 
-                  {selectedTipe?.mode_stok === 'per_id' ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                          SN Spesifik (Opsional — kosongkan untuk alokasi otomatis saat disetujui)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Contoh: ZTEGD1234567"
-                          value={reqKodeId}
-                          onChange={(e) => setReqKodeId(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Jumlah Unit</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          disabled={Boolean(reqKodeId.trim())}
-                          value={reqKodeId.trim() ? '1' : reqJumlah}
-                          onChange={(e) => setReqJumlah(e.target.value.replace(/\D/g, ''))}
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100"
-                        />
-                      </div>
+                  {takeScope === 'tas' ? (
+                    <div className="space-y-3">
+                      {bags.length === 0 ? (
+                        <div className="p-3.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400">
+                          Belum ada Tas Kerja Lapangan terdaftar di kantor. Buat paket tas terlebih dahulu lewat menu{' '}
+                          <strong className="text-slate-700 dark:text-slate-200">Cek Tas Kerja → Kelola Tas</strong>.
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                              Pilih Tas Lapangan *
+                            </label>
+                            <select
+                              value={reqBagId}
+                              onChange={(e) => setReqBagId(e.target.value)}
+                              className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                            >
+                              {bags.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.nama_tas} ({b.items.length} jenis · {b.total_unit} unit)
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {selectedBag && (
+                            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-900 dark:text-slate-100">
+                                  Isi {selectedBag.nama_tas}
+                                </span>
+                                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                                  {selectedBag.total_unit} total unit
+                                </span>
+                              </div>
+                              {selectedBag.keterangan && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">{selectedBag.keterangan}</p>
+                              )}
+                              <div className="divide-y divide-slate-200 dark:divide-slate-800 border-t border-slate-200 dark:border-slate-800 pt-1">
+                                {selectedBag.items.map((it, idx) => {
+                                  const avail = Number(it.stok_tersedia ?? 0);
+                                  const enough = avail >= (it.jumlah || 1);
+                                  return (
+                                    <div key={`${it.tipe_id}-${idx}`} className="py-1.5 flex items-center justify-between gap-2 text-[11px]">
+                                      <div className="min-w-0">
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                          {it.nama_produk} — {it.nama_tipe}
+                                        </span>
+                                        {it.kode_id && (
+                                          <span className="ml-1.5 font-mono text-slate-500 dark:text-slate-400">
+                                            (SN: {it.kode_id})
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="shrink-0 font-mono tabular-nums flex items-center gap-2">
+                                        <span className="font-bold text-slate-900 dark:text-slate-100">
+                                          ×{it.jumlah} {it.tipe_stok || 'unit'}
+                                        </span>
+                                        <span className={enough ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-rose-600 dark:text-rose-400 font-bold'}>
+                                          {enough ? `Stok: ${avail}` : `Kurang (Sisa ${avail})`}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {bagHasInsufficientStock && (
+                                <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 pt-1">
+                                  Sebagian alat di dalam tas ini stoknya belum mencukupi untuk diajukan penuh.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Box Asal</label>
-                        <select
-                          value={reqBoxId}
-                          onChange={(e) => setReqBoxId(e.target.value)}
-                          className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
-                        >
-                          {boxes.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.kode}
-                            </option>
-                          ))}
-                        </select>
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Produk *</label>
+                          <select
+                            value={reqProdId}
+                            onChange={(e) => {
+                              const pId = Number(e.target.value);
+                              setReqProdId(pId);
+                              const prod = products.find((p) => p.id === pId);
+                              const firstT = prod?.tipes?.[0];
+                              setReqTipeId(firstT?.id || '');
+                              setReqBoxId(firstT?.sebaran_box?.[0]?.box_id || boxes[0]?.id || '');
+                            }}
+                            className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                          >
+                            {products.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.nama} ({p.kategori_barang || 'Habis Pakai'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tipe *</label>
+                          <select
+                            value={reqTipeId}
+                            onChange={(e) => {
+                              const tId = Number(e.target.value);
+                              setReqTipeId(tId);
+                              const t = tipesForProduct.find((x) => x.id === tId);
+                              if (t?.sebaran_box?.[0]?.box_id) setReqBoxId(t.sebaran_box[0].box_id);
+                            }}
+                            className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                          >
+                            {tipesForProduct.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.nama_tipe} (Tersedia: {t.stok_tersedia ?? 0})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Jumlah</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={reqJumlah}
-                          onChange={(e) => setReqJumlah(e.target.value.replace(/\D/g, ''))}
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100"
-                        />
-                      </div>
-                    </div>
+
+                      {selectedTipe?.mode_stok === 'per_id' ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                              SN Spesifik (Opsional — kosongkan untuk alokasi otomatis saat disetujui)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Contoh: ZTEGD1234567"
+                              value={reqKodeId}
+                              onChange={(e) => setReqKodeId(e.target.value)}
+                              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Jumlah Unit</label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              disabled={Boolean(reqKodeId.trim())}
+                              value={reqKodeId.trim() ? '1' : reqJumlah}
+                              onChange={(e) => setReqJumlah(e.target.value.replace(/\D/g, ''))}
+                              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Box Asal</label>
+                            <select
+                              value={reqBoxId}
+                              onChange={(e) => setReqBoxId(e.target.value)}
+                              className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
+                            >
+                              {boxes.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.kode}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Jumlah</label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={reqJumlah}
+                              onChange={(e) => setReqJumlah(e.target.value.replace(/\D/g, ''))}
+                              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
+                </div>
               )}
 
               <div>
@@ -1034,6 +1294,8 @@ export const TechnicianRequestsView: React.FC = () => {
                   placeholder={
                     reqMode === 'kembalikan'
                       ? 'Misal: Pekerjaan selesai, barang tidak terpakai dan masih utuh / kabel bodi normal...'
+                      : takeScope === 'tas'
+                      ? 'Misal: Tiket #INC-4092 · Aktivasi & splicing cluster utara...'
                       : 'Misal: Pemasangan pelanggan baru Cluster Melati / Peminjaman splicer lapangan...'
                   }
                   value={reqAlasan}
@@ -1052,14 +1314,24 @@ export const TechnicianRequestsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={creating || (reqMode === 'kembalikan' && eligibleReturnItems.length === 0)}
+                  disabled={
+                    creating ||
+                    (reqMode === 'kembalikan' && eligibleReturnItems.length === 0) ||
+                    (reqMode === 'ambil' && takeScope === 'tas' && (!reqBagId || bags.length === 0 || bagHasInsufficientStock))
+                  }
                   className={`px-4 py-2 font-bold text-white rounded-lg disabled:opacity-50 ${
                     reqMode === 'kembalikan'
                       ? 'bg-indigo-600 hover:bg-indigo-500'
                       : 'bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500'
                   }`}
                 >
-                  {creating ? 'Mengirim...' : reqMode === 'kembalikan' ? 'Ajukan Pengembalian' : 'Kirim Permohonan'}
+                  {creating
+                    ? 'Mengirim...'
+                    : reqMode === 'kembalikan'
+                    ? 'Ajukan Pengembalian'
+                    : takeScope === 'tas'
+                    ? 'Ajukan Paket Tas'
+                    : 'Kirim Permohonan'}
                 </button>
               </div>
             </form>
@@ -1225,6 +1497,85 @@ export const TechnicianRequestsView: React.FC = () => {
                   className="px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg disabled:opacity-50"
                 >
                   {returning ? 'Menyimpan...' : returnTarget.request_type === 'kembalikan' ? 'Verifikasi & Terima' : 'Simpan Pengembalian'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Tandai Selesai — Terpakai Pelanggan (Barang Habis Pakai) */}
+      {completeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base">
+                Tandai Selesai — Terpakai Pelanggan ({completeTarget.id})
+              </h3>
+              <button type="button" onClick={() => setCompleteTarget(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmComplete} className="space-y-3 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <div className="font-bold text-slate-900 dark:text-slate-100">
+                  {completeTarget.nama_produk} — {completeTarget.nama_tipe}
+                </div>
+                <div className="font-mono text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                  Pemegang: {completeTarget.nama_pemohon} · {completeTarget.kode_id ? `SN: ${completeTarget.kode_id}` : `${completeTarget.jumlah} ${completeTarget.tipe_stok || 'unit'}`}
+                </div>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama / ID Pelanggan *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Misal: Budi Santoso / CID-20418"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Catatan Pemasangan pada Pelanggan *
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={usageNotes}
+                  onChange={(e) => setUsageNotes(e.target.value)}
+                  placeholder="Misal: Terpasang aktivasi baru Cluster Melati Blok B4, redaman -18 dBm"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Waktu Penyelesaian (WIB) *
+                </label>
+                <input
+                  type="datetime-local"
+                  value={completeOccurredLocal}
+                  onChange={(e) => setCompleteOccurredLocal(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCompleteTarget(null)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={completing}
+                  className="px-4 py-2 font-bold text-white bg-teal-600 hover:bg-teal-500 rounded-lg disabled:opacity-50"
+                >
+                  {completing ? 'Menyimpan...' : 'Konfirmasi Selesai Terpakai'}
                 </button>
               </div>
             </form>

@@ -10,6 +10,7 @@ export type RequestStatus =
   | 'menunggu'
   | 'disetujui'
   | 'diambil'
+  | 'selesai'
   | 'dikembalikan'
   | 'ditolak'
   | 'dibatalkan';
@@ -53,6 +54,7 @@ export interface RequestRecord {
   request_type?: 'ambil' | 'kembalikan';
   origin_request_id?: string | null;
   has_pending_return?: boolean;
+  bag_name?: string | null;
 }
 
 export interface RequestTimelineEntry {
@@ -143,6 +145,19 @@ export const requestApi = {
     return data.data;
   },
 
+  async createBagRequest(payload: {
+    bag_id: string;
+    alasan: string;
+    actor_id?: string;
+    on_behalf_reason?: string;
+  }): Promise<{ success: boolean; message?: string; requests: RequestRecord[] }> {
+    return apiFetch<{ success: boolean; message?: string; requests: RequestRecord[] }>(
+      '/api/requests/bag',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mengajukan permohonan paket Tas Lapangan.'
+    );
+  },
+
   async approve(id: string, payload?: { target_box_id?: string; confirmation_token?: string }) {
     return apiFetch<{ success: boolean; message: string; activityId?: string; allocatedKodeIds?: string[] }>(
       `/api/requests/${encodeURIComponent(id)}/approve`,
@@ -156,6 +171,18 @@ export const requestApi = {
       `/api/requests/${encodeURIComponent(id)}/pickup`,
       { method: 'POST', body: JSON.stringify(payload || {}) },
       'Gagal mencatat pengambilan barang request.'
+    );
+  },
+
+  async completeRequest(id: string, payload: {
+    customer_name: string;
+    usage_notes: string;
+    occurred_at?: string;
+  }) {
+    return apiFetch<{ success: boolean; message: string; activityId?: string }>(
+      `/api/requests/${encodeURIComponent(id)}/complete`,
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal menandai request selesai terpakai pelanggan.'
     );
   },
 

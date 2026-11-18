@@ -304,6 +304,10 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
     } else {
       // Dynamic filter matching ActivityLogService.getLogs
       let pIdx = 0;
+      if (upper.includes('AND T.REQUEST_ID = ?')) {
+        const val = params[pIdx++];
+        list = list.filter(t => t.request_id === val);
+      }
       if (upper.includes('AND T.AKSI = ?')) {
         const val = params[pIdx++];
         list = list.filter(t => t.aksi === val);

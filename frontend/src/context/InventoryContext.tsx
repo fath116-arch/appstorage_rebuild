@@ -4,7 +4,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { api, TrashEntry } from '../services/api';
+import { api, ToolBagRecord, TrashEntry } from '../services/api';
 import { catalogApi, Jenis, Produk } from '../services/catalogApi';
 import { Box, stockApi } from '../services/stockApi';
 import { requestApi, RequestRecord } from '../services/requestApi';
@@ -29,6 +29,7 @@ interface InventoryContextType {
   heldItems: RequestRecord[];
   actors: ActorOption[];
   trashItems: TrashEntry[];
+  bags: ToolBagRecord[];
   lowOrOutCount: number;
   isLoading: boolean;
   refreshData: () => Promise<void>;
@@ -54,6 +55,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [heldItems, setHeldItems] = useState<RequestRecord[]>([]);
   const [actors, setActors] = useState<ActorOption[]>([]);
   const [trashItems, setTrashItems] = useState<TrashEntry[]>([]);
+  const [bags, setBags] = useState<ToolBagRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const VERSION = APP_VERSION;
@@ -72,7 +74,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         reqsRes,
         heldRes,
         actorsRes,
-        trashRes
+        trashRes,
+        bagsRes
       ] = await Promise.all([
         catalogApi.listProduk(),
         catalogApi.listJenis(),
@@ -81,7 +84,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         requestApi.list(),
         requestApi.listHeld(),
         canSeeActors ? activityApi.getActors().catch(() => []) : Promise.resolve([]),
-        canSeeTrash ? api.getTrash().catch(() => []) : Promise.resolve([])
+        canSeeTrash ? api.getTrash().catch(() => []) : Promise.resolve([]),
+        api.listBags().catch(() => [])
       ]);
 
       setProducts(prodsRes);
@@ -92,6 +96,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setHeldItems(heldRes);
       setActors(actorsRes);
       setTrashItems(trashRes);
+      setBags(bagsRes);
     } catch (err: unknown) {
       showToast(getErrorMessage(err, 'Gagal menyinkronkan data dengan server.'), 'error');
     } finally {
@@ -111,6 +116,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setHeldItems([]);
       setActors([]);
       setTrashItems([]);
+      setBags([]);
     }
   }, [isAuthenticated, refreshData]);
 
@@ -153,6 +159,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         heldItems,
         actors,
         trashItems,
+        bags,
         lowOrOutCount,
         isLoading,
         refreshData,

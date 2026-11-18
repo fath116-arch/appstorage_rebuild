@@ -31,9 +31,20 @@ export function handleLegacyMemoryQuery(_cleanSql: string, upper: string, params
   if (upper.startsWith('SELECT') && upper.includes('FROM CHECKLISTS')) {
     if (upper.includes('WHERE ID = ?')) {
       const match = memoryStore.checklists.get(params[0]);
-      return match ? [match] : [];
+      if (!match) return [];
+      if (upper.includes("INSPECTION_TYPE = 'BAG_TEMPLATE'") && match.inspection_type !== 'BAG_TEMPLATE') {
+        return [];
+      }
+      return [match];
     }
-    return Array.from(memoryStore.checklists.values()).reverse();
+    let list = Array.from(memoryStore.checklists.values());
+    if (upper.includes("INSPECTION_TYPE != 'BAG_TEMPLATE'")) {
+      list = list.filter(c => c.inspection_type !== 'BAG_TEMPLATE');
+    } else if (upper.includes("INSPECTION_TYPE = 'BAG_TEMPLATE'")) {
+      list = list.filter(c => c.inspection_type === 'BAG_TEMPLATE');
+    }
+    list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return list;
   }
 
   // SELECT whatsapp_config
@@ -70,16 +81,41 @@ export function handleLegacyMemoryQuery(_cleanSql: string, upper: string, params
   }
 
   if (upper.startsWith('INSERT INTO CHECKLISTS')) {
+    const isBagStatic = upper.includes("'BAG_TEMPLATE'");
     memoryStore.checklists.set(params[0], {
       id: params[0],
       technician_id: params[1],
       technician_name: params[2],
-      inspection_type: params[3],
-      vehicle_or_kit_name: params[4],
-      notes: params[5] || '',
-      items_json: params[6],
+      inspection_type: isBagStatic ? 'BAG_TEMPLATE' : params[3],
+      vehicle_or_kit_name: isBagStatic ? params[3] : params[4],
+      notes: (isBagStatic ? params[4] : params[5]) || '',
+      items_json: isBagStatic ? params[5] : params[6],
       created_at: new Date().toISOString()
     });
+    return { affectedRows: 1 };
+  }
+
+  if (upper.startsWith('UPDATE CHECKLISTS SET')) {
+    const id = params[3];
+    const row = memoryStore.checklists.get(id);
+    if (!row) return { affectedRows: 0 };
+    if (upper.includes("INSPECTION_TYPE = 'BAG_TEMPLATE'") && row.inspection_type !== 'BAG_TEMPLATE') {
+      return { affectedRows: 0 };
+    }
+    row.vehicle_or_kit_name = params[0];
+    row.notes = params[1] || '';
+    row.items_json = params[2];
+    return { affectedRows: 1 };
+  }
+
+  if (upper.startsWith('DELETE FROM CHECKLISTS')) {
+    const id = params[0];
+    const row = memoryStore.checklists.get(id);
+    if (!row) return { affectedRows: 0 };
+    if (upper.includes("INSPECTION_TYPE = 'BAG_TEMPLATE'") && row.inspection_type !== 'BAG_TEMPLATE') {
+      return { affectedRows: 0 };
+    }
+    memoryStore.checklists.delete(id);
     return { affectedRows: 1 };
   }
 

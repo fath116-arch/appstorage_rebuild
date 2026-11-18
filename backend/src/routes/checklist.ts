@@ -6,13 +6,76 @@
 import express from 'express';
 import { executeQuery } from '../db/database';
 import { AuthenticatedRequest, requireAuth } from '../middleware/authMiddleware';
+import { BagService } from '../services/bagService';
 
 const router = express.Router();
+
+// ============================================================================
+// OFFICE FIELD TOOL BAGS (MULTI-TAS LAPANGAN)
+// ============================================================================
+
+// GET /api/checklists/bags
+router.get('/bags', requireAuth, async (_req: AuthenticatedRequest, res) => {
+  try {
+    const bags = await BagService.listBags();
+    res.json({ success: true, bags });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/checklists/bags
+router.post('/bags', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { nama_tas, keterangan, items } = req.body;
+    const bag = await BagService.createBag({
+      namaTas: String(nama_tas || ''),
+      keterangan: keterangan ? String(keterangan) : '',
+      items,
+      userId: req.user!.id,
+      userName: req.user!.name
+    });
+    res.status(201).json({ success: true, bag, message: `Tas "${bag.nama_tas}" berhasil dibuat.` });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /api/checklists/bags/:id
+router.put('/bags/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const bagId = String(req.params.id);
+    const { nama_tas, keterangan, items } = req.body;
+    const bag = await BagService.updateBag(bagId, {
+      namaTas: String(nama_tas || ''),
+      keterangan: keterangan ? String(keterangan) : '',
+      items,
+      userId: req.user!.id,
+      userName: req.user!.name
+    });
+    res.json({ success: true, bag, message: `Tas "${bag.nama_tas}" berhasil diperbarui.` });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/checklists/bags/:id
+router.delete('/bags/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const bagId = String(req.params.id);
+    const result = await BagService.deleteBag(bagId, req.user!.id, req.user!.name);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
 
 // GET /api/checklists
 router.get('/', async (_req, res) => {
   try {
-    const rows = await executeQuery<any>('SELECT * FROM checklists ORDER BY created_at DESC LIMIT 50');
+    const rows = await executeQuery<any>(
+      "SELECT * FROM checklists WHERE inspection_type != 'BAG_TEMPLATE' ORDER BY created_at DESC LIMIT 50"
+    );
     const checklists = rows.map(r => ({
       ...r,
       items: typeof r.items_json === 'string' ? JSON.parse(r.items_json) : r.items_json

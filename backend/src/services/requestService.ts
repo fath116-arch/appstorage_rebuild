@@ -11,9 +11,10 @@ import { StockService } from './stockService';
 import { ConfirmationService } from './confirmationService';
 import { canActOnBehalf, isWarehouseManager } from '../utils/permissions';
 import { toMysqlUtcDatetime, validateOccurredAt } from '../utils/timezone';
+import { BagService } from './bagService';
 import crypto from 'crypto';
 
-export type RequestStatus = 'diajukan' | 'menunggu' | 'disetujui' | 'diambil' | 'dikembalikan' | 'ditolak' | 'dibatalkan';
+export type RequestStatus = 'diajukan' | 'menunggu' | 'disetujui' | 'diambil' | 'selesai' | 'dikembalikan' | 'ditolak' | 'dibatalkan';
 
 export interface RequestRecord {
   id: string;
@@ -54,6 +55,7 @@ export interface RequestRecord {
   request_type?: 'ambil' | 'kembalikan';
   origin_request_id?: string | null;
   has_pending_return?: boolean;
+  bag_name?: string | null;
 }
 
 export class RequestService {
@@ -254,6 +256,89 @@ export class RequestService {
   }
 
   /**
+   * Membuat permohonan sekaligus untuk seluruh alat di dalam satu Tas Lapangan kantor
+   */
+  static async createBagRequest(input: {
+    bagId: string;
+    pemohonId: string;
+    actorId?: string;
+    actorRole?: string;
+    recordedByRole?: string;
+    onBehalfReason?: string;
+    alasan: string;
+  }) {
+    const effectiveActorId = (input.actorId || input.pemohonId).trim();
+    const isOnBehalf = effectiveActorId !== input.pemohonId;
+    if (isOnBehalf && !canActOnBehalf(input.recordedByRole || input.actorRole)) {
+      throw new Error('Hanya pengelola gudang / admin yang dapat membuat permohonan atas nama teknisi lain.');
+    }
+    if (isOnBehalf && (!input.onBehalfReason || input.onBehalfReason.trim().length < 3)) {
+      throw new Error('Alasan pengajuan atas nama teknisi lain wajib diisi.');
+    }
+
+    const cleanAlasan = String(input.alasan || '').trim();
+    if (!cleanAlasan) {
+      throw new Error('Alasan / Nomor Tiket penggunaan tas wajib diisi.');
+    }
+
+    const bag = await BagService.getBagById(input.bagId);
+    if (!bag) {
+      throw new Error(`Tas Kerja #${input.bagId} tidak ditemukan.`);
+    }
+    if (!bag.items || bag.items.length === 0) {
+      throw new Error(`Tas "${bag.nama_tas}" belum memiliki daftar alat.`);
+    }
+
+    // Validasi ketersediaan stok seluruh alat di tas sebelum membuat request apa pun
+    const shortages: string[] = [];
+    for (const entry of bag.items) {
+      const tipe = await CatalogService.getTipeById(entry.tipe_id);
+      if (!tipe) {
+        shortages.push(`${entry.nama_produk} (${entry.nama_tipe}): varian sudah tidak aktif`);
+        continue;
+      }
+      if (entry.kode_id) {
+        const itemCheck = await StockService.checkDuplicateKodeId(entry.kode_id);
+        if (!itemCheck.exists || !itemCheck.item || itemCheck.item.status !== 'aktif' || itemCheck.item.kondisi === 'Rusak') {
+          shortages.push(`${entry.nama_produk} SN ${entry.kode_id}: tidak tersedia`);
+        }
+      } else {
+        const avail = await StockService.getStock(entry.tipe_id);
+        if (avail < entry.jumlah) {
+          shortages.push(`${entry.nama_produk} (${entry.nama_tipe}): butuh ${entry.jumlah}, tersedia ${avail}`);
+        }
+      }
+    }
+
+    if (shortages.length > 0) {
+      throw new Error(`Stok alat dalam tas "${bag.nama_tas}" belum mencukupi: ${shortages.join('; ')}`);
+    }
+
+    const createdRequests: RequestRecord[] = [];
+    const bagPrefixReason = `[Tas: ${bag.nama_tas}] ${cleanAlasan}`;
+    for (const entry of bag.items) {
+      const reqRecord = await this.createRequest({
+        pemohonId: input.pemohonId,
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+        recordedByRole: input.recordedByRole,
+        onBehalfReason: input.onBehalfReason,
+        requestType: 'ambil',
+        tipeId: entry.tipe_id,
+        kodeId: entry.kode_id || undefined,
+        jumlah: entry.jumlah,
+        alasan: bagPrefixReason
+      });
+      createdRequests.push(reqRecord);
+    }
+
+    return {
+      bag,
+      requests: createdRequests
+    };
+  }
+
+  /**
    * Mengambil detail request berdasarkan ID
    */
   static async getRequestById(id: string): Promise<RequestRecord | null> {
@@ -288,13 +373,15 @@ export class RequestService {
       }
     }
     const isReturnReq = Boolean(row.transaction_out_id && String(row.transaction_out_id).startsWith('req-'));
+    const bagMatch = typeof row.alasan === 'string' ? row.alasan.match(/^\[Tas:\s*([^\]]+)\]\s*/i) : null;
     return {
       ...row,
       kategori_barang: row.kategori_barang || 'Barang Habis Pakai',
       tipe_stok: row.tipe_stok || 'unit',
       held_duration_ms: heldMs,
       request_type: isReturnReq ? 'kembalikan' : 'ambil',
-      origin_request_id: isReturnReq ? row.transaction_out_id : null
+      origin_request_id: isReturnReq ? row.transaction_out_id : null,
+      bag_name: bagMatch ? bagMatch[1].trim() : null
     };
   }
 
@@ -843,6 +930,135 @@ export class RequestService {
         message: `Barang Request #${originReq.id} berhasil diverifikasi dan dikembalikan ke ${targetBox.kode} [Kondisi: ${input.returnCondition}].`,
         requestId: req.id,
         originRequestId: originReq.id,
+        activityId: txLog.idAktivitas,
+        transaksiId: txLog.transaksiId
+      };
+    });
+  }
+
+  /**
+   * Menandai Request Barang Habis Pakai sebagai Selesai (benar-benar terpakai untuk pelanggan).
+   * Boleh dilakukan oleh teknisi pemilik request maupun pengelola gudang; ditolak untuk kategori Alat.
+   */
+  static async completeRequest(input: {
+    requestId: string;
+    userId: string;
+    userName?: string;
+    userRole: string;
+    customerName: string;
+    usageNotes: string;
+    occurredAt?: string;
+  }) {
+    const req = await this.getRequestById(input.requestId);
+    if (!req) {
+      throw new Error(`Permohonan #${input.requestId} tidak ditemukan.`);
+    }
+
+    const isManager = isWarehouseManager(input.userRole);
+    const targetActorId = (req.actor_id || req.pemohon_id).trim();
+    const isOwner = req.pemohon_id === input.userId || targetActorId === input.userId;
+    if (!isManager && !isOwner) {
+      throw new Error('Hanya teknisi pemilik permohonan atau pengelola gudang yang dapat menandai selesai.');
+    }
+
+    if (req.status !== 'diambil') {
+      throw new Error(`Hanya barang berstatus DIAMBIL yang dapat ditandai selesai (Status saat ini: ${req.status.toUpperCase()}).`);
+    }
+
+    if (req.kategori_barang === 'Alat') {
+      throw new Error('Kategori Alat wajib dikembalikan ke gudang dan tidak dapat ditandai selesai sebagai barang habis pakai.');
+    }
+
+    const pendingReturns = await executeQuery<{ id: string }>(
+      `SELECT id FROM request
+       WHERE transaction_out_id = ?
+         AND return_condition IS NOT NULL
+         AND status IN ('diajukan', 'menunggu', 'disetujui')`,
+      [req.id]
+    );
+    if (pendingReturns && pendingReturns.length > 0) {
+      throw new Error(`Request #${req.id} sedang memiliki pengajuan pengembalian ke gudang yang menunggu verifikasi.`);
+    }
+
+    const cleanCustomer = String(input.customerName || '').trim();
+    const cleanUsage = String(input.usageNotes || '').trim();
+    if (cleanCustomer.length < 2) {
+      throw new Error('Nama atau ID Pelanggan wajib diisi (minimal 2 karakter).');
+    }
+    if (cleanUsage.length < 3) {
+      throw new Error('Catatan pemasangan pada pelanggan wajib diisi.');
+    }
+
+    const timeCheck = validateOccurredAt({ occurredAt: input.occurredAt, role: input.userRole });
+    if (!timeCheck.valid) {
+      throw new Error(timeCheck.message || 'Waktu penyelesaian tidak valid.');
+    }
+
+    const formattedUsageNotes = `Pelanggan: ${cleanCustomer} | Pemasangan: ${cleanUsage}`;
+
+    return await runTransaction(async (conn) => {
+      const updateRes = await conn.query(
+        `UPDATE request
+         SET status = 'selesai', returned_at = ?, returned_by_id = ?, return_condition = 'Terpakai',
+             return_notes = ?, diproses_pada = NOW()
+         WHERE id = ? AND status = 'diambil'`,
+        [timeCheck.mysqlDatetimeUtc, input.userId, formattedUsageNotes, req.id]
+      );
+
+      const affected = typeof updateRes.affectedRows === 'number' ? updateRes.affectedRows : 1;
+      if (affected === 0) {
+        throw new Error('Permohonan sudah diselesaikan atau diubah statusnya.');
+      }
+
+      const allocatedIds: string[] = req.allocated_item_ids
+        ? (typeof req.allocated_item_ids === 'string' ? JSON.parse(req.allocated_item_ids) : req.allocated_item_ids)
+        : [];
+      const detailsPayload: ActivityDetailInput[] = allocatedIds.length > 0
+        ? allocatedIds.map((itId) => ({
+            tipe_id: req.tipe_id,
+            item_id: itId,
+            kode_id: req.kode_id || null,
+            nama_snapshot: `${req.nama_produk} - ${req.nama_tipe}`,
+            jumlah: 1,
+            status_sebelum: 'diambil',
+            status_sesudah: 'selesai'
+          }))
+        : [
+            {
+              tipe_id: req.tipe_id,
+              item_id: null,
+              kode_id: req.kode_id || null,
+              nama_snapshot: `${req.nama_produk} - ${req.nama_tipe}`,
+              jumlah: req.jumlah,
+              status_sebelum: 'diambil',
+              status_sesudah: 'selesai'
+            }
+          ];
+
+      const txLog = await ActivityLogService.recordActivity({
+        aksi: 'selesai_request',
+        pelaku_id: targetActorId,
+        actor_id: targetActorId,
+        actor_nama: req.nama_pemohon,
+        recorded_by_id: input.userId,
+        recorded_by_nama: input.userName,
+        recorded_by_role: input.userRole,
+        on_behalf_reason: targetActorId !== input.userId ? `Konfirmasi pemakaian pelanggan Request #${req.id}` : null,
+        occurred_at: timeCheck.utcIso,
+        request_id: req.id,
+        tipe_mutasi: 'SYSTEM',
+        reference_type: 'REQUEST_COMPLETE',
+        reference_number: req.id,
+        recipient_destination: cleanCustomer,
+        qty_total: req.jumlah,
+        catatan: `Terpakai untuk pelanggan [${cleanCustomer}]: ${cleanUsage}`,
+        details: detailsPayload
+      }, conn);
+
+      return {
+        success: true,
+        message: `Request #${req.id} (${req.nama_produk}) ditandai SELESAI terpakai untuk pelanggan ${cleanCustomer}.`,
+        requestId: req.id,
         activityId: txLog.idAktivitas,
         transaksiId: txLog.transaksiId
       };

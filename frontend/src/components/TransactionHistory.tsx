@@ -107,6 +107,8 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         return 'Pengembalian / Retur';
       case 'STOCK_RESTORE':
         return 'Pemulihan ke Gudang';
+      case 'REQUEST_COMPLETE':
+        return 'Pemakaian Pelanggan';
       default:
         return tx.aksi ? tx.aksi.replace(/_/g, ' ') : 'Mutasi';
     }

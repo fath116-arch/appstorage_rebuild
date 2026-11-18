@@ -539,7 +539,7 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
     const req = memoryStore.request.get(id);
     if (!req) return { affectedRows: 0 };
 
-    if (upper.includes("STATUS = 'DISETUJUI'")) {
+    if (upper.includes("SET STATUS = 'DISETUJUI'")) {
       if (req.status !== 'menunggu' && req.status !== 'diajukan') return { affectedRows: 0 };
       req.status = 'disetujui';
       req.penyetuju_id = params[0];
@@ -550,7 +550,7 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       }
       return { affectedRows: 1 };
     }
-    if (upper.includes("STATUS = 'DITOLAK'")) {
+    if (upper.includes("SET STATUS = 'DITOLAK'")) {
       if (req.status !== 'menunggu' && req.status !== 'diajukan') return { affectedRows: 0 };
       req.status = 'ditolak';
       req.penyetuju_id = params[0];
@@ -558,7 +558,7 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       req.diproses_pada = new Date().toISOString();
       return { affectedRows: 1 };
     }
-    if (upper.includes("STATUS = 'DIBATALKAN'")) {
+    if (upper.includes("SET STATUS = 'DIBATALKAN'")) {
       if (req.status !== 'menunggu' && req.status !== 'diajukan' && req.status !== 'disetujui') {
         return { affectedRows: 0 };
       }
@@ -567,7 +567,7 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       req.diproses_pada = new Date().toISOString();
       return { affectedRows: 1 };
     }
-    if (upper.includes("STATUS = 'DIAMBIL'")) {
+    if (upper.includes("SET STATUS = 'DIAMBIL'")) {
       req.status = 'diambil';
       req.taken_at = params[0] ? (normalizeDbDateToIso(params[0]) || new Date().toISOString()) : new Date().toISOString();
       req.transaction_out_id = params[1] || req.transaction_out_id;
@@ -576,7 +576,7 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       }
       return { affectedRows: 1 };
     }
-    if (upper.includes("STATUS = 'DIKEMBALIKAN'")) {
+    if (upper.includes("SET STATUS = 'DIKEMBALIKAN'")) {
       req.status = 'dikembalikan';
       req.returned_at = params[0] ? (normalizeDbDateToIso(params[0]) || new Date().toISOString()) : new Date().toISOString();
       req.returned_by_id = params[1] || null;
@@ -588,6 +588,16 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
         req.penyetuju_id = params[6] || null;
         req.diproses_pada = new Date().toISOString();
       }
+      return { affectedRows: 1 };
+    }
+    if (upper.includes("SET STATUS = 'SELESAI'")) {
+      if (req.status !== 'diambil') return { affectedRows: 0 };
+      req.status = 'selesai';
+      req.returned_at = params[0] ? (normalizeDbDateToIso(params[0]) || new Date().toISOString()) : new Date().toISOString();
+      req.returned_by_id = params[1] || null;
+      req.return_condition = 'Terpakai';
+      req.return_notes = params[2] || null;
+      req.diproses_pada = new Date().toISOString();
       return { affectedRows: 1 };
     }
   }

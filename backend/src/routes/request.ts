@@ -62,6 +62,32 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
   }
 });
 
+router.post('/bag', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const { bag_id, alasan, actor_id, on_behalf_reason } = req.body;
+    if (!bag_id || !alasan) {
+      return res.status(400).json({ success: false, message: 'Pilih Tas dan isi alasan permohonan.' });
+    }
+    const result = await RequestService.createBagRequest({
+      bagId: String(bag_id),
+      pemohonId: req.user!.id,
+      actorId: actor_id ? String(actor_id) : undefined,
+      actorRole: req.user!.role,
+      recordedByRole: req.user!.role,
+      onBehalfReason: on_behalf_reason ? String(on_behalf_reason) : undefined,
+      alasan: String(alasan)
+    });
+    return res.status(201).json({
+      success: true,
+      bag: result.bag,
+      requests: result.requests,
+      message: `Permohonan paket Tas "${result.bag.nama_tas}" (${result.requests.length} item) berhasil diajukan.`
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const status = req.query.status as any;
@@ -210,6 +236,36 @@ router.post(
         returnCondition: return_condition,
         returnNotes: return_notes ? String(return_notes) : undefined,
         returnBoxId: String(return_box_id),
+        occurredAt: occurred_at ? String(occurred_at) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/:id/complete',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const requestId = String(req.params.id);
+      const { customer_name, usage_notes, occurred_at } = req.body;
+      if (!customer_name || !usage_notes) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nama / ID Pelanggan dan catatan pemasangan wajib diisi.'
+        });
+      }
+
+      const result = await RequestService.completeRequest({
+        requestId,
+        userId: req.user!.id,
+        userName: req.user!.name,
+        userRole: req.user!.role,
+        customerName: String(customer_name),
+        usageNotes: String(usage_notes),
         occurredAt: occurred_at ? String(occurred_at) : undefined
       });
       return res.json(result);

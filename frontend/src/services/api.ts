@@ -32,6 +32,30 @@ export interface TrashEntry {
   sisa_hari?: number;
 }
 
+export interface BagToolEntry {
+  tipe_id: number;
+  nama_produk: string;
+  nama_tipe: string;
+  kategori_barang?: 'Alat' | 'Barang Habis Pakai';
+  tipe_stok?: string;
+  mode_stok?: 'per_id' | 'jumlah';
+  jumlah: number;
+  kode_id?: string | null;
+  catatan?: string | null;
+  stok_tersedia?: number;
+}
+
+export interface ToolBagRecord {
+  id: string;
+  nama_tas: string;
+  keterangan: string;
+  dibuat_oleh_id: string;
+  dibuat_oleh_nama: string;
+  dibuat_pada: string;
+  items: BagToolEntry[];
+  total_unit: number;
+}
+
 interface AuthResponse {
   success: boolean;
   user?: UserProfile;
@@ -218,7 +242,48 @@ export const api = {
     return data;
   },
 
-  // Checklists
+  // Checklists & Multi-Tas Lapangan
+  async listBags(): Promise<ToolBagRecord[]> {
+    const { ok, data } = await requestJson<{ bags?: ToolBagRecord[] }>('/api/checklists/bags');
+    if (!ok) return [];
+    return data.bags || [];
+  },
+
+  async createBag(payload: {
+    nama_tas: string;
+    keterangan?: string;
+    items: Array<{ tipe_id: number; jumlah: number; kode_id?: string | null; catatan?: string | null }>;
+  }): Promise<{ success: boolean; bag: ToolBagRecord; message?: string }> {
+    return apiFetch(
+      '/api/checklists/bags',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal membuat Tas Lapangan baru.'
+    );
+  },
+
+  async updateBag(
+    id: string,
+    payload: {
+      nama_tas: string;
+      keterangan?: string;
+      items: Array<{ tipe_id: number; jumlah: number; kode_id?: string | null; catatan?: string | null }>;
+    }
+  ): Promise<{ success: boolean; bag: ToolBagRecord; message?: string }> {
+    return apiFetch(
+      `/api/checklists/bags/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+      'Gagal memperbarui Tas Lapangan.'
+    );
+  },
+
+  async deleteBag(id: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch(
+      `/api/checklists/bags/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+      'Gagal menghapus Tas Lapangan.'
+    );
+  },
+
   async getChecklists(): Promise<Array<Record<string, unknown>>> {
     const { data } = await requestJson<{ checklists?: Array<Record<string, unknown>> }>('/api/checklists');
     return data.checklists || [];
