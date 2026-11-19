@@ -46,7 +46,7 @@ Salin file templat `.env.example` menjadi `.env`:
   notepad .env
   ```
 
-Isi variabel wajib berikut pada file `.env`:
+Isi variabel lingkungan berikut pada file `.env` sesuai `.env.example`:
 ```ini
 PORT=3000
 NODE_ENV=production
@@ -62,6 +62,10 @@ DB_USER=fieldops_user
 DB_PASSWORD=buat_password_database_user_rahasia_disini
 DB_ROOT_PASSWORD=buat_password_root_mariadb_rahasia_disini
 
+# Konfigurasi Frontend (Opsional, kosongkan untuk same-origin)
+VITE_API_BASE_URL=
+VITE_APP_TITLE=FieldOps IT Inventory
+
 # Konfigurasi WhatsApp Gateway (Fonnte)
 WHATSAPP_API_TOKEN=token_fonnte_resmi_anda_disini
 WHATSAPP_API_URL=https://api.fonnte.com/send
@@ -73,7 +77,7 @@ CLOUDFLARE_TUNNEL_TOKEN=
 ```
 
 ### Langkah 3: Build & Jalankan Kontainer Docker
-Jalankan perintah berikut untuk mengunduh image, membangun kontainer, dan mengaktifkan service:
+Jalankan perintah berikut untuk membangun image, mengaktifkan kontainer, dan memicu migrasi database otomatis (`01` s/d `12`):
 ```bash
 docker compose up -d --build
 ```
@@ -83,12 +87,12 @@ Pastikan seluruh kontainer berada dalam status sehat (*healthy* / *running*):
 docker compose ps
 ```
 
-### Langkah 4: Buat Akun Master Admin / Dev Superadmin Pertama
+### Langkah 4: Buat Akun Master Admin / Developer Pertama
 Jalankan skrip inisialisasi akun admin interaktif di dalam kontainer backend:
 ```bash
 docker compose exec backend npm run setup:admin
 ```
-Sistem akan meminta username, nama lengkap, email, peran (`superadmin` / `supervisor` / `admin`), dan kata sandi kuat (minimal 8 karakter).
+Sistem akan meminta username, nama lengkap, email, peran (`developer` / `admin` / `warehouse_admin` / `technician`), dan kata sandi kuat.
 
 ### Langkah 5: Membuka Aplikasi dari PC Lain di Jaringan Kantor
 1. Cek alamat IP lokal server kantor:
@@ -107,7 +111,7 @@ Sistem akan meminta username, nama lengkap, email, peran (`superadmin` / `superv
 Bila terdapat pembaruan kode aplikasi dari repositori Git, lakukan langkah pembaruan aman berikut:
 
 1. **Lakukan Cadangan Data Terlebih Dahulu**:
-   Download berkas backup JSON dari menu **Admin / Restore Data** pada UI aplikasi, atau periksa folder `backups/`.
+   Download berkas backup JSON dari menu **Tools → Database** pada UI aplikasi, atau periksa folder `backups/`.
 2. **Tarik Kode Terbaru dari Git**:
    ```bash
    git pull origin main
@@ -127,8 +131,8 @@ Bila terdapat pembaruan kode aplikasi dari repositori Git, lakukan langkah pemba
 ## 💾 4. Kebijakan Cadangan (Backup) & Pemulihan (Restore)
 
 ### A. Cadangan Otomatis Harian (Lokal)
-Secara otomatis, backend membuat snapshot data bisnis setiap 24 jam ke folder `./backups/` di server:
-- File `backup_inventory_items_YYYY-MM-DD.json` berisi data master barang, kategori, transaksi, dan checklist — **100% aman dan bebas dari password pengguna**.
+Secara otomatis, backend membuat snapshot data bisnis berkala ke folder `./backups/` di server:
+- File `backup_inventory_items_YYYY-MM-DD.json` berisi data master barang, katalog, transaksi, dan checklist — **100% aman dan bebas dari password pengguna**.
 
 ### B. Menyalin Backup ke Luar Server (Offsite Backup)
 Untuk mengamankan data dari risiko kerusakan fisik server:
@@ -144,9 +148,9 @@ Untuk mengamankan data dari risiko kerusakan fisik server:
 
 ### C. Pemulihan Data (Restore)
 Jika terjadi galat atau server baru dipasang, pulihkan data melalui:
-1. Buka menu **Admin / Restore Data** pada antarmuka web.
-2. Unggah berkas `backup_inventory_items_YYYY-MM-DD.json`.
-3. Data barang dan transaksi akan dipulihkan secara atomik tanpa merusak tabel akun pengguna.
+1. Buka menu **Tools → Database** (atau **Katalog → Kelola**) pada antarmuka web.
+2. Unggah berkas backup JSON yang tersedia.
+3. Data inventaris dipulihkan secara atomik tanpa merusak tabel akun pengguna.
 
 ---
 
@@ -174,10 +178,10 @@ Jalankan kembali skrip setup admin di dalam kontainer untuk mereset kata sandi a
 ```bash
 docker compose exec backend npm run setup:admin
 ```
-Pilih `y` saat ditanya apakah ingin mereset kata sandi akun yang sudah ada.
+Pilih `y` saat ditanya apakah ingin memperbarui kata sandi akun yang sudah ada.
 
 ### 4. Pemulihan Data dari Tempat Sampah (14-Day Retention)
-Jika terjadi penghapusan permanen tidak sengaja oleh pengguna, administrator server dapat memulihkan data melalui terminal dalam masa tenggang 14 hari:
+Jika terjadi penghapusan permanen tidak sengaja oleh pengguna (kategori, produk, storage box, atau akun), administrator server dapat memulihkan data melalui terminal dalam masa tenggang 14 hari:
 ```bash
 # Melihat daftar entri yang dapat dipulihkan
 npm run sampah -- --list
@@ -202,7 +206,7 @@ Jika port 3000 sudah digunakan oleh aplikasi lain di server kantor:
 ### A. Windows Server / PC Windows Kantor
 1. **Pengaturan Docker Desktop**:
    - Buka **Docker Desktop Settings** > **General** > Centang *"Start Docker Desktop when you log in"*.
-   - Pada **Resources** > **WSL Integration**, pastikan distrik Linux WSL 2 diaktifkan.
+   - Pada **Resources** > **WSL Integration**, pastikan distro Linux WSL 2 diaktifkan.
 2. **IP Statis (Fixed IP) Windows**:
    - Pastikan PC Windows menggunakan IP lokal tetap di router kantor (misal via DHCP Reservation di Mikrotik/Router kantor) agar IP server tidak berubah-ubah saat PC di-restart.
 
@@ -215,13 +219,13 @@ Jika port 3000 sudah digunakan oleh aplikasi lain di server kantor:
 2. **Hak Akses User**:
    - Agar tidak perlu mengetik `sudo` saat menjalankan Docker, masukkan user ke grup docker:
      ```bash
-     sudo usermod aG docker $USER
+     sudo usermod -aG docker $USER
      newgrp docker
      ```
 
 ---
 
-## 💻 8. Panduan Alternatif Pemasangan Standalone (Tanpa Docker / Native Node.js + MariaDB)
+## 💻 7. Panduan Alternatif Pemasangan Standalone (Tanpa Docker / Native Node.js + MariaDB)
 
 Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatasan spesifikasi, edisi Windows tanpa fitur Virtualisasi/WSL 2, atau kebijakan sistem), gunakan metode pemasangan native berikut:
 
@@ -287,26 +291,26 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
 
 7. **Jalankan Aplikasi Produksi**:
    ```bash
-   npm run start
+   npm start
    ```
    *Aplikasi kini aktif dan dapat diakses dari PC lain di jaringan lokal melalui `http://<IP-SERVER-KANTOR>:3000`.*
 
 ---
 
-## 🌐 9. Daftar Endpoint API Kanonik Aktif (v1.2.6)
+## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.6)
 
-| Prefix Route | Endpoint Utama | Keterangan |
+| Prefix Route | Endpoint Terverifikasi | Keterangan |
 | :--- | :--- | :--- |
-| `/api/auth` | `POST /login`, `/refresh`, `/logout`, `/confirm-token`, `GET /me`, `GET /actors`, `/users`, `/settings`, `/trash` | Autentikasi cookie server-authoritative, RBAC, daftar aktor lapangan, & sampah 14 hari |
-| `/api/catalog` | `GET /jenis`, `GET /products`, `POST /products`, `PUT /products/:id`, `DELETE /products/:id`, `POST /types`, `PUT /types/:id`, `GET /labels` | Katalog produk & varian tipe tunggal beserta stok tersedia, rusak, & dipesan |
-| `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move` | Manajemen storage box & relokasi antar box |
-| `/api/stock` | `GET /search`, `GET /check-id/:kode_id`, `GET /types/:id/items`, `POST /single`, `/bulk`, `/quantity`, `/out`, `/out/bulk`, `GET /archive`, `POST /restore`, `PUT /items/:id/condition` | Pencarian 300ms, input stok, keranjang keluar, arsip, restore, & update kondisi item |
+| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.6`, & status UTC MariaDB |
+| `/api/auth` | `POST /login`, `/register`, `/refresh`, `/logout`, `/reset-password`, `/confirm-token`; `GET /me`, `/actors`; `GET/POST/DELETE /users`, `POST /users/:id/(approve\|reject\|status\|reset-password\|revoke-sessions)`; `GET /settings`, `PUT /settings/:key`; `GET /activity-logs`, `/activity-logs/:id/details`; `GET /trash`, `POST /trash/purge` | Autentikasi cookie HTTP-only 30 hari, RBAC, konfirmasi Tier 2/3, daftar aktor lapangan, & tempat sampah 14 hari |
+| `/api/catalog` | `GET /jenis`, `/jenis/:id`, `POST/PUT/DELETE /jenis/:id`; `GET /jenis/:id/attributes`, `POST/PUT/DELETE /attributes/:id`, `POST /attributes/:id/options`; `GET /tipe-stok-suggestions`; `GET/POST/PUT/DELETE /products/:id`; `GET /products/:id/types`, `POST /types`, `PUT /types/:id/id-rule`; `GET /labels` | Manajemen penuh Kategori, Atribut, Opsi, Produk, Varian Tipe, aturan ID (`id_dikunci`), hapus terproteksi stok aktif, & data cetak label A4 |
+| `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move`, `DELETE /:id` | Manajemen storage box campuran, relokasi antar box, & hapus box kosong terproteksi |
+| `/api/stock` | `GET /search`, `GET /check-id/:kode_id`, `GET /types/:id/items`, `POST /single`, `/bulk`, `/quantity`, `/out`, `/out/bulk`, `GET /archive`, `POST /restore`, `PUT /items/:id/condition` | Pencarian 300ms, input stok, keranjang keluar, arsip, restore, & pembaruan kondisi item fisik |
 | `/api/activities` | `GET /`, `GET /:id/details`, `POST /:id/correct` | Feed transaksi kanonik & pencatatan koreksi audit append-only (`correction_of_id`) |
-| `/api/requests` | `POST /`, `GET /`, `GET /held`, `GET /open-for-actor/:actorId`, `GET /:id/timeline`, `POST /:id/approve`, `/pickup`, `/return`, `/reject`, `/cancel` | Siklus permohonan teknisi (`diajukan → disetujui → diambil → dikembalikan`) & barang di tangan teknisi |
-| `/api/reports` | `GET /weekly`, `GET /debug-clock`, `GET /export/csv` | Rekap mingguan WIB (Senin 00:00 – Minggu 23:59:59 WIB), debug jam UTC/WIB, & ekspor CSV CWE-1236 |
-| `/api/sn-patterns` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` | Pola regex validasi & ekstraksi `SCAN_SN` |
-| `/api/whatsapp` | `GET /config`, `POST /config`, `GET /thresholds`, `POST /thresholds`, `POST /evaluate`, `POST /send`, `POST /test`, `GET /logs` | Konfigurasi alert Fonnte, ambang berjenjang 15 menit, & log pengiriman |
-| `/api/tickets` | `POST /consume`, `GET /keys`, `POST /keys`, `DELETE /keys/:id` | Integrasi tiket eksternal via Bearer API key |
-| `/api/checklists` | `GET /`, `POST /` | Checklist tas lapangan teknisi |
-| `/api/backup` | `GET /inventory/download` | Unduh snapshot backup data inventaris bebas akun |
-
+| `/api/requests` | `POST /` (`ambil` / `kembalikan`), `POST /bag`, `GET /`, `/held`, `/open-for-actor/:actorId`, `/:id`, `/:id/timeline`, `POST /:id/(approve\|pickup\|return\|complete\|reject\|cancel)` | Siklus lengkap permohonan satuan, paket tas, pengajuan pengembalian 3 kondisi, barang di tangan teknisi, & penandaan selesai pelanggan |
+| `/api/checklists` | `GET/POST/PUT/DELETE /bags`, `GET /`, `POST /` | Manajemen Multi-Tas Kerja Lapangan (`BAG_TEMPLATE`) & catatan inspeksi harian (`TOOLKIT_CHECK`) |
+| `/api/reports` | `GET /weekly`, `GET /debug-clock`, `GET /export/csv` | Rekap mingguan WIB (Senin 00:00 – Minggu 23:59:59 WIB), verifikasi jam UTC/WIB, & ekspor CSV tersanitasi CWE-1236 |
+| `/api/sn-patterns` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` | Manajemen pola regex `SCAN_SN` & aturan normalisasi barcode (`pengaturan.SN_PATTERNS`) |
+| `/api/whatsapp` | `GET /config`, `POST /config`, `GET /thresholds`, `POST /thresholds`, `POST /evaluate`, `POST /send`, `POST /test`, `GET /logs` | Konfigurasi alert Fonnte, ambang berjenjang (*tipe > produk > global*), cooldown 15 menit, & log pengiriman |
+| `/api/tickets` | `POST /consume`, `GET /keys`, `POST /keys` | Webhook auto-deduct tiket eksternal via `X-API-Key`/Bearer & manajemen API key |
+| `/api/backup` | `GET /inventory/download` | Unduh snapshot JSON inventaris bebas kredensial akun (`developer`/`admin`) |

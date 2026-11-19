@@ -6,13 +6,38 @@ Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara 
 
 ---
 
-## 🚀 [v1.2.6] - 2026-11-15 (Unifikasi Model Data Tunggal, Output Keranjang, Siklus Request Teknisi, Akuntabilitas Audit & UTC/WIB)
-- **Model Data & API Kanonik Tunggal**: Mengeliminasi pemisahan v1/v2; seluruh menu memakai satu model `jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request` dengan `refreshData()` otomatis.
-- **Output Keranjang & Ekstraksi `SCAN_SN` Ketat**: Pencarian multi-atribut 300ms, scanner bersama dengan validasi token regex ketat tanpa fallback ke MAC/D-SN, proteksi item `Rusak`/`dipesan`, dan keranjang keluar multi-item.
-- **Akuntabilitas `actor_id` vs `recorded_by_id` & Koreksi Append-Only**: Dukungan transaksi atas nama teknisi dengan `on_behalf_reason` wajib, validasi `occurred_at` (7 hari untuk `warehouse_admin`, bebas untuk `admin`/`developer`), dan `POST /api/activities/:id/correct`.
-- **Siklus Request Teknisi & Barang di Tangan Teknisi**: Alur `diajukan → disetujui (reservasi 'dipesan') → diambil ('keluar') → dikembalikan (wajib untuk Alat)` plus tautan cepat **Hubungkan ke Request**.
-- **Kebijakan Zona Waktu UTC ↔ WIB**: Penyimpanan UTC penuh, tampilan `DD/MM/YYYY HH:mm WIB`, rentang laporan mingguan Senin 00:00 – Minggu 23:59:59.999 WIB, ekspor ExcelJS wall-clock WIB tersanitasi CWE-1236, dan `GET /api/reports/debug-clock`.
-*(Lihat rincian historis lengkap pada file [`CHANGELOG.md`](../CHANGELOG.md) di root repositori.)*
+## 🚀 [v1.2.6] - Unifikasi Model Data Tunggal, Alur Output & Request Teknisi, Akuntabilitas Audit, & Zona Waktu UTC/WIB - 2026-11-15
+- **1. Unifikasi Satu Model Data Kanonik (Penghapusan Pemisahan v1/v2)**:
+  - Menghapus seluruh endpoint, service, repository, modal, dan data dummy v1 (`/api/inventory`, `/api/transactions`, `inventoryService`, `transactionService`, `legacyMigrationService`, `mockData.ts`, `ItemFormModal`, `ItemDetailModal`, `CategoryManager`) serta meniadakan label `v1`/`v2` dari UI.
+  - Seluruh menu (Dashboard, Katalog, Input Barang Masuk, Output Barang Keluar, Request Teknisi, Riwayat Transaksi, & Laporan Mingguan) membaca satu sumber kebenaran kanonik (`jenis` → `produk` → `tipe` → `item` / `stok_jumlah` → `transaksi` & `transaksi_detail` → `request`).
+  - Setiap mutasi otomatis menyinkronkan `InventoryContext.refreshData()` tanpa perlu muat ulang manual.
+- **2. Alur Input, Ekstraksi Ketat `SCAN_SN`, & Output Keranjang Keluar**:
+  - **Input (`StockInputModal`) & Koreksi Aturan ID**: Validasi regex `SCAN_SN` per token hasil pemindaian foto/kamera tanpa pernah fallback ke MAC/D-SN/raw scan, kolom interaktif **Uji Regex**, teks bantuan pola `^ZTEGD[0-9A-Fa-f]{7}$`, peringatan bila pola dikosongkan, serta perbaikan tampilan kondisional pada modal Koreksi Aturan ID.
+  - **Output (`StockInOutModal`)**: Pencarian terpadu (debounce 300ms) berdasarkan SN/produk/tipe/box, integrasi scanner bersama, proteksi item berkondisi `Rusak` dan item reservasi `dipesan`, dukungan **Keranjang Keluar** multi-item, serta pembatasan jumlah `TANPA_ID` sesuai stok tersedia.
+- **3. Akuntabilitas Pelaku (`actor_id`) vs Pencatat (`recorded_by_id`) & Ledger Koreksi Append-Only**:
+  - Pemisahan kolom `actor_id`/`actor_nama`, `recorded_by_id`/`recorded_by_nama`, `is_on_behalf`, dan `on_behalf_reason` (wajib minimal 3 karakter, khusus `developer`/`admin`/`warehouse_admin` via `GET /api/auth/actors`).
+  - Validasi waktu kejadian (`occurred_at`): dilarang di masa depan; batas maksimal 7 hari ke belakang untuk `warehouse_admin` dan bebas untuk `admin`/`developer`.
+  - Fitur **Catat Koreksi Audit** pada `TransactionHistory.tsx` (`POST /api/activities/:id/correct`) secara append-only (`correction_of_id`) tanpa pernah mengubah/menghapus log transaksi historis.
+- **4. Siklus Request Teknisi Terintegrasi & *"Barang di Tangan Teknisi"***:
+  - Migrasi `12_unify_single_model_and_wib.sql`: memperluas siklus request menjadi `diajukan` → `disetujui` (reservasi `'dipesan'` / `reserved_qty`) → `diambil` (`'keluar'`, `taken_at`, via `POST /api/requests/:id/pickup`) → `dikembalikan` (`'aktif'` + kondisi barang, wajib untuk `Alat`, via `POST /api/requests/:id/return`) | `ditolak` | `dibatalkan` (melepas reservasi).
+  - Menambahkan endpoint `GET /api/requests/held`, `GET /api/requests/open-for-actor/:actorId`, dan `GET /api/requests/:id/timeline`, serta integrasi 1-klik **"Hubungkan ke Request"** pada pencatatan Output atas nama teknisi.
+- **5. Kebijakan Zona Waktu Ketat (Simpan UTC ↔ Tampilkan & Laporkan WIB / `Asia/Jakarta`)**:
+  - Utilitas terpadu `timezone.ts` di backend dan frontend: penyimpanan UTC penuh (`process.env.TZ = 'UTC'`), tampilan konsisten `DD/MM/YYYY HH:mm WIB`, dan perhitungan Laporan Mingguan tepat pada rentang **Senin 00:00:00.000 WIB – Minggu 23:59:59.999 WIB** (`GET /api/reports/weekly`).
+  - Ekspor Excel (`excelExporter.ts`) menyematkan serial tanggal wall-clock WIB (`dd/mm/yyyy hh:mm`) dengan kolom `Waktu Kejadian (WIB)` dan sanitasi **CWE-1236** penuh (`sanitizeFormulaInput()`).
+  - Menambahkan panel verifikasi jam server (`GET /api/reports/debug-clock`) di `WeeklyReport.tsx` dan membersihkan seluruh tanggal hardcoded `2026`.
+- **6. Pemangkasan Memory Adapter & Pengujian Kanonik**:
+  - Pembaruan `stockMemory.ts` (matching `SJ.TIPE_ID`, `COALESCE(reserved_qty, 0) - ?`, literal `R.STATUS = 'DIAMBIL'`, dan `WHERE TIPE_ID = ? AND STATUS = 'DIPESAN'`) serta `legacyMemory.ts`.
+  - Verifikasi suite `canonicalSystem.test.ts` (19/19 LULUS), `tahap6Requests.test.ts` (17/17 LULUS), `scanSnExtraction.test.ts` (6/6 LULUS), `tahap2Catalog.test.ts` (13/13), `tahap3Stock.test.ts` (17/17), `tahap4CatalogView.test.ts` (14/14), `tahap5ArchiveRestore.test.ts` (15/15), `v125Paket3Tools.test.ts` (24/24), dan `testReportsAndChecklists.ts` (LULUS).
+- **7. Kontrol Hapus & Ubah Katalog, Perbaikan Buka Isi Box, serta Alur Request "Kembalikan"**:
+  - **Hapus Terproteksi Data Aktif (Kategori, Produk, Storage Box, Atribut)**: Menambahkan tombol & endpoint hapus (`DELETE /api/catalog/jenis/:id`, `/api/catalog/attributes/:id`, `/api/catalog/products/:id`, `/api/boxes/:id`) yang menolak penghapusan jika masih ada isi stok aktif/dipesan, request terbuka, produk aktif, atau pemakaian oleh varian tipe aktif. Kategori/Produk/Box kosong dipindahkan ke Kotak Sampah 14 hari dengan konfirmasi Tingkat 3 melalui modal in-app (`ConfirmDeleteModal.tsx`).
+  - **Modifikasi Kategori & Atribut di Subtab Kelola**: Menambahkan aksi **Ubah** pada Kategori (`PUT /api/catalog/jenis/:id`) dan Atribut (`PUT /api/catalog/attributes/:id`), termasuk pengelolaan opsi dropdown (`pilihan`) dengan proteksi agar `tipe_isian` maupun opsi yang sedang dipakai varian aktif tidak berubah/terhapus sembarangan.
+  - **Perbaikan Buka Isi Box (`BoxContentModal.tsx`)**: Memperbaiki crash layar blank (*React Rules of Hooks* — pemanggilan `useEffect` setelah `return null`), menambahkan penangan error muat & muat ulang otomatis, serta beralih ke `catalogApi.updateItemCondition`.
+  - **Form Request "Ambil" vs "Kembalikan" & 3 Kondisi Terpetakan (`TechnicianRequestsView.tsx` & `requestService.ts`)**: Menambahkan opsi **Kembalikan** pada form pembuatan request dengan pemilih barang yang sedang dibawa (`diambil`), pencegahan duplikasi pengajuan, box tujuan pengembalian, serta 3 opsi kondisi (**Belum Terpakai** → `Baru`, **Normal** → `Baik`, **Rusak** → `Rusak`). Pengelola gudang memverifikasi penerimaan lewat tombol **Verifikasi & Terima** yang memulihkan stok dan menutup request pengembalian beserta request pengambilan asal sebagai `dikembalikan`, tanpa perubahan skema MariaDB serta mengganti `window.prompt` penolakan menjadi modal in-app.
+- **8. Multi-Tas Kerja Lapangan & Status "Selesai (Terpakai Pelanggan)"**:
+  - **Multi-Tas Kerja Kantor (`bagService.ts`, `/api/checklists/bags`, `FieldTripChecklistModal.tsx`)**: Mendukung pembuatan, pengubahan, dan penghapusan beberapa paket **Tas Kerja** kantor dari satu sumber Katalog menggunakan tabel `checklists` (`inspection_type = 'BAG_TEMPLATE'`) tanpa mengubah skema MariaDB, terhubung ke subtab inspeksi harian.
+  - **Pilih Satuan vs Paket Tas di Request (`POST /api/requests/bag`, `TechnicianRequestsView.tsx`)**: Pada form pengambilan request, pengguna dapat memilih **Alat / Barang Satuan** atau **Pilih Paket Tas** untuk mengajukan seluruh alat di dalam tas sekaligus lengkap dengan validasi stok live sebelum pengiriman dan penanda `[Tas: <Nama Tas>]`.
+  - **Status `Selesai (Terpakai Pelanggan)` Khusus Barang Habis Pakai (`POST /api/requests/:id/complete`, `requestService.ts`)**: Baik teknisi pemilik maupun pengelola gudang dapat menandai barang habis pakai (modem/material) yang sedang dipegang (`diambil`) sebagai `selesai` dengan pengisian wajib **Nama / ID Pelanggan** dan **Catatan Pemasangan**; barang kategori `Alat` tetap dikunci wajib kembali (`dikembalikan`), dan log dicatat pada timeline request & `ActivityLog` (`selesai_request`).
+*(Untuk catatan rilis menengah `v1.2.5`, lihat pula [`CHANGELOG.md`](../CHANGELOG.md) di root repositori.)*
 
 ---
 

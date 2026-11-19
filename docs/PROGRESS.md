@@ -1,30 +1,31 @@
 # PELACAK PROGRES FIELDOPS IT (PROGRESS.MD)
 **Aplikasi**: FieldOps IT Inventory  
-**Database**: MariaDB 11.x (Server Lokal, UTC)  
+**Database**: MariaDB 11.4 LTS (Server Lokal, UTC)  
 **Status Versi**: v1.2.6 Selesai & Terverifikasi  
 **Format Status**: `belum` | `dikerjakan` | `selesai` | `terverifikasi`
 
 ---
 
-## 📊 Matriks Progres Fitur & Modul
+## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.6)
 
-| ID Fitur | Nama Fitur & Modul | Status | Modul Baru | Dites? | Catatan / Aturan Khusus |
+> *Catatan Arsitektur*: Modul legacy awal v1 (`/api/inventory`, `/api/transactions`) telah disatukan ke dalam **Model Kanonik Tunggal v1.2.6** (`CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`).
+
+| ID Fitur | Nama Fitur & Modul | Status | Modul / Lokasi Aktual | Dites? | Catatan / Aturan Khusus |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`[F-01]`** | Pemisahan Struktur `frontend/` & `backend/` | **terverifikasi** | Root / Docker Compose | **Ya** | Decoupled structure, package.json & env terpisah |
-| **`[F-02]`** | Database MariaDB & Migrasi Skema Terpisah | **terverifikasi** | `backend/src/db/` | **Ya** | `01_auth_schema.sql` (akun) & `02_inventory_schema.sql` (barang) terpisah |
-| **`[F-03]`** | Autentikasi Server-Authoritative & Sesi Cookie | **terverifikasi** | `backend/src/routes/auth.ts`, `backend/src/services/authService.ts` | **Ya** | Session cookie HttpOnly, PBKDF2 100k, proteksi brute force rate limit |
-| **`[F-04]`** | Skrip Setup Master Admin Pertama | **terverifikasi** | `backend/src/scripts/setupAdmin.ts` | **Ya** | CLI/Interactive setup admin tanpa default password publik |
-| **`[F-05]`** | Log Perubahan / Audit Trail Terisolasi | **terverifikasi** | `backend/src/db/migrations/03_audit_trail_schema.sql` | **Ya** | Skema SQL terisolasi & terintegrasi dengan mutasi transaksi |
-| **`[F-06]`** | Master Barang & Kategori (CRUD) | **terverifikasi** | `backend/src/routes/inventory.ts` | **Ya** | REST API lengkap dengan soft delete dan restore barang |
-| **`[F-07]`** | Mutasi Stok Atomik (`stockIn`, `stockOut`) | **terverifikasi** | `backend/src/routes/transactions.ts` | **Ya** | Transaksi atomik MariaDB dengan update stok sebelum/sesudah |
-| **`[F-08]`** | Integrasi Tiket Lapangan (Auto-Deduct API) | **terverifikasi** | `backend/src/routes/ticketIntegration.ts` | **Ya** | API consume stock otomatis dengan Bearer token authentication |
-| **`[F-09]`** | Konsolidasi WhatsApp Alert (Fonnte) | **terverifikasi** | `backend/src/integrations/whatsapp/` | **Ya** | Unified provider interface (`FonnteProvider`), template, dan route |
-| **`[F-10]`** | Laporan Mingguan & Sanitasi Ekspor Data | **terverifikasi** | `backend/src/routes/reports.ts`, `src/utils/excelExporter.ts` | **Ya** | Sanitasi CWE-1236 CSV/Excel injection (`sanitizeFormulaInput`) |
-| **`[F-11]`** | Checklist Tas Lapangan Teknisi | **terverifikasi** | `backend/src/routes/checklist.ts` | **Ya** | Pengelolaan checklist tas teknisi berbasis API backend |
-| **`[F-12]`** | Cetak Surat Jalan & Bukti Serah Terima | **terverifikasi** | `src/components/PrintDocumentModal.tsx` | **Ya** | Modul cetak dokumen fisik dan PDF siap pakai |
-| **`[F-13]`** | Backup & Restore Terpisah (Barang vs Akun) | **terverifikasi** | `backend/src/services/backupService.ts` | **Ya** | Teruji via `npm run test:backup` (Zero Account Leakage) |
-| **`[F-14]`** | Docker Compose & Panduan `DEPLOY.md` | **terverifikasi** | `docker-compose.yml`, `docs/DEPLOY.md` | **Ya** | MariaDB 11 + Backend + Cloudflare Tunnel HTTPS |
-| **`[F-15]`** | Migrasi Data dari Workspace Tunggal (`default`)| **terverifikasi** | `auth_seed.json`, `items_seed.json` | **Ya** | Data barang dan akun dipisah 100% ke dalam 2 seed file terisolasi |
+| **`[F-01]`** | Pemisahan Struktur `frontend/` & `backend/` | **terverifikasi** | Root / Docker Compose | **Ya** | Decoupled structure, build Vite & Express 5 terpadu |
+| **`[F-02]`** | Database MariaDB & Migrasi Skema (`01` s/d `12`) | **terverifikasi** | `backend/src/db/migrations/` | **Ya** | Skema akun, fondasi keamanan, katalog, stok, request, WA alert, & unifikasi |
+| **`[F-03]`** | Autentikasi Server-Authoritative & Sesi Cookie | **terverifikasi** | `backend/src/routes/auth.ts`, `authService.ts`, `sessionService.ts` | **Ya** | Cookie HttpOnly (30 hari), PBKDF2 100k, rotasi refresh anti-replay, rate limit |
+| **`[F-04]`** | Skrip Setup Master Admin Pertama | **terverifikasi** | `backend/src/scripts/setupAdmin.ts` | **Ya** | CLI interaktif `npm run setup:admin` |
+| **`[F-05]`** | Ledger Aktivitas Append-Only & Audit Koreksi | **terverifikasi** | `backend/src/routes/activities.ts`, `activityLogService.ts` | **Ya** | ID harian `AKT-YYYYMMDD-NNNN`, `actor_id` vs `recorded_by_id`, koreksi `correction_of_id` |
+| **`[F-06]`** | Katalog Bertingkat, Ubah & Hapus Terproteksi | **terverifikasi** | `backend/src/routes/catalog.ts`, `catalogService.ts` | **Ya** | Jenis, Atribut, Produk, Tipe, proteksi stok/request terbuka, & Kotak Sampah 14 hari |
+| **`[F-07]`** | Manajemen Box & Mutasi Stok Atomik | **terverifikasi** | `backend/src/routes/box.ts`, `stock.ts`, `stockService.ts` | **Ya** | Box campuran, `SCAN_SN` ketat, Keranjang Keluar, Arsip & Restore, kondisi item |
+| **`[F-08]`** | Integrasi Tiket Lapangan (Auto-Deduct API) | **terverifikasi** | `backend/src/routes/ticketIntegration.ts` | **Ya** | `POST /api/tickets/consume`, `GET/POST /api/tickets/keys` dengan `X-API-Key` / Bearer |
+| **`[F-09]`** | Konsolidasi WhatsApp Alert (Fonnte) | **terverifikasi** | `backend/src/routes/whatsapp.ts`, `whatsappAlertService.ts` | **Ya** | Ambang berjenjang (*tipe > produk > global*), watchlist, & cooldown 15 menit |
+| **`[F-10]`** | Laporan Mingguan WIB & Sanitasi Ekspor Data | **terverifikasi** | `backend/src/routes/reports.ts`, `excelExporter.ts` | **Ya** | Rentang Senin–Minggu WIB, ExcelJS wall-clock WIB, & sanitasi CWE-1236 |
+| **`[F-11]`** | Inspeksi Tas & Multi-Tas Kerja Lapangan | **terverifikasi** | `backend/src/routes/checklist.ts`, `bagService.ts` | **Ya** | `TOOLKIT_CHECK` & multi-template `BAG_TEMPLATE` terhubung ke Katalog & Request |
+| **`[F-12]`** | Cetak Laporan A4 & Label QR Batch A4 Presisi | **terverifikasi** | `PrintReportModal.tsx`, `BatchLabelPrintModal.tsx` | **Ya** | Kop surat formal A4 & label `190 × 89 mm` dengan titik potong celah presisi |
+| **`[F-13]`** | Backup & Restore Bebas Kredensial Akun | **terverifikasi** | `backend/src/services/backupService.ts` | **Ya** | Teruji via `npm run test:backup` (Zero Account Leakage) |
+| **`[F-14]`** | Docker Compose & Panduan `DEPLOY.md` | **terverifikasi** | `docker-compose.yml`, `docs/DEPLOY.md` | **Ya** | MariaDB 11.4 + Backend + Cloudflare Tunnel HTTPS + panduan native |
 
 ---
 
@@ -32,24 +33,24 @@
 
 | Tahap | Deskripsi Cakupan Modul | Status | Pengujian Otomatis | Catatan Kunci |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tahap 0** | Prasyarat, Perbaikan Hash Demo & Pemetaan Data | **terverifikasi** | Node.js Auth Suite | Login demo 100% lulus; pemetaan Jenis/Produk/Tipe/Item disetujui |
+| **Tahap 0** | Prasyarat, Perbaikan Hash & Pemetaan Data | **terverifikasi** | Node.js Auth Suite | Pemetaan Jenis/Produk/Tipe/Item disetujui |
 | **Tahap 1** | Fondasi Keamanan, Sesi Server, Konfirmasi & Sampah 14H | **terverifikasi** | `tahap1Foundation.test.ts` (19/19 Lulus) | Tabel `sesi`, `pengaturan`, `transaksi` (`AKT-`), `sampah_hapus`, CLI `npm run sampah` |
-| **Tahap 2** | CRUD Jenis, Atribut, Produk, dan Tipe | **terverifikasi** | `tahap2Catalog.test.ts` (13/13 Lulus) | Pembentukan nama tipe otomatis (`masuk_nama = 1`), aturan ID (`scan_sn`, `otomatis`, `manual`, `tanpa_id`), tombol tambah atribut inline, penguncian `id_dikunci` |
-| **Tahap 3** | Box, Item Fisik Ber-ID, Stok Jumlah & Input Kamera | **terverifikasi** | `tahap3Stock.test.ts` (17/17 Lulus) | Box campuran, pemindaian kamera barcode/QR, input massal N unit/scan beruntun 1 ID aktivitas, validasi duplikat & regex |
-| **Audit Keamanan** | Audit Perbandingan Kode vs `SECURITY_GUIDE.md` (Bagian 1-3) | **terverifikasi** | Matriks Audit di `STATUS.md` | 100% Sesuai; semua aturan sesi, konfirmasi bertingkat, dan tempat sampah 14H disetujui |
-| **Tahap 4** | Antarmuka Katalog Toko Online & Filter Atribut | **terverifikasi** | `tahap4CatalogView.test.ts` (14/14 Lulus) | Kartu produk ala online shop, total stok segala tipe, detail per tipe, sebaran box, riwayat dari log, modal item ID fisik, filter lintas atribut |
-| **Tahap 5** | Barang Keluar & Arsip Terintegrasi Restore | **terverifikasi** | `tahap5ArchiveRestore.test.ts` (15/15 Lulus) | Soft delete barang keluar single & bulk (Tier 2 `approve`), pencarian arsip, konfirmasi restore produk matched, pencegahan duplikasi ID aktif |
-| **Tahap 6** | Alur Request Teknisi & Persetujuan Cepat | **terverifikasi** | `tahap6Requests.test.ts` (11/11 Lulus) | Permohonan barang oleh teknisi, persetujuan cepat atomik (1 approval dari 3 role), auto-deduct stok, pencegahan double approval, penolakan dengan catatan |
-| **Tahap 7** | Label Batch & Cetak A4 Presisi (`cetak_label.html`) | **terverifikasi** | `tahap7Labels.test.ts` (8/8 Lulus) | Layout presisi A4 (190×89mm), 2 tabel 5×3 per label (maks 10 produk), titik potong celah 195×94mm, SVG QR tajam, opsi slot 1-3 & 1-3 label/lembar |
-| **Tahap 8** | Notifikasi Fonnte, Audit Keamanan & Dokumentasi | **terverifikasi** | `tahap8Notifications.test.ts` (5/5 Lulus) | WhatsApp auto-alert via Fonnte saat request dibuat (asinkron & terisolasi), dark/light token design WCAG AA, audit keamanan final, dokumentasi sistem v1.2.0 |
+| **Tahap 2** | CRUD Jenis, Atribut, Produk, dan Tipe | **terverifikasi** | `tahap2Catalog.test.ts` (13/13 Lulus) | Pembentukan nama tipe otomatis (`masuk_nama = 1`), aturan ID (`scan_sn`, `otomatis`, `manual`, `tanpa_id`), penguncian `id_dikunci` |
+| **Tahap 3** | Box, Item Fisik Ber-ID, Stok Jumlah & Input Kamera | **terverifikasi** | `tahap3Stock.test.ts` (17/17 Lulus) | Box campuran, kamera barcode/QR, input massal N unit 1 ID aktivitas, relokasi antar box |
+| **Audit Keamanan** | Audit Perbandingan Kode vs Kebijakan Keamanan | **terverifikasi** | Matriks Audit di `STATUS.md` | 100% Sesuai; sesi server, konfirmasi bertingkat, & sampah 14H disetujui |
+| **Tahap 4** | Antarmuka Katalog Toko Online & Filter Atribut | **terverifikasi** | `tahap4CatalogView.test.ts` (14/14 Lulus) | Kartu produk modern, sebaran box, riwayat log, modal Rincian ID Fisik, filter dinamis |
+| **Tahap 5** | Barang Keluar & Arsip Terintegrasi Restore | **terverifikasi** | `tahap5ArchiveRestore.test.ts` (15/15 Lulus) | Soft delete barang keluar single & bulk (Tier 2 `approve`), restore ke box pilihan |
+| **Tahap 6** | Alur Request Teknisi & Persetujuan Cepat | **terverifikasi** | `tahap6Requests.test.ts` (17/17 Lulus) | Permohonan, persetujuan atomik, reservasi stok, serah terima, & pengembalian alat |
+| **Tahap 7** | Label Batch & Cetak A4 Presisi (`cetak_label.html`) | **terverifikasi** | `tahap7Labels.test.ts` (8/8 Lulus) | Layout A4 `190×89mm`, titik potong celah `195×94mm`, SVG QR tajam, opsi slot |
+| **Tahap 8** | Notifikasi Fonnte, Audit Keamanan & Dokumentasi | **terverifikasi** | `tahap8Notifications.test.ts` (5/5 Lulus) | WhatsApp alert asinkron saat request dibuat, desain WCAG AA, dokumentasi v1.2.0 |
 
 ## 🚀 Road Map v1.2.5 (Perbaikan dan Fitur Baru FieldOps IT)
 
 | Paket | Deskripsi Paket Kerja | Status | Pengujian Otomatis | Catatan Kunci |
 | :--- | :--- | :--- | :--- | :--- |
-| **Paket 1** | Hak Akses RBAC (Setting API, Katalog, WA Alert) | **terverifikasi** | `v125Paket1AccessControl.test.ts` (23/23 Lulus) | Modul `permissions.ts` terpusat; Setting API (`/api/tickets/keys`, `/api/auth/settings`, `/api/auth/users`, `/api/auth/trash`) khusus `developer` & `admin` (403 untuk `warehouse_admin` & `technician`); Katalog & Box read untuk semua role (termasuk `technician`); Katalog & Box write untuk `developer`, `admin`, `warehouse_admin` (403 untuk `technician`); WA Alert config 403 untuk `technician`. |
-| **Paket 2** | Perbaikan Bug Transaksi Keluar/Masuk & Ekspor Excel | **terverifikasi** | `v125Paket2StockAndExport.test.ts` (19/19 Lulus) | Memperbaiki bug pergeseran parameter SQL pada `transactions` (penggunaan 12 parameter terikat `?` menggantikan string SQL hardcoded `'IN'`/`'OUT'`) sehingga tipe transaksi dan kuantitas sebelum/sesudah tercatat akurat; memperbarui `excelExporter.ts` menggunakan library `exceljs` untuk menghasilkan berkas `.xlsx` biner valid (content-type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) yang terbebas dari ancaman CWE-1236 Formula Injection. |
-| **Paket 3** | Konsolidasi Menu Tools Navbar | **terverifikasi** | `v125Paket3Tools.test.ts` (24/24 Lulus) | Pemindahan tombol Database, Akses HP, WA Alert, Audit, Ekspor Excel ke dropdown **Tools** di navbar; quick access **Cetak Label** Batch A4; penegakan hak akses berbasis role pada UI dan backend (Database & Audit hanya untuk `developer` & `admin`, 403 untuk `warehouse_admin` & `technician`; WA Alert config write 403 untuk `technician`; WA Alert logs, Akses HP, Excel, Cetak Label untuk semua role); sanitasi CWE-1236 dan proteksi kerahasiaan kredensial pada ekspor Excel. |
+| **Paket 1** | Hak Akses RBAC (Setting API, Katalog, WA Alert) | **terverifikasi** | `v125Paket1AccessControl.test.ts` (23/23 Lulus) | `permissions.ts` terpusat; 4 peran kanonis; isolasi endpoint admin/developer |
+| **Paket 2** | Perbaikan Bug Transaksi & Ekspor Excel | **terverifikasi** | `v125Paket2StockAndExport.test.ts` (19/19 Lulus) | Ekspor `.xlsx` ExcelJS biner asli terbebas CWE-1236 Formula Injection |
+| **Paket 3** | Konsolidasi Menu Tools Navbar | **terverifikasi** | `v125Paket3Tools.test.ts` (24/24 Lulus) | Dropdown **Tools** & quick access Cetak Label Batch A4 sesuai role |
 | **Paket 4** | Katalog, Tipe Stok, Kategori Barang, & Kondisi Item | **terverifikasi** | `v125Paket4Catalog.test.ts` (13/13 Lulus) | Storage Box campuran, satuan stok dinamis, `Alat` vs `Barang Habis Pakai`, & kondisi item |
 | **Paket 5** | Input Stok via Kamera & Template Cetak Laporan A4 | **terverifikasi** | `v125Paket5CameraPrint.test.ts` (15/15 Lulus) | Scanner kamera terintegrasi & kop surat laporan cetak A4 |
 | **Paket 6** | WA Alert Otomatis (Fonnte) & Ambang Berjenjang 15m | **terverifikasi** | `v125Paket6WaAlert.test.ts` (13/13 Lulus) | Ambang tipe > produk > global, watchlist, & cooldown 15 menit |
@@ -57,29 +58,25 @@
 
 ---
 
-## 🚀 Road Map v1.2.6 (Unifikasi Model Data Tunggal, Output Cart, Request Lifecycle & UTC/WIB)
+## 🚀 Road Map v1.2.6 (Unifikasi Tunggal, Request & Multi-Tas, Kontrol Katalog & UTC/WIB)
 
 | Paket / Modul | Deskripsi Cakupan | Status | Pengujian Otomatis | Catatan Kunci |
 | :--- | :--- | :--- | :--- | :--- |
 | **Unifikasi Data** | Penghapusan jalur legacy v1 (`items`/`transactions`) ke 1 model kanonik | **terverifikasi** | `canonicalSystem.test.ts` (19/19 Lulus) | Seluruh menu memakai Katalog + Ledger tunggal & `refreshData()` otomatis |
-| **Input `SCAN_SN` & Output Cart** | Ekstraksi token regex ketat & Keranjang Keluar multi-item | **terverifikasi** | `scanSnExtraction.test.ts` (6/6 Lulus), `tahap3Stock.test.ts` (17/17 Lulus) | Uji Regex, debounce search 300ms, guard `Rusak`/`dipesan`, & cap `TANPA_ID` |
+| **Input `SCAN_SN` & Output Cart** | Ekstraksi token regex ketat & Keranjang Keluar multi-item | **terverifikasi** | `scanSnExtraction.test.ts` (6/6 Lulus), `tahap3Stock.test.ts` (17/17 Lulus) | Uji Regex, `/api/sn-patterns`, debounce search 300ms, guard `Rusak`/`dipesan` |
 | **Akuntabilitas & Koreksi** | Pemisahan `actor_id` vs `recorded_by_id`, `occurred_at`, & koreksi append-only | **terverifikasi** | `canonicalSystem.test.ts` | Alasan `on_behalf` wajib, validasi backdate 7H (`warehouse_admin`), `POST /api/activities/:id/correct` |
-| **Siklus Request Teknisi** | `diajukan → disetujui (reservasi) → diambil → dikembalikan` & *Held Items* | **terverifikasi** | `tahap6Requests.test.ts` (17/17 Lulus) | Reservasi `'dipesan'` / `reserved_qty`, 1-klik Hubungkan ke Request, & Barang di Tangan Teknisi |
+| **Kontrol Katalog & Box Content** | Ubah & Hapus Terproteksi Kategori/Atribut/Produk/Box + fix `BoxContentModal` | **terverifikasi** | `catalogDeleteEditAndReturnRequest.test.ts` (25/25 Lulus) | Tolak hapus jika ada stok/varian/produk aktif/request terbuka; konfirmasi Tier 3; fix Hooks modal box |
+| **Siklus Request `Kembalikan`** | Pengajuan pengembalian dari barang dibawa + 3 kondisi + verifikasi gudang | **terverifikasi** | `catalogDeleteEditAndReturnRequest.test.ts` (25/25 Lulus) | Pemetaan **Belum Terpakai**→`Baru`, **Normal**→`Baik`, **Rusak**→`Rusak` + cegah duplikasi |
+| **Multi-Tas & Paket Tas Request** | Beberapa Tas Kerja Kantor (`BAG_TEMPLATE`) & request 1-klik paket tas | **terverifikasi** | `bagAndCompleteRequest.test.ts` (20/20 Lulus) | `BagService`, `/api/checklists/bags`, & `POST /api/requests/bag` dengan validasi stok live |
+| **Status `Selesai` Pelanggan** | Penyelesaian transaksi `Barang Habis Pakai` dengan data pelanggan | **terverifikasi** | `bagAndCompleteRequest.test.ts` (20/20 Lulus) | `POST /api/requests/:id/complete` untuk teknisi pemilik & gudang; `Alat` tetap wajib kembali |
 | **Zona Waktu UTC ↔ WIB** | Penyimpanan UTC, tampilan WIB, Laporan Mingguan & ExcelJS WIB | **terverifikasi** | `canonicalSystem.test.ts`, `v125Paket3Tools.test.ts` (24/24 Lulus) | Senin 00:00 – Minggu 23:59:59 WIB, `debug-clock`, CWE-1236 `sanitizeFormulaInput()` |
 
 ---
 
-## 📈 Log Perubahan Status
-- **Tahap 0 Selesai**: Diagnosa otentikasi tuntas; hash PBKDF2 diperbaiki untuk `admin`, `developer`, `admin_gudang`, dan `teknisi`.
-- **Tahap 1 Selesai**: Fondasi v2 terpasang (`04_v2_foundation_schema.sql`); sesi server terisolasi dengan rotasi token dan deteksi anti-replay; konfirmasi sensitif bertingkat Tier 0–3 ditegakkan server; log transaksi format `AKT-YYYYMMDD-NNNN`; tempat sampah 14 hari dengan pemulihan CLI `npm run sampah`. Lulus 19/19 pengujian otomatis di `tahap1Foundation.test.ts`.
-- **Tahap 2 Selesai**: Skema katalog bertingkat terpasang (`05_v2_catalog_schema.sql`); REST endpoint & CatalogService (`jenis`, `atribut`, `atribut_opsi`, `produk`, `tipe`, `tipe_nilai`); otomatisasi pembentukan nama varian tipe dari atribut berurutan (`urutan` ASC); aturan ID per tipe (`scan_sn`, `otomatis`, `manual`, `tanpa_id`) dengan pola regex dan penguncian; UI `CatalogV2Manager.tsx` lengkap dengan tombol "+ Tambah Atribut" langsung di modal buat produk dan filter spesifikasi atribut dinamis. Lulus 13/13 pengujian otomatis di `tahap2Catalog.test.ts`.
-- **Tahap 3 Selesai**: Skema stok & box terpasang (`06_v2_stock_schema.sql`); `StockService` & REST endpoint (`/api/boxes`, `/api/stock`); dukungan box campuran; pemindaian kamera barcode/QR; input massal N unit & scan beruntun 20+ unit dipublikasikan dalam **1 transaksi tunggal** dengan ID aktivitas `AKT-YYYYMMDD-NNNN`; validasi duplikasi ID di seluruh sistem; penguncian `id_dikunci = 1` pada tipe; relokasi antar box dengan log `pindah_box`; UI `StockInputModal.tsx`, `BoxManagerModal.tsx`, dan `BoxContentModal.tsx`. Lulus 17/17 pengujian otomatis di `tahap3Stock.test.ts`.
-- **Tahap 4 Selesai**: Antarmuka katalog toko online modern dengan filter atribut dinamis, indikator total stok segala tipe, detail varian tipe per box, riwayat transaksi dari audit log, modal Rincian ID Fisik, dan pengujian otomatis 14/14 lulus di `tahap4CatalogView.test.ts`.
-- **Tahap 5 Selesai**: Barang keluar tunggal/massal dengan soft delete `status = 'keluar'`, konfirmasi server Tier 2 (`approve`), daftar Arsip dengan pencarian filter, dan pemulihan (restore) dari Arsip ke Box pilihan dengan validasi konfirmasi produk matched serta pencegahan duplikasi ID aktif. Lulus 15/15 pengujian otomatis di `tahap5ArchiveRestore.test.ts`.
-- **Dokumentasi & Tahap 6 Selesai**: File `STATUS.md` berhasil dipindahkan ke `/docs/STATUS.md`. Skema `07_v2_request_schema.sql`, `RequestService`, dan REST endpoint `/api/requests` selesai; persetujuan cepat atomik (1 approval dari 3 role), auto deduct stok, pencegahan race condition/double approval, penolakan dengan catatan. Lulus 11/11 pengujian otomatis di `tahap6Requests.test.ts`.
-- **Tahap 7 Selesai**: Modul cetak label batch presisi A4 (`BatchLabelPrintModal.tsx` & `/api/catalog/labels`) terpasang sesuai spesifikasi `cetak_label.html`: ukuran label 190 × 89 mm, layout 2 tabel 5×3 (maks 10 produk/kartu), titik potong celah presisi 195 × 94 mm, kode QR SVG tajam tanpa blur, serta penyesuaian slot 1-3. Lulus 8/8 pengujian otomatis di `tahap7Labels.test.ts`.
-- **Tahap 8 (Rilis Final Versi 1.2.0) Selesai**: Notifikasi WhatsApp (Fonnte) auto-alert terintegrasi asinkron; penegasan audit keamanan Bagian 1-3 tanpa modifikasi destruktif; sistem token tema terang/gelap WCAG AA; dokumentasi lengkap di `docs/v1.2.0/PANDUAN_SISTEM_V1.2.0.md` dan `CHANGELOG.md`. Lulus 5/5 pengujian otomatis di `tahap8Notifications.test.ts`. **TOTAL 102/102 TEST SUITE LULUS 100%**.
-- **v1.2.5 Paket 1 Selesai**: Penegakan Hak Akses RBAC terpusat di `backend/src/utils/permissions.ts`. Modul Setting API (`/api/tickets/keys`, `/api/auth/settings`, `/api/auth/users`, `/api/auth/trash`) khusus `developer` dan `admin` (ditolak HTTP 403 untuk `warehouse_admin` dan `technician`). Katalog & Storage Box read terbuka untuk seluruh role. Katalog write terbuka untuk `developer`, `admin`, `warehouse_admin` (ditolak HTTP 403 untuk `technician`). Pengaturan WA Alert ditolak HTTP 403 untuk `technician`. Pengujian otomatis `v125Paket1AccessControl.test.ts` LULUS 23/23 (100% PASS, total akumulatif 125/125 test PASS).
-- **v1.2.5 Paket 2 Selesai**: Perbaikan bug transaksi barang masuk/keluar (penyelarasan 12 parameter SQL terikat `?` pada tabel `transactions`) dan ekspor Excel biner asli menggunakan `exceljs` dengan Blob type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` serta sanitasi CWE-1236. Pengujian otomatis `v125Paket2StockAndExport.test.ts` LULUS 19/19 (100% PASS, total akumulatif 144/144 test PASS).
-- **v1.2.5 Paket 3 Selesai**: Konsolidasi menu **Tools** di navbar (`Navbar.tsx` & `App.tsx`) dengan quick access Cetak Label Batch A4 dan penegakan hak akses berbasis role pada UI dan backend (`/api/backup/inventory/download`, `/api/auth/trash`, `/api/whatsapp/config`, dll.). Header atas bersih dari tombol berdiri sendiri. Pengujian otomatis `v125Paket3Tools.test.ts` LULUS 24/24 (100% PASS, total akumulatif 168/168 test PASS).
-- **v1.2.6 (Unifikasi Model Data Tunggal & UTC/WIB) Selesai**: Penghapusan seluruh kode legacy v1/v2 sehingga seluruh aplikasi beroperasi di atas satu sumber kanonik tunggal; ekstraksi token ketat `SCAN_SN` + Output Keranjang Keluar; akuntabilitas `actor_id` vs `recorded_by_id` + koreksi audit append-only; siklus request lengkap (`diajukan → disetujui → diambil → dikembalikan`) & daftar *Barang di Tangan Teknisi*; serta standarisasi penyimpanan UTC ↔ tampilan/laporan/ExcelJS WIB. Seluruh suite aktif (`canonicalSystem.test.ts`, `tahap2-6`, `scanSnExtraction`, `v125Paket3Tools`, `testReportsAndChecklists`), `tsc --noEmit`, dan `npm run build` LULUS 100%.
+## 📈 Log Perubahan Status Terkini
+- **Tahap 0 s/d Tahap 8 (v1.2.0)**: Fondasi keamanan server-authoritative (`sesi`, `pengaturan`, `token_konfirmasi`, `sampah_hapus`), Katalog bertingkat, Box & stok fisik, antarmuka katalog modern, arsip & restore, siklus request awal, cetak label QR A4 presisi, dan notifikasi Fonnte tuntas & terverifikasi.
+- **v1.2.5 (Paket 1 s/d 7 & Solid Refactor)**: Penegakan RBAC terpusat, perbaikan ekspor ExcelJS bebas CWE-1236, konsolidasi menu Tools, kategori `Alat` vs `Barang Habis Pakai` & kondisi item, scanner kamera, template cetak A4, WA Alert berjenjang 15 menit, dan branding logo baru.
+- **v1.2.6 (Unifikasi Tunggal, Kontrol Katalog, Multi-Tas, Request `Kembalikan` & `Selesai`, UTC/WIB)**:
+  - Menghapus seluruh jalur legacy v1 sehingga aplikasi berjalan 100% di atas satu model kanonik dengan `refreshData()` otomatis, `SCAN_SN` ketat, Keranjang Keluar, akuntabilitas `actor_id` vs `recorded_by_id`, dan koreksi audit append-only.
+  - Menambahkan fitur ubah/hapus terproteksi Kategori, Atribut, Produk, dan Box; perbaikan layar blank `BoxContentModal`; alur request **Kembalikan** 3 kondisi + verifikasi gudang; **Multi-Tas Kerja Kantor** (`BAG_TEMPLATE`) + pengajuan **Pilih Paket Tas** (`POST /api/requests/bag`); serta status **Selesai (Terpakai Pelanggan)** khusus `Barang Habis Pakai` (`POST /api/requests/:id/complete`).
+  - Terverifikasi melalui `canonicalSystem.test.ts` (19/19), `catalogDeleteEditAndReturnRequest.test.ts` (25/25), `bagAndCompleteRequest.test.ts` (20/20), suite Tahap 2–6, Paket 1–7, `npm run lint`, dan `npm run build`.

@@ -1,220 +1,132 @@
 # DOKUMEN ARSITEKTUR SISTEM (ARCHITECTURE.MD)
 **Aplikasi**: FieldOps IT Inventory (Rilis v1.2.6)  
-**Database Mesin**: MariaDB 11.x (Server Lokal, UTC)  
-**Arsitektur**: Decoupled Monorepo (`frontend/` + `backend/`) dengan Model Data Kanonik Tunggal  
+**Database Mesin**: MariaDB 11.4 LTS (Server Lokal On-Premises, UTC)  
+**Arsitektur**: Decoupled Monorepo (`frontend/` React 19 SPA + `backend/` Express 5 REST API) dengan Model Data Kanonik Tunggal  
 **Status**: Rilis v1.2.6 Terverifikasi Penuh
 
-> **Pembaruan Arsitektur v1.2.6**: Jalur legacy v1 (`inventoryService`, `transactionService`, `/api/inventory`, `/api/transactions`) telah dilepas sepenuhnya. Seluruh alur backend kini terpusat di `CatalogService`, `StockService`, `ActivityLogService` (ledger append-only dengan `actor_id`/`recorded_by_id`/`occurred_at`/`correction_of_id`), `RequestService` (`diajukan → disetujui → diambil → dikembalikan`), `WhatsAppAlertService`, dan `timezone.ts` (UTC storage ↔ `Asia/Jakarta` WIB display).
+> **Pembaruan Arsitektur v1.2.6**: Jalur legacy v1 (`inventoryService`, `transactionService`, `/api/inventory`, `/api/transactions`) telah dilepas sepenuhnya. Seluruh aplikasi beroperasi di atas satu model data kanonik (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`) dengan layanan terpadu `CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`, `ConfirmationService`, `TrashService`, `WhatsappAlertService`, `TicketIntegration`, `BackupService`, dan kebijakan zona waktu UTC ↔ WIB (`timezone.ts`).
 
 ---
 
-## 🏛️ 1. Diagram Arsitektur Sistem (Mermaid)
+## 🏛️ 1. Diagram Arsitektur Sistem
 
 ```mermaid
 flowchart TD
-    subgraph Klien["Perangkat Pengguna (~7 Pengguna)"]
-        BrowserTech["Teknisi Lapangan (Mobile PWA / Laptop)"]
-        BrowserAdmin["Admin Gudang & Inventori"]
-        BrowserSpv["Supervisor / Atasan (Dalam & Luar Kantor)"]
+    subgraph Klien["Perangkat Pengguna (Desktop & Mobile PWA)"]
+        BrowserTech["Teknisi Lapangan (technician)"]
+        BrowserWH["Pengelola Gudang (warehouse_admin)"]
+        BrowserAdmin["Admin & Developer (admin / developer)"]
     end
 
     subgraph JaringanAkses["Akses Jaringan & Reverse Proxy"]
-        LocalLAN["LAN Kantor (192.168.x.x:3000)"]
-        RemoteAccess["Akses Luar Kantor (Cloudflare Tunnel / VPN)"]
-        ReverseProxy["Nginx / Caddy (SSL/TLS Termination)"]
+        LocalLAN["LAN Kantor (HTTP :3000)"]
+        RemoteAccess["Akses Luar Kantor (Cloudflare Tunnel HTTPS)"]
     end
 
-    subgraph BackendApp["Express Backend (Node.js 22 LTS)"]
-        SecurityMW["Middleware: CORS + Helmet + Rate Limit"]
-        AuthMW["Middleware: Session Cookie & Role Verifier"]
+    subgraph FrontendSPA["React 19 SPA (frontend/)"]
+        Contexts["AuthContext • InventoryContext • ToastContext • ThemeContext"]
+        UIViews["Katalog (4 Subtab) • Input/Output Cart • Request & Multi-Tas • Laporan WIB • Tools"]
+    end
+
+    subgraph BackendApp["Express 5 API Server (backend/src/server.ts, TZ=UTC)"]
+        SecurityMW["Security Headers (SEC-05) • Rate Limit • authenticate • requireRole"]
         
-        subgraph ModulBackend["Modul Layanan Backend"]
-            AuthService["authService (PBKDF2 SHA-256)"]
-            InventoryService["inventoryService (Master Barang)"]
-            TxService["transactionService (Mutasi Stok Atomik)"]
-            ChecklistService["checklistService (Tas Lapangan)"]
-            TicketService["ticketIntegrationService (Auto-Deduct API)"]
-            WaService["whatsappService (Fonnte Provider & Queue)"]
-            BackupService["backupService (Export Terpisah)"]
+        subgraph ModulBackend["Layanan Inti Backend"]
+            AuthSvc["AuthService • SessionService • ConfirmationService • SettingService"]
+            CatalogSvc["CatalogService (Jenis, Atribut, Produk, Tipe) & SNPatterns"]
+            StockSvc["StockService (Box, Item Ber-ID, Stok Jumlah, Arsip, Restore)"]
+            ReqBagSvc["RequestService (Ambil/Kembalikan/Selesai) & BagService (Multi-Tas)"]
+            LedgerSvc["ActivityLogService (Append-Only AKT-) & TrashService (14 Hari)"]
+            ExtSvc["WhatsappAlertService • NotificationService • TicketIntegration • BackupService"]
         end
-
-        AuditTrail["auditService (Audit Trail Lapis 3)"]
     end
 
-    subgraph StorageLayer["MariaDB 11.x (Server Lokal Terisolasi)"]
-        direction TB
-        subgraph FileAkun["1. File Skema & Data Akun (01_auth_schema.sql)"]
-            TblUsers[("tabel: users")]
-            TblSessions[("tabel: sessions")]
-        end
-
-        subgraph FileBarang["2. File Skema & Data Bisnis (02_inventory_schema.sql)"]
-            TblCategories[("tabel: categories")]
-            TblItems[("tabel: items")]
-            TblTransactions[("tabel: transactions")]
-            TblChecklists[("tabel: checklists")]
-            TblApiKeys[("tabel: api_keys")]
-            TblWaConfig[("tabel: whatsapp_config")]
-            TblWaLogs[("tabel: whatsapp_logs")]
-        end
-
-        subgraph FileAudit["3. File Skema Audit Trail (03_audit_trail_schema.sql)"]
-            TblAuditLogs[("tabel: audit_logs")]
-        end
+    subgraph StorageLayer["MariaDB 11.4 LTS (On-Premises, UTC)"]
+        DbAuth[("Akun & Keamanan:\nusers • sesi • pengaturan\ntoken_konfirmasi • sampah_hapus")]
+        DbCanon[("Katalog, Stok & Operasional:\njenis • atribut • atribut_opsi • produk • tipe • tipe_nilai\nbox • item • stok_jumlah • request\ntransaksi • transaksi_detail • checklists")]
+        DbExt[("Notifikasi & Integrasi:\napi_keys • wa_config • wa_thresholds\nwa_alert_status • wa_delivery_logs • audit_logs")]
     end
 
     subgraph LayananLuar["Integrasi Eksternal"]
         FonnteAPI["Fonnte WhatsApp Gateway API"]
-        ExternalHelpdesk["Helpdesk / Jira / GLPI (via API Key)"]
+        ExternalHelpdesk["Sistem Tiket Eksternal (POST /api/tickets/consume)"]
     end
 
     BrowserTech --> LocalLAN
-    BrowserAdmin --> LocalLAN
-    BrowserSpv --> RemoteAccess
-    LocalLAN --> ReverseProxy
-    RemoteAccess --> ReverseProxy
-    ReverseProxy --> SecurityMW
-    SecurityMW --> AuthMW
-    AuthMW --> ModulBackend
-    ModulBackend --> AuditTrail
+    BrowserWH --> LocalLAN
+    BrowserAdmin --> RemoteAccess
+    LocalLAN --> FrontendSPA
+    RemoteAccess --> FrontendSPA
+    FrontendSPA -->|REST JSON + Cookie HttpOnly| SecurityMW
+    SecurityMW --> ModulBackend
     ModulBackend --> StorageLayer
-    AuditTrail --> TblAuditLogs
-    WaService -.->|HTTPS Outbound| FonnteAPI
-    ExternalHelpdesk -.->|POST /api/tickets/consume| TicketService
+    ExtSvc -.->|HTTPS Outbound (Cooldown 15m)| FonnteAPI
+    ExternalHelpdesk -.->|X-API-Key / Bearer| ExtSvc
 ```
 
 ---
 
-## 🗄️ 2. Desain Database MariaDB & Pemisahan Dua File Data
+## 🗄️ 2. Pengelompokan Domain Data & Isolasi File
 
-Sesuai instruksi mutlak pengguna: **Data item dengan data akun dipisahkan menjadi dua file yang berbeda**, baik dalam struktur skema SQL, berkas *seeding*, maupun berkas ekspor cadangan (*backup/restore*).
+Sesuai prinsip pemisahan keamanan repositori, data autentikasi/kredensial akun dipisahkan dari data bisnis inventaris maupun ekspor cadangan JSON (*Zero Account Leakage*):
 
-### A. File 1: Data Akun & Sesi (`01_auth_schema.sql` & `auth_seed.json`)
-Hanya memuat entitas pengguna dan verifikasi hak akses:
-1. **Tabel `users`**:
-   - `id` (VARCHAR(36) PRIMARY KEY)
-   - `username` (VARCHAR(64) UNIQUE NOT NULL)
-   - `name` (VARCHAR(128) NOT NULL)
-   - `email` (VARCHAR(128) UNIQUE NOT NULL)
-   - `role` (ENUM('technician', 'admin', 'supervisor') NOT NULL)
-   - `department` (VARCHAR(128))
-   - `phone` (VARCHAR(32))
-   - `password_hash` (VARCHAR(256) NOT NULL - PBKDF2 SHA-256 100k)
-   - `salt` (VARCHAR(64) NOT NULL - 16 bytes hex)
-   - `status` (ENUM('ACTIVE', 'SUSPENDED', 'PENDING_APPROVAL') DEFAULT 'ACTIVE')
-   - `created_at`, `updated_at` (TIMESTAMP)
-2. **Tabel `sessions`**:
-   - `session_id` (VARCHAR(64) PRIMARY KEY)
-   - `user_id` (VARCHAR(36) NOT NULL, FK -> users.id)
-   - `ip_address` (VARCHAR(45))
-   - `user_agent` (TEXT)
-   - `expires_at` (TIMESTAMP NOT NULL)
-   - `created_at` (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
-
-### B. File 2: Data Bisnis Inventaris & Barang (`02_inventory_schema.sql` & `items_seed.json`)
-Sama sekali **tidak menyimpan hash, salt, atau kredensial akun**. Relasi ke pengguna hanya berupa atribut `user_id`:
-1. **Tabel `categories`**:
-   - `id` (VARCHAR(36) PRIMARY KEY)
-   - `code` (VARCHAR(16) UNIQUE NOT NULL - misal: 'CAB', 'NET')
-   - `name` (VARCHAR(128) NOT NULL)
-   - `description` (TEXT)
-2. **Tabel `items`**:
-   - `id` (VARCHAR(36) PRIMARY KEY)
-   - `sku` (VARCHAR(64) UNIQUE NOT NULL)
-   - `barcode` (VARCHAR(64) UNIQUE)
-   - `name` (VARCHAR(256) NOT NULL)
-   - `category_id` (VARCHAR(36) NOT NULL, FK -> categories.id)
-   - `quantity` (INT NOT NULL DEFAULT 0, CHECK (quantity >= 0))
-   - `min_stock_alert` (INT NOT NULL DEFAULT 2)
-   - `unit` (VARCHAR(32) NOT NULL DEFAULT 'pcs')
-   - `location` (VARCHAR(128))
-   - `specs` (TEXT)
-   - `unit_cost` (DECIMAL(15,2) DEFAULT 0.00)
-   - `status` (ENUM('NORMAL', 'LOW_STOCK', 'OUT_OF_STOCK') NOT NULL DEFAULT 'NORMAL')
-   - `is_deleted` (BOOLEAN DEFAULT FALSE) - Soft delete
-   - `deleted_at` (TIMESTAMP NULL)
-   - `created_at`, `updated_at` (TIMESTAMP)
-3. **Tabel `transactions`**:
-   - `id` (VARCHAR(36) PRIMARY KEY)
-   - `type` (ENUM('IN', 'OUT', 'ADJUST') NOT NULL)
-   - `item_id` (VARCHAR(36) NOT NULL, FK -> items.id)
-   - `quantity` (INT NOT NULL)
-   - `previous_qty` (INT NOT NULL)
-   - `new_qty` (INT NOT NULL)
-   - `reference_type` (VARCHAR(64))
-   - `reference_number` (VARCHAR(128))
-   - `recipient_destination` (VARCHAR(256))
-   - `user_id` (VARCHAR(36) NOT NULL)
-   - `notes` (TEXT)
-   - `created_at` (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
-4. **Tabel `checklists` & `checklist_items`**:
-   - Pelacakan isi tas teknisi lapangan sebelum berangkat.
-5. **Tabel `whatsapp_config` & `whatsapp_logs`**:
-   - Menyimpan kredensial Fonnte dari env & riwayat pengiriman secara persisten.
-
-### C. File 3: Audit Trail Log (`03_audit_trail_schema.sql`)
-1. **Tabel `audit_logs`**:
-   - `id` (BIGINT AUTO_INCREMENT PRIMARY KEY)
-   - `user_id` (VARCHAR(36) NOT NULL)
-   - `action` (VARCHAR(64) NOT NULL - misal: 'CREATE_ITEM', 'STOCK_OUT', 'DELETE_ITEM')
-   - `table_name` (VARCHAR(64) NOT NULL)
-   - `record_id` (VARCHAR(36) NOT NULL)
-   - `before_state` (JSON)
-   - `after_state` (JSON)
-   - `ip_address` (VARCHAR(45))
-   - `created_at` (TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+1. **Domain Autentikasi, Sesi & Keamanan (`01_auth_schema.sql` & `04_v2_foundation_schema.sql`)**:
+   - `users`: Profil internal dan hash PBKDF2 100k iterasi + 16-byte salt (peran kanonis `developer`, `admin`, `warehouse_admin`, `technician`).
+   - `sesi`: Sesi cookie server-authoritative dengan `refresh_hash`, `device_id_hash`, `kedaluwarsa_mutlak`, dan pencabutan anti-replay.
+   - `pengaturan`: Parameter sistem dinamis (masa sesi 30 hari, `CONFIRMATION_TIERS`, `REAUTH_MENIT`, `RETENSI_SAMPAH_HARI`, serta konfigurasi `SN_PATTERNS`).
+   - `token_konfirmasi`: Token sekali pakai TTL 120 detik untuk verifikasi Tingkat 2 dan 3.
+   - `sampah_hapus`: Snapshot JSON penghapusan permanen kategori/produk/box/akun dengan retensi 14 hari sebelum pemusnahan otomatis.
+2. **Domain Katalog, Stok Fisik, Request, Multi-Tas, & Ledger (`05`–`08`, `12` SQL migrations + `checklists`)**:
+   - Katalog bertingkat: `jenis` → `atribut` / `atribut_opsi` → `produk` (`kategori_barang`, `tipe_stok`) → `tipe` / `tipe_nilai` (`sumber_id`, `prefix_id`, `pola_id`, `id_dikunci`).
+   - Stok & Box: `box` (box campuran) → `item` (unit ber-ID unik dengan `status` & `kondisi`) dan `stok_jumlah` (stok mode `tanpa_id` dengan `reserved_qty`).
+   - Permohonan & Paket Tas: `request` (mendukung pengambilan satuan, pengambilan paket tas, pengajuan pengembalian, serta penandaan `selesai` pemakaian pelanggan) dan `checklists` (`TOOLKIT_CHECK` untuk inspeksi harian & `BAG_TEMPLATE` untuk Multi-Tas Kerja Lapangan).
+   - Ledger Append-Only: `transaksi` & `transaksi_detail` dengan ID aktivitas harian `AKT-YYYYMMDD-NNNN`, pemisahan `actor_id` vs `recorded_by_id`, `occurred_at` UTC, dan `correction_of_id`.
+3. **Domain Integrasi Eksternal, WA Alert, & Audit (`02`, `03`, `09`)**:
+   - `api_keys` untuk integrasi helpdesk (`/api/tickets/consume`).
+   - `wa_config`, `wa_thresholds`, `wa_alert_status`, `wa_delivery_logs` untuk notifikasi stok otomatis Fonnte dengan ambang berjenjang (*tipe > produk > global*) dan jeda 15 menit.
+   - `audit_logs` untuk catatan jejak perubahan administratif.
+   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.6).*
 
 ---
 
-## 🔒 3. Desain Autentikasi & Otorisasi Server
-1. **Otentikasi Server-Authoritative**:
-   - Klien mengirim username dan password ke `POST /api/auth/login`.
-   - Backend memverifikasi hash PBKDF2 menggunakan salt akun dari tabel `users`.
-   - Jika valid, backend membuat ID sesi unik, menyimpannya di tabel `sessions`, dan menyetel cookie:
-     `Set-Cookie: fieldops_session=<sid>; HttpOnly; Secure; SameSite=Lax; Path=/`
-2. **Penegakan Hak Akses (RBAC)**:
-   - Setiap endpoint diproteksi oleh middleware `requireAuth` dan `requireRole(['admin', 'supervisor'])`.
-   - Peran dibaca dari database sesi server, **bukan dari request body klien**.
-   - Klien hanya menerima objek profil non-sensitif (`{ id, name, username, role, department }`) untuk mengatur tampilan UI.
-3. **Skrip Setup Admin Pertama**:
-   - Perintah `npm run setup:admin` pada backend meminta input interaktif username, email, dan password admin pertama. Tidak ada akun default dengan password statis di lingkungan produksi.
+## 🔒 3. Desain Autentikasi, Otorisasi, & Zona Waktu
+
+1. **Otentikasi Cookie `HttpOnly`**:
+   - `POST /api/auth/login` memverifikasi kata sandi PBKDF2 SHA-256 (100.000 iterasi) dan menerbitkan cookie `fieldops_access`, `fieldops_refresh`, `fieldops_device`, dan `fieldops_session` (`HttpOnly; SameSite=Lax`, ditambah `Secure` di produksi).
+   - `authenticate` di Express memvalidasi sesi langsung dari database setiap request—peran tidak pernah dipercaya dari klien maupun `localStorage`.
+2. **Penegakan Konfirmasi Bertingkat & Proteksi Hapus**:
+   - Operasi destruktif pada Katalog (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`) menolak penghapusan di backend apabila masih ada produk aktif, varian aktif, stok aktif/dipesan, atau request terbuka, lalu mewajibkan token konfirmasi Tingkat 3.
+3. **Kebijakan Zona Waktu (UTC Penyimpanan ↔ WIB Tampilan & Laporan)**:
+   - Backend selalu mengunci `process.env.TZ = 'UTC'` dan menyimpan kolom datetime dalam UTC.
+   - Seluruh tampilan aplikasi, penomoran harian `AKT-YYYYMMDD-NNNN`, batasan minggu laporan (**Senin 00:00:00.000 WIB – Minggu 23:59:59.999 WIB**), dan serial wall-clock ekspor ExcelJS dikonversi secara deterministik melalui utilitas `timezone.ts` ke `Asia/Jakarta` (WIB).
 
 ---
 
-## 🌐 4. Analisis Pilihan Akses Jarak Jauh (Remote Access) untuk Kantor ISP
+## 🏷️ 4. Siklus Status Barang, Request, & Mutasi
 
-Berdasarkan kebutuhan akses atasan dari luar kantor ke server lokal:
+### A. Status Unit Item Fisik (`item.status` & `item.kondisi`)
+- **Status Unit (`item.status`)**:
+  1. `aktif`: Barang tersedia di dalam `box` gudang.
+  2. `dipesan`: Barang sedang direservasi oleh permohonan teknisi berstatus `disetujui` (`reserved_for_request_id`), sehingga tidak bisa diambil ganda di menu Output maupun Request lain.
+  3. `keluar`: Barang telah diserahkan ke teknisi/pelanggan/keluar gudang.
+- **Kondisi Fisik (`item.kondisi`)**: `Baru`, `Baik`, `Perlu Perbaikan`, atau `Rusak`. Item berkondisi `Rusak` tetap tercatat di box namun **dikecualikan** dari hitungan stok tersedia maupun alokasi request/tiket.
+
+### B. Siklus Request Teknisi (`request.status`)
+1. `diajukan` *(atau alias legacy `menunggu`)*: Permohonan baru diajukan (baik **Ambil Satuan**, **Pilih Paket Tas**, maupun pengajuan **Kembalikan**).
+2. `disetujui`: Disetujui oleh pengelola gudang/admin/developer; stok otomatis direservasi (`item.status = 'dipesan'` atau `stok_jumlah.reserved_qty`).
+3. `diambil`: Barang telah diserahkan fisik (`POST /api/requests/:id/pickup`), mencatat transaksi `KELUAR` dan masuk ke daftar *"Barang di Tangan Teknisi"* (`GET /api/requests/held`).
+4. `dikembalikan`: Barang telah dikembalikan dan diverifikasi pengelola gudang ke box tujuan dengan kondisi terpetakan (`Belum Terpakai` → `Baru`, `Normal` → `Baik`, `Rusak` → `Rusak`). **Wajib untuk kategori `Alat`**.
+5. `selesai`: Khusus **`Barang Habis Pakai`** (misal modem/material) yang telah benar-benar terpasang pada pelanggan (`POST /api/requests/:id/complete` oleh teknisi pemilik atau pengelola gudang dengan pengisian wajib Nama/ID Pelanggan & Catatan Pemasangan; `return_condition = 'Terpakai'`).
+6. `ditolak` / `dibatalkan`: Permohonan dihentikan dan seluruh reservasi stok (`dipesan` / `reserved_qty`) langsung dilepas kembali.
+
+---
+
+## 🌐 5. Pilihan Akses Jarak Jauh (Remote Access)
 
 | Parameter | Opsi A: Cloudflare Tunnel (Direkomendasikan) | Opsi B: VPN Kantor (WireGuard / Tailscale) |
 | :--- | :--- | :--- |
-| **Kebutuhan IP Publik** | **Tidak Perlu IP Publik** (bekerja mulus di balik CGNAT ISP) | Memerlukan IP publik statis di router kantor atau koordinasi server relay |
-| **Konfigurasi Port** | **Nol Port Forwarding** (tidak ada port dibuka ke publik) | Port VPN harus dibuka di firewall router kantor |
-| **Keamanan Database** | Database MariaDB tetap di internal network; hanya backend web yang diteruskan | Aman dalam tunnel VPN, tetapi klien VPN bisa mengakses subnet lokal jika tidak di-isolasi |
-| **Sertifikat SSL/HTTPS** | Otomatis disediakan oleh Cloudflare (Wajib untuk PWA & Service Worker) | Harus membuat sertifikat sendiri atau self-signed CA |
-| **Kemudahan Pengguna** | Atasan cukup membuka URL domain (misal: `https://inventory.kantor.com`) dari browser mana saja | Atasan wajib menginstal aplikasi VPN di smartphone/laptop dan menyalakannya sebelum login |
-
-**Rekomendasi**: Menggunakan **Opsi A (Cloudflare Tunnel)** karena aman, tidak membuka port router kantor, dan otomatis menyediakan HTTPS untuk operasional PWA teknisi di ponsel.
-
----
-
-## 🏷️ 5. Definisi Status Barang & Progres
-
-### A. Status Stok Barang Fisik (`items.status`)
-1. **`NORMAL`**: Stok berada di atas batas minimum (`quantity > min_stock_alert`). Kartu/baris berwarna hijau atau netral.
-2. **`LOW_STOCK`**: Stok menipis atau berada di batas minimum (`quantity > 0 AND quantity <= min_stock_alert`). Memunculkan badge peringatan kuning dan memicu notifikasi WhatsApp ke tim logistik.
-3. **`OUT_OF_STOCK`**: Stok fisik kosong (`quantity = 0`). Memunculkan badge merah dan memicu alert prioritas tinggi.
-
-### B. Status Mutasi Transaksi (`transactions.type`)
-1. **`IN`**: Barang masuk (pengadaan PO baru, retur lapangan, atau pengembalian teknisi).
-2. **`OUT`**: Barang keluar (keperluan insiden tiket teknisi, pemeliharaan BTS/ODC, atau serah terima unit).
-3. **`ADJUST`**: Penyesuaian stok saat opname berkala (koreksi fisik vs data).
-
----
-
-## 📦 6. Konfirmasi Sumber Data Tunggal & Rencana Dependensi
-
-1. **Sumber Data Tunggal**:
-   - Sesuai temuan audit, workspace `'default'` (*Kantor Pusat*) adalah satu-satunya sumber data master riil (12 item barang, 16 transaksi, 6 kategori). Workspace cabang bandung & surabaya kosong dan dihapus.
-2. **Permohonan Persetujuan Dependensi**:
-   - Backend membutuhkan driver MariaDB: **`mysql2`** (`npm install mysql2`).
-   - Sesuai aturan *"Jangan tambah dependency baru tanpa bertanya"*, mohon persetujuan untuk dependensi `mysql2` ini agar backend Express dapat berkomunikasi dengan MariaDB.
+| **Kebutuhan IP Publik** | **Tidak Perlu IP Publik** (berjalan mulus di balik CGNAT ISP) | Memerlukan IP publik statis atau server relay VPN |
+| **Konfigurasi Port** | **Nol Port Forwarding** di router kantor | Port VPN dibuka di firewall router kantor |
+| **Keamanan Database** | MariaDB tetap terisolasi di jaringan internal container | Klien VPN berpotensi menjangkau subnet lokal bila tidak di-isolasi |
+| **Sertifikat SSL/HTTPS** | Otomatis HTTPS dari Cloudflare (mendukung kamera scanner & PWA) | Memerlukan sertifikat SSL lokal / self-signed CA |
+| **Kemudahan Pengguna** | Cukup buka URL domain HTTPS dari browser/HP mana saja | Wajib menginstal dan mengaktifkan aplikasi VPN sebelum login |

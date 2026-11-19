@@ -1,8 +1,10 @@
 # LAPORAN AUDIT SISTEM LENGKAP (PHASE 1 - 5)
 **Aplikasi**: FieldOps IT - Sistem Manajemen Inventaris & Operasional Teknisi Lapangan  
-**Versi**: v0.3.0  
+**Versi Objek Audit Historis**: v0.3.0 / v0.3.1 *(Era Legacy Firebase)*  
 **Tanggal Audit**: 30 Oktober 2026  
 **Auditor**: Lead System Auditor & AI Software Engineer  
+
+> **Catatan Konteks Versi Saat Ini (`v1.2.6`)**: Dokumen di bawah ini adalah rekaman **arsip audit historis era `v0.3.0–v0.3.1` (Firebase/Firestore)**. Mulai rilis **`v1.0.0-rebuild` hingga `v1.2.6`**, seluruh ketergantungan Firebase, aturan `firestore.rules`, autentikasi `localStorage`, dan proxy legacy telah **dihapus total** dan digantikan oleh arsitektur on-premises **MariaDB 11.4 LTS + Express 5 + Sesi Cookie `HttpOnly` server-authoritative**. Untuk status keamanan dan arsitektur terkini, rujuk [`docs/STATUS.md`](./docs/STATUS.md), [`docs/PERAN_DAN_AKSES.md`](./docs/PERAN_DAN_AKSES.md), dan [`DOCUMENTATION.md`](./DOCUMENTATION.md).
 
 ---
 

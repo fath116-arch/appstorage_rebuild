@@ -1,17 +1,17 @@
 # Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.6)
 
-Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, skema tabel MariaDB 11.x hingga migrasi `12_unify_single_model_and_wib.sql`, mekanisme **Reservasi & Siklus Request**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT**.
+Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `12_unify_single_model_and_wib.sql`, mekanisme **Reservasi, Pengembalian, Multi-Tas & Status Selesai**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.6`)**.
 
 ---
 
-## 🗄️ 1. Skema Database Relasional MariaDB 11.x
+## 🗄️ 1. Skema Database Relasional MariaDB 11.4 LTS
 
-Penyimpanan sistem menggunakan database relasional **MariaDB 11.4 LTS** on-premises yang terbagi ke dalam skema terisolasi:
+Penyimpanan sistem menggunakan database relasional **MariaDB 11.4 LTS** on-premises (UTC) yang terbagi ke dalam beberapa kelompok skema migrasi (`01` s/d `12`):
 
-### A. Skema Data Akun & Sesi (`01_auth_schema.sql`)
+### A. Skema Akun Pengguna (`01_auth_schema.sql`)
 
 #### 1. Tabel `users`
-Menyimpan akun pengguna internal kantor (Superadmin, Supervisor, Admin, Teknisi).
+Menyimpan akun pengguna internal kantor (`developer`, `admin`, `warehouse_admin`, `technician`, serta nilai kompatibilitas legacy `superadmin` / `supervisor`).
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
@@ -19,105 +19,62 @@ Menyimpan akun pengguna internal kantor (Superadmin, Supervisor, Admin, Teknisi)
 | `username` | `VARCHAR(64)` | Username unik untuk login (case-insensitive) |
 | `name` | `VARCHAR(128)` | Nama lengkap pengguna |
 | `email` | `VARCHAR(128)` | Alamat email unik pengguna |
-| `role` | `ENUM(...)` | Peran: `'technician'`, `'admin'`, `'supervisor'`, `'superadmin'` |
+| `role` | `ENUM(...)` | Peran: `'technician'`, `'warehouse_admin'`, `'admin'`, `'supervisor'`, `'developer'`, `'superadmin'` |
 | `department` | `VARCHAR(128)` | Departemen / divisi kantor |
 | `phone` | `VARCHAR(32)` | Nomor telepon / WhatsApp staf |
-| `password_hash` | `VARCHAR(256)` | Hash PBKDF2 atau plain-text terenkripsi internal |
+| `password_hash` | `VARCHAR(256)` | Hash PBKDF2 SHA-256 (100.000 iterasi) |
 | `salt` | `VARCHAR(64)` | Salt acak 16-byte |
-| `status` | `ENUM(...)` | Status akun: `'ACTIVE'`, `'SUSPENDED'`, `'PENDING_APPROVAL'` |
-| `created_at` | `TIMESTAMP` | Waktu pembuatan akun |
-| `updated_at` | `TIMESTAMP` | Waktu pembaruan akun terakhir |
-
-#### 2. Tabel `sessions`
-Menyimpan sesi aktif pengguna berbasis cookie HTTP-Only server-authoritative.
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `session_id` | `VARCHAR(64)` | Primary Key token sesi 32-byte acak |
-| `user_id` | `VARCHAR(36)` | Foreign Key terhubung ke tabel `users(id)` |
-| `ip_address` | `VARCHAR(45)` | Alamat IP klien saat masuk |
-| `user_agent` | `TEXT` | Perangkat / browser klien |
-| `expires_at` | `TIMESTAMP` | Waktu kedaluwarsa sesi (7 hari) |
-| `created_at` | `TIMESTAMP` | Waktu login pengguna |
+| `status` | `ENUM(...)` | Status akun: `'ACTIVE'`, `'SUSPENDED'`, `'PENDING_APPROVAL'`, `'REJECTED'` |
+| `created_at`, `updated_at` | `TIMESTAMP` | Waktu pembuatan & pembaruan akun (UTC) |
 
 ---
 
-### B. Skema Master Inventori & Transaksi (`02_inventory_schema.sql`)
+### B. Skema Checklist Inspeksi, Multi-Tas Lapangan, & API Keys (`02_inventory_schema.sql`)
 
-#### 1. Tabel `items` (Dukungan Soft Delete)
-Menyimpan katalog suku cadang dan material IT.
+> **Catatan Unifikasi Model Tunggal (v1.2.6)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.6 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
 
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | Primary Key unik barang |
-| `sku` | `VARCHAR(64)` | Stock Keeping Unit / Kode SKU barang |
-| `barcode` | `VARCHAR(64)` | Barcode fisik scanner |
-| `name` | `VARCHAR(191)` | Nama suku cadang / material |
-| `category_id` | `VARCHAR(36)` | Foreign Key ke tabel `categories(id)` |
-| `quantity` | `INT` | Sisa stok fisik tersedia saat ini |
-| `min_stock_alert`| `INT` | Ambang batas peringatan stok kritis |
-| `unit` | `VARCHAR(32)` | Satuan barang (Pcs, Roll, Box, dsb.) |
-| `location` | `VARCHAR(64)` | Posisi rak / gudang penyimpanan |
-| `specs` | `TEXT` | Spesifikasi detail suku cadang |
-| `unit_cost` | `DECIMAL(12,2)` | Estimasi harga satuan pengadaan |
-| `status` | `ENUM(...)` | Status: `'NORMAL'`, `'LOW_STOCK'`, `'OUT_OF_STOCK'` |
-| `is_deleted` | `BOOLEAN` | **Flag Soft Delete**: `TRUE` jika berada di Kotak Sampah |
-| `deleted_at` | `TIMESTAMP NULL`| **Timestamp Soft Delete**: Waktu barang dinonaktifkan |
-| `created_at` | `TIMESTAMP` | Waktu barang ditambahkan |
-| `updated_at` | `TIMESTAMP` | Waktu data barang diubah |
-
-> 💡 **Prinsip Soft Delete**: Ketika barang dihapus dari katalog, sistem mengeksekusi `UPDATE items SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP WHERE id = ?`. Barang dipindahkan ke antarmuka **Kotak Sampah** dan tidak dapat digunakan untuk mutasi baru, namun seluruh data historis mutasi tetap valid dan utuh.
-
-#### 2. Tabel `categories`
-Kategori suku cadang (Fiber Optic, Wireless Radio, Router/Switch, CCTV, dsb.).
+#### 1. Tabel `checklists` (Inspeksi Harian & Template Multi-Tas Kerja Lapangan)
+Tabel `checklists` menjalankan dua peran melalui kolom `inspection_type`:
+- **`TOOLKIT_CHECK`** *(atau tipe inspeksi non-template lainnya)*: Catatan riwayat inspeksi kelengkapan perlengkapan harian teknisi (`GET/POST /api/checklists`).
+- **`BAG_TEMPLATE`**: Definisi paket **Multi-Tas Kerja Kantor** yang dikelola oleh `BagService` (`GET/POST/PUT/DELETE /api/checklists/bags`) dan terhubung langsung ke pilihan **Pilih Paket Tas** pada form request (`POST /api/requests/bag`).
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | Primary Key kategori |
-| `code` | `VARCHAR(32)` | Kode kategori unik (misal: `FO`, `NET`) |
-| `name` | `VARCHAR(128)` | Nama lengkap kategori |
-| `description` | `TEXT` | Penjelasan isi kategori |
+| `id` | `VARCHAR(36)` | Primary Key (`chk-...` atau `bag-...`) |
+| `technician_id`, `technician_name` | `VARCHAR(36)` / `VARCHAR(128)` | ID & nama pembuat inspeksi atau pembuat tas kerja |
+| `inspection_type` | `VARCHAR(64)` | `'TOOLKIT_CHECK'` (inspeksi) atau `'BAG_TEMPLATE'` (definisi tas kerja kantor) |
+| `vehicle_or_kit_name` | `VARCHAR(128)` | Nama tas kerja / kit perlengkapan (unik pada `BAG_TEMPLATE`) |
+| `notes` | `TEXT` | Keterangan tambahan tas / catatan inspeksi |
+| `items_json` | `JSON` | Daftar alat (`tipe_id`, `nama_produk`, `nama_tipe`, `kategori_barang`, `tipe_stok`, `mode_stok`, `jumlah`, `kode_id`, `catatan`) |
+| `created_at` | `TIMESTAMP` | Waktu pembuatan (UTC) |
 
-#### 3. Tabel `transactions`
-Log mutasi atomik pergerakan barang.
+#### 2. Tabel `api_keys`
+Menyimpan kunci integrasi sistem tiket eksternal (`POST /api/tickets/consume`, `GET/POST /api/tickets/keys`):
+- `id` (`VARCHAR(36)`), `name` (`VARCHAR(128)`), `api_key_hash` (`VARCHAR(128)` SHA-256), `system_name` (`VARCHAR(128)`), `allowed_actions` (`JSON`), `is_active` (`BOOLEAN`), `created_at`, `last_used_at`.
 
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | Primary Key transaksi mutasi |
-| `type` | `ENUM('IN','OUT','ADJUST')` | Tipe mutasi (Masuk, Keluar, Penyesuaian) |
-| `item_id` | `VARCHAR(36)` | Referensi ke tabel `items(id)` |
-| `quantity` | `INT` | Jumlah unit yang dimutasi |
-| `previous_qty` | `INT` | Sisa stok sebelum mutasi |
-| `new_qty` | `INT` | Sisa stok sesudah mutasi |
-| `reference_type` | `VARCHAR(32)` | Sumber: `'TICKET'`, `'MANUAL'`, `'PO'`, `'AUDIT'` |
-| `reference_number` | `VARCHAR(64)` | Nomor tiket SPK / surat jalan |
-| `recipient_destination` | `VARCHAR(128)` | Nama teknisi / lokasi pemasangan pelanggan |
-| `user_id` | `VARCHAR(36)` | User yang mencatat transaksi |
-| `notes` | `TEXT` | Catatan transaksi |
-| `created_at` | `TIMESTAMP` | Waktu pencatatan mutasi |
+#### 3. Tabel `audit_logs` (`03_audit_trail_schema.sql`)
+Menyimpan log audit perubahan administratif (`id`, `user_id`, `action`, `table_name`, `record_id`, `before_state` JSON, `after_state` JSON, `ip_address`, `created_at`).
 
 ---
 
-### D. Skema Fondasi v2 & Keamanan (`04_v2_foundation_schema.sql`)
+### C. Skema Fondasi Keamanan & Ledger Kanonik (`04_v2_foundation_schema.sql` & `10`–`12`)
 
 #### 1. Tabel `sesi` (Server-Authoritative Sesi & Rotasi Token)
-Menyimpan catatan sesi server terisolasi dengan rotasi refresh token dan validasi perangkat (Device ID Hash).
+Menyimpan catatan sesi server dengan rotasi refresh token dan validasi perangkat (`device_id_hash`).
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
 | `id` | `VARCHAR(64)` | Primary Key unik token sesi |
-| `user_id` | `VARCHAR(36)` | Foreign Key terhubung ke tabel `users(id)` |
+| `user_id` | `VARCHAR(36)` | Foreign Key ke tabel `users(id)` |
 | `refresh_hash` | `VARCHAR(128)` | Hash SHA-256 token penyegar aktif |
 | `device_id_hash` | `VARCHAR(128)` | Hash SHA-256 ID perangkat peramban |
-| `user_agent` | `TEXT` | Informasi peramban & OS pengguna |
-| `ip` | `VARCHAR(45)` | Alamat IP koneksi terakhir |
-| `dibuat_pada` | `TIMESTAMP` | Waktu sesi pertama kali dibuat |
-| `aktivitas_terakhir` | `TIMESTAMP` | Waktu aktivitas mutasi/kueri terakhir |
-| `kedaluwarsa_mutlak` | `TIMESTAMP` | Batas kedaluwarsa mutlak sesi (12 jam) |
-| `dicabut_pada` | `TIMESTAMP NULL` | Waktu sesi dicabut (logout / kuota / token reuse) |
+| `user_agent`, `ip` | `TEXT` / `VARCHAR(45)` | Informasi peramban & alamat IP terakhir |
+| `dibuat_pada`, `aktivitas_terakhir` | `TIMESTAMP` | Waktu pembuatan & aktivitas terakhir (UTC) |
+| `kedaluwarsa_mutlak` | `TIMESTAMP` | Batas kedaluwarsa mutlak sesi (**30 hari / 720 jam** sejak migrasi `10`) |
+| `dicabut_pada` | `TIMESTAMP NULL` | Waktu sesi dicabut (logout / kuota / deteksi token reuse) |
 
-#### 2. Tabel `pengaturan` (Konfigurasi Dinamis Bebas Hardcode)
-Menyimpan parameter konfigurasi dan ambang batas sistem.
+#### 2. Tabel `pengaturan` (Konfigurasi Dinamis & Pola Serial Number)
+Menyimpan parameter konfigurasi sistem serta daftar pola ekstraksi SN (`SN_PATTERNS`):
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
@@ -126,14 +83,23 @@ Menyimpan parameter konfigurasi dan ambang batas sistem.
 | `keterangan` | `TEXT` | Penjelasan fungsi parameter |
 | `diperbarui_pada` | `TIMESTAMP` | Waktu pembaruan terakhir |
 
+**Kunci Pengaturan Aktif (`pengaturan`)**:
+- `ACCESS_TOKEN_TTL_DETIK = '2592000'` *(30 hari — diperbarui di migrasi `10_v2_unify_stock_and_sessions.sql`)*
+- `IDLE_TIMEOUT_MENIT = '43200'` *(30 hari)*
+- `ABSOLUTE_TIMEOUT_JAM = '720'` *(30 hari)*
+- `MAX_SESI_PER_AKUN = '50'` *(multi-perangkat diizinkan tanpa saling memutus)*
+- `REAUTH_MENIT = '15'`, `RETENSI_SAMPAH_HARI = '14'`, `CONFIRMATION_TOKEN_TTL_DETIK = '120'`
+- `CONFIRMATION_TIERS`: Pemetaan JSON Tier 0–3 (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`, `request_approve`, `change_id_rule`, dsb.)
+- `SN_PATTERNS`: Array JSON `SNPatternRecord[]` untuk manajemen aturan regex & normalisasi `SCAN_SN` via `/api/sn-patterns`.
+
 #### 3. Tabel `transaksi` & `transaksi_detail` (Append-Only Ledger Kanonik Format `AKT-YYYYMMDD-NNNN`)
-Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04_v2_foundation_schema.sql` & diperkaya oleh `12_unify_single_model_and_wib.sql`) dengan penyimpanan waktu UTC penuh.
+Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04` & `12_unify_single_model_and_wib.sql`) dengan penyimpanan waktu UTC penuh.
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
 | `id` | `VARCHAR(36)` | Primary Key transaksi |
 | `id_aktivitas` | `VARCHAR(32)` | ID Aktivitas unik harian berbasis kalender WIB (`AKT-YYYYMMDD-NNNN`) |
-| `aksi` | `VARCHAR(64)` | Jenis aksi (`tambah_item`, `barang_keluar`, `ambil_request`, `kembali_alat`, `koreksi_transaksi`, dll.) |
+| `aksi` | `VARCHAR(64)` | Jenis aksi (`tambah_item`, `barang_keluar`, `ambil_request`, `ajukan_pengembalian`, `kembali_alat`, `kembalikan_request`, `selesai_request`, `buat_tas_kerja`, `ubah_tas_kerja`, `hapus_tas_kerja`, `koreksi_transaksi`, dsb.) |
 | `pelaku_id` | `VARCHAR(36)` | Referensi pelaku utama |
 | `actor_id` / `actor_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Pelaku lapangan sebenarnya yang menerima/menjalankan mutasi |
 | `recorded_by_id` / `recorded_by_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Petugas yang mencatat transaksi di sistem |
@@ -141,175 +107,81 @@ Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04_v2_foundatio
 | `occurred_at` / `recorded_at` | `DATETIME(3) NULL` | Waktu kejadian aktual (UTC) vs waktu pencatatan sistem (UTC) |
 | `correction_of_id` | `VARCHAR(64) NULL` | Referensi ke transaksi asal jika entri merupakan koreksi audit append-only |
 | `penyetuju_id` / `request_id` | `VARCHAR(36) NULL` | ID penyetuju dan referensi permohonan teknisi |
-| `reference_type` / `reference_number` | `VARCHAR(64)` / `VARCHAR(120)` | Kategori & nomor referensi mutasi / tiket |
-| `recipient_destination` | `VARCHAR(255) NULL` | Tujuan / teknisi / pelanggan / box |
+| `reference_type` / `reference_number` | `VARCHAR(64)` / `VARCHAR(120)` | Kategori & nomor referensi mutasi / tiket / tas |
+| `recipient_destination` | `VARCHAR(255) NULL` | Tujuan / teknisi / nama atau ID pelanggan / box |
 | `qty_total` / `tipe_mutasi` | `INT` / `VARCHAR(16)` | Total kuantitas & jenis mutasi (`MASUK`, `KELUAR`, `TRANSFER`, `SYSTEM`) |
 | `box_asal` / `box_tujuan` | `VARCHAR(32) NULL` | Kode box penyimpanan asal & tujuan |
-| `catatan` | `TEXT NULL` | Keterangan pekerjaan / tiket |
+| `catatan` | `TEXT NULL` | Keterangan pekerjaan / tiket / pemasangan pelanggan |
 | `waktu` | `TIMESTAMP` | Timestamp kompatibilitas (selaras `occurred_at` UTC) |
 
-#### 4. Tabel `sampah_hapus` (Permanent Delete Lapis 2 dengan Retensi 14 Hari)
-Menyimpan snapshot data terhapus permanen sebelum dimusnahkan secara otomatis.
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | Primary Key unik entri sampah |
-| `jenis_objek` | `VARCHAR(32)` | Jenis entri: `'item'`, `'produk'`, `'tipe'`, `'box'`, `'akun'` |
-| `objek_id` | `VARCHAR(64)` | ID asli objek saat aktif |
-| `snapshot` | `LONGTEXT` | Snapshot JSON objek asli dan seluruh relasi turunannya |
-| `dihapus_oleh` | `VARCHAR(36)` | Pengguna yang melakukan penghapusan |
-| `dihapus_pada` | `TIMESTAMP` | Waktu eksekusi penghapusan |
-| `aktivitas_id` | `VARCHAR(32)` | ID Aktivitas log transaksi terkait |
-| `purge_setelah` | `TIMESTAMP` | Batas kedaluwarsa simpan (`dihapus_pada` + 14 hari) |
-| `status` | `VARCHAR(32)` | Status: `'menunggu'`, `'dipulihkan'`, `'dibersihkan'` |
+#### 4. Tabel `sampah_hapus` (Retensi 14 Hari)
+Menyimpan snapshot data terhapus permanen (`jenis_objek`: `'item'`, `'produk'`, `'jenis'`, `'tipe'`, `'box'`, `'akun'`) beserta `snapshot` JSON, `dihapus_oleh`, `aktivitas_id`, `purge_setelah` (+14 hari), dan `status` (`'menunggu'`, `'dipulihkan'`, `'dibersihkan'`).
 
 #### 5. Tabel `token_konfirmasi` (Konfirmasi Sensitif Bertingkat)
-Menyimpan token verifikasi sekali pakai (*single-use*, TTL 120 detik) untuk penegakan keamanan di server.
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `VARCHAR(64)` | Primary Key ID token |
-| `token_hash` | `VARCHAR(128)` | Hash SHA-256 token rahasia |
-| `user_id` | `VARCHAR(36)` | ID pengguna yang meminta konfirmasi |
-| `action_type` | `VARCHAR(64)` | Jenis aksi (`request_approve`, `permanent_delete`, dsb.) |
-| `target_id` | `VARCHAR(64)` | ID objek sasaran aksi |
-| `tier` | `INT` | Tingkat konfirmasi (`2` atau `3`) |
-| `expires_at` | `TIMESTAMP` | Waktu kedaluwarsa token (120 detik) |
-| `used_at` | `TIMESTAMP NULL` | Waktu token dikonsumsi (anti-replay) |
+Menyimpan token verifikasi sekali pakai (*single-use*, TTL 120 detik) berisi `token_hash`, `user_id`, `action_type`, `target_id`, `tier` (`2` atau `3`), `expires_at`, dan `used_at`.
 
 ---
 
-### E. Skema Katalog Bertingkat v2 (`05_v2_catalog_schema.sql`)
+### D. Skema Katalog Bertingkat (`05_v2_catalog_schema.sql`, `08_v125_paket4_schema.sql`, `12`)
 
-Struktur katalog bertingkat menggantikan kategori datar menjadi hierarki dinamis: `Jenis` -> `Atribut` -> `Produk` -> `Tipe` (Varian) -> `Item` (Fisik) / `Stok Jumlah`.
+Hierarki kanonik: **`jenis` (Kategori)** → **`atribut` / `atribut_opsi`** → **`produk`** → **`tipe` / `tipe_nilai`** → **`item` / `stok_jumlah`**.
 
-#### 1. Tabel `jenis` (Golongan Besar Katalog)
-Menyimpan pengelompokan utama suku cadang (Adaptor, Kabel, Modem/ONU, Router, SFP, dsb.).
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `INT UNSIGNED AUTO_INCREMENT` | Primary Key unik jenis |
-| `nama` | `VARCHAR(80)` | Nama jenis (unik) |
-| `sumber_id_bawaan` | `VARCHAR(32)` | Sumber ID bawaan (`scan_sn`, `otomatis`, `manual`, `tanpa_id`) |
-| `prefix_id_bawaan` | `VARCHAR(10) NULL` | Prefix ID bawaan (misal: `ADP`, `MOD`) |
-| `aktif` | `TINYINT(1)` | Status aktif (`1` = aktif, `0` = nonaktif) |
-| `dibuat_pada` | `DATETIME` | Waktu pembuatan jenis |
-
-#### 2. Tabel `atribut` & `atribut_opsi` (Definisi Spesifikasi Dinamis)
-Kolom spesifikasi yang didefinisikan per Jenis (Tegangan, Arus, Jenis Jack, Jaringan, dsb.).
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `INT UNSIGNED AUTO_INCREMENT` | Primary Key unik atribut |
-| `jenis_id` | `INT UNSIGNED` | Foreign Key ke `jenis(id)` |
-| `kode` | `VARCHAR(40)` | Kode teknis atribut (misal: `tegangan`, `arus`) |
-| `nama` | `VARCHAR(80)` | Nama label tampilan (misal: "Tegangan", "Arus Listrik") |
-| `tipe_isian` | `VARCHAR(20)` | Tipe data isian: `'angka'`, `'pilihan'`, `'teks'` |
-| `satuan` | `VARCHAR(16) NULL` | Satuan nilai numerik (`V`, `A`, `m`, `dBm`, dsb.) |
-| `wajib` | `TINYINT(1)` | Wajib diisi saat membuat tipe baru (`1` = wajib) |
-| `urutan` | `SMALLINT` | Urutan tampilan dan urutan nama tipe |
-| `masuk_nama` | `TINYINT(1)` | Apakah nilai atribut digabungkan ke nama tipe otomatis |
-
-Untuk `tipe_isian = 'pilihan'`, opsi nilai disimpan di `atribut_opsi`:
-- `id`: Primary key opsi
-- `atribut_id`: Foreign key ke `atribut(id)`
-- `nilai`: Nilai opsi (misal: `1A`, `2A`, `3A`, `Jack 5.5mm`, `5G`)
-- `urutan`: Urutan sorting opsi
-
-#### 3. Tabel `produk` (Induk di Katalog)
-Menyimpan produk payung (misal: Adaptor 12V, Kabel UTP Cat6, MikroTik RB750Gr3).
+1. **`jenis`** *(Kategori Katalog)*: `id`, `nama`, `sumber_id_bawaan` (`scan_sn`, `otomatis`, `manual`, `tanpa_id`), `prefix_id_bawaan`, `aktif`, `dibuat_pada`. Dapat diubah via `PUT /api/catalog/jenis/:id` dan dihapus terproteksi ke Kotak Sampah via `DELETE /api/catalog/jenis/:id` (ditolak jika masih ada produk aktif).
+2. **`atribut` & `atribut_opsi`**: `id`, `jenis_id`, `kode`, `nama`, `tipe_isian` (`angka`, `pilihan`, `teks`), `satuan`, `wajib`, `urutan`, `masuk_nama`, dan `atribut_opsi` (`id`, `atribut_id`, `nilai`, `urutan`). Dapat diubah/dihapus terproteksi (ditolak bila dipakai varian tipe aktif).
+3. **`produk`**:
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
 | `id` | `INT UNSIGNED AUTO_INCREMENT` | Primary Key unik produk |
 | `jenis_id` | `INT UNSIGNED` | Foreign Key ke `jenis(id)` |
-| `nama` | `VARCHAR(120)` | Nama produk (unik per jenis) |
+| `nama` | `VARCHAR(120)` | Nama produk (unik per kategori) |
 | `kategori` | `VARCHAR(32)` | Kategori perputaran: `'fast_moving'` atau `'recycle'` |
-| `catatan` | `TEXT NULL` | Keterangan produk |
-| `aktif` | `TINYINT(1)` | Status aktif |
-| `dibuat_oleh` | `VARCHAR(36) NULL` | User pembuat produk |
-| `dibuat_pada` | `DATETIME` | Waktu dibuat |
+| `kategori_barang` | `VARCHAR(40)` | Klasifikasi fungsi (`08` & `12`): `'Alat'` (wajib kembali) atau `'Barang Habis Pakai'` (bisa selesai terpakai pelanggan) |
+| `tipe_stok` | `VARCHAR(40)` | Satuan stok (`'unit'`, `'roll'`, `'meter'`, `'pcs'`, `'box'`, `'set'`, dsb.) |
+| `catatan`, `aktif`, `dibuat_oleh`, `dibuat_pada` | Metadata produk & status soft-delete (`aktif = 0`) |
 
-#### 4. Tabel `tipe` (Varian Spesifik Produk)
-Varian konkret tempat stok dihitung (misal: `12V / 1A`, `12V / 3A / jack 5.5mm`).
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `INT UNSIGNED AUTO_INCREMENT` | Primary Key varian tipe |
-| `produk_id` | `INT UNSIGNED` | Foreign Key ke `produk(id)` |
-| `nama_tipe` | `VARCHAR(160)` | Nama varian (dibuat otomatis dari atribut yang `masuk_nama`) |
-| `catatan` | `VARCHAR(255) NULL` | Catatan khusus varian |
-| `sumber_id` | `VARCHAR(32)` | Aturan ID: `'scan_sn'`, `'otomatis'`, `'manual'`, `'tanpa_id'` |
-| `mode_stok` | `VARCHAR(32)` | Mode pencatatan stok: `'per_id'` atau `'jumlah'` |
-| `prefix_id` | `VARCHAR(10) NULL` | Awalan kode otomatis (misal: `ADP12-`) |
-| `pola_id` | `VARCHAR(200) NULL` | Regex validasi ID item fisik (misal: `^SN[0-9]{8}$`) |
-| `id_dikunci` | `TINYINT(1)` | Penguncian aturan ID setelah ada stok masuk (`1` = terkunci) |
-| `aktif` | `TINYINT(1)` | Status aktif |
-
-#### 5. Tabel `tipe_nilai` (Penyimpanan Nilai Atribut Spesifik)
-Menyimpan relasi nilai EAV (Entity-Attribute-Value) per tipe:
-- `tipe_id`: Foreign key ke `tipe(id)`
-- `atribut_id`: Foreign key ke `atribut(id)`
-- `nilai_angka`: Nilai desimal (jika tipe atribut `'angka'`)
-- `opsi_id`: Foreign key ke `atribut_opsi(id)` (jika tipe atribut `'pilihan'`)
-- `nilai_teks`: Nilai teks bebas (jika tipe atribut `'teks'`)
+4. **`tipe` & `tipe_nilai`**:
+   - `tipe`: `id`, `produk_id`, `nama_tipe` (auto-generated dari atribut `masuk_nama = 1`), `catatan`, `sumber_id`, `mode_stok` (`per_id` / `jumlah`), `prefix_id`, `pola_id`, `id_dikunci`, `aktif`.
+   - `tipe_nilai`: Nilai EAV (`tipe_id`, `atribut_id`, `nilai_angka`, `opsi_id`, `nilai_teks`).
 
 ---
 
-### F. Skema Box, Item Fisik & Stok Jumlah v2 (`06_v2_stock_schema.sql`)
+### E. Skema Box, Item Fisik & Stok Jumlah (`06_v2_stock_schema.sql`, `08`, `12`)
 
-Struktur penyimpanan fisik berbasis Box campuran, pemindaian ID item unik, dan stok jumlah bulk.
-
-#### 1. Tabel `box` (Storage Box Penyimpanan)
-Menyimpan lokasi storage box di gudang kantor (dapat berisi produk campuran).
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | Primary Key unik box |
-| `kode` | `VARCHAR(32)` | Kode box unik (misal: `BOX-A-01`, `BIN-22`) |
-| `keterangan` | `VARCHAR(255) NULL` | Keterangan posisi rak / lokasi fisik |
-| `aktif` | `TINYINT(1)` | Status aktif |
-| `dibuat_pada` | `DATETIME` | Waktu pembuatan box |
-
-#### 2. Tabel `item` (Barang Fisik Ber-ID Unik)
-Menyimpan fisik unit barang yang memiliki ID unik (Serial Number, Otomatis, atau Manual).
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | Primary Key unik unit item |
-| `kode_id` | `VARCHAR(120)` | ID/SN item fisik (Unik di seluruh sistem) |
-| `tipe_id` | `INT UNSIGNED` | Foreign Key ke `tipe(id)` |
-| `box_id` | `VARCHAR(36)` | Foreign Key ke `box(id)` |
-| `status` | `VARCHAR(32)` | Status unit: `'aktif'`, `'dipesan'` (reservasi request), atau `'keluar'` |
-| `kondisi` / `catatan_kondisi` | `VARCHAR(32)` / `TEXT NULL` | Kondisi fisik (`'Baru'`, `'Baik'`, `'Perlu Perbaikan'`, `'Rusak'`) — item `Rusak` tidak masuk stok tersedia |
-| `reserved_for_request_id` / `reserved_for_user_id` | `VARCHAR(36) NULL` | Pengunci reservasi request saat status `'dipesan'` |
-| `dibuat_pada` | `DATETIME` | Waktu pendaftaran stok (UTC) |
-
-#### 3. Tabel `stok_jumlah` (Stok Non-SN Mode Jumlah)
-Menyimpan jumlah stok untuk tipe dengan mode `tanpa_id` per box.
-
-| Nama Kolom | Tipe Data | Deskripsi |
-| :--- | :--- | :--- |
-| `tipe_id` | `INT UNSIGNED` | Composite Primary Key `tipe(id)` |
-| `box_id` | `VARCHAR(36)` | Composite Primary Key `box(id)` |
-| `jumlah` | `INT UNSIGNED` | Jumlah total unit stok fisik di box |
-| `reserved_qty` | `INT UNSIGNED` | Jumlah unit yang sedang direservasi oleh request berstatus `'disetujui'` |
+1. **`box`**: `id`, `kode` (misal `BOX-A-01`), `keterangan`, `aktif`, `dibuat_pada`. Penghapusan (`DELETE /api/boxes/:id`) ditolak jika masih berisi stok aktif/dipesan atau request terbuka.
+2. **`item`** (Unit Fisik Ber-ID Unik): `id`, `kode_id` (unik global), `tipe_id`, `box_id`, `status` (`'aktif'`, `'dipesan'`, `'keluar'`), `kondisi` (`'Baru'`, `'Baik'`, `'Perlu Perbaikan'`, `'Rusak'`), `catatan_kondisi`, `reserved_for_request_id`, `reserved_for_user_id`, `dibuat_pada` (UTC). Item berkondisi `Rusak` tidak masuk stok tersedia.
+3. **`stok_jumlah`** (Mode `tanpa_id`): Composite PK (`tipe_id`, `box_id`), `jumlah`, `reserved_qty`.
 
 ---
 
-### G. Skema Siklus Request Teknisi (`07_v2_request_schema.sql` & `12_unify_single_model_and_wib.sql`)
+### F. Skema Siklus Request Teknisi (`07_v2_request_schema.sql` & `12_unify_single_model_and_wib.sql`)
 
-Tabel `request` mengelola permohonan barang teknisi dari pengajuan hingga pengembalian alat (`diajukan` → `disetujui` → `diambil` → `dikembalikan` | `ditolak` | `dibatalkan`):
+Tabel `request` mengelola seluruh siklus:
+- **Alur Ambil**: `diajukan` *(atau `menunggu`)* → `disetujui` *(reservasi)* → `diambil` → `dikembalikan` *(wajib untuk `Alat`)* | `selesai` *(khusus `Barang Habis Pakai` terpakai pelanggan)* | `ditolak` | `dibatalkan`.
+- **Alur Pengajuan Pengembalian (`kembalikan`)**: Pengajuan mengacu ke request pengambilan asal via kolom `transaction_out_id` (`req-...`) dengan `return_condition` terpetakan (`Baru` / `Baik` / `Rusak`) dan `return_box_id` tujuan; saat gudang menjalankan `POST /api/requests/:id/return`, baik request pengajuan maupun request asal ditutup ke status `'dikembalikan'`.
+- **Alur `Selesai (Terpakai Pelanggan)` (`POST /api/requests/:id/complete`)**: Mengubah status menjadi `'selesai'`, mengisi `returned_at` (UTC), `returned_by_id`, `return_condition = 'Terpakai'`, dan `return_notes = 'Pelanggan: <Nama/ID> | Pemasangan: <Catatan>'`.
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
 | `id` | `VARCHAR(36)` | Primary Key permohonan |
-| `pemohon_id` / `actor_id` / `recorded_by_id` | `VARCHAR(36)` | Teknisi pemohon & petugas pencatat |
+| `pemohon_id` / `actor_id` / `recorded_by_id` | `VARCHAR(36)` | Teknisi pemohon, pelaku lapangan, & petugas pencatat |
+| `penyetuju_id` | `VARCHAR(36) NULL` | Pengelola yang menyetujui / menolak / memverifikasi |
 | `tipe_id` / `box_id` / `kode_id` / `jumlah` | `INT` / `VARCHAR` | Target varian tipe, box, SN opsional, & kuantitas |
-| `status` | `VARCHAR(32)` | `'diajukan'`, `'disetujui'`, `'diambil'`, `'dikembalikan'`, `'ditolak'`, `'dibatalkan'` |
-| `taken_at` / `returned_at` | `DATETIME(3) NULL` | Waktu serah terima (`diambil`) & pengembalian ke gudang (`dikembalikan`, UTC) |
-| `return_condition` / `return_notes` / `return_box_id` | `VARCHAR(32)` / `TEXT` / `VARCHAR(36)` | Kondisi, catatan, dan box tujuan saat pengembalian |
-| `allocated_item_ids` / `transaction_out_id` / `transaction_in_id` | `TEXT` / `VARCHAR(64)` | Jejak alokasi item & tautan transaksi OUT/IN |
+| `alasan` / `catatan_penolakan` | `TEXT` | Alasan permohonan (memuat tag `[Tas: <Nama>]` untuk paket tas) & catatan penolakan |
+| `status` | `VARCHAR(32)` | `'diajukan'`, `'menunggu'`, `'disetujui'`, `'diambil'`, `'dikembalikan'`, `'selesai'`, `'ditolak'`, `'dibatalkan'` |
+| `taken_at` / `returned_at` | `DATETIME(3) NULL` | Waktu serah terima (`diambil`) & waktu kembali / selesai pemakaian (UTC) |
+| `returned_by_id` | `VARCHAR(36) NULL` | ID petugas/teknisi yang memverifikasi pengembalian atau menyelesaikan pemakaian |
+| `return_condition` / `return_notes` / `return_box_id` | `VARCHAR(32)` / `TEXT` / `VARCHAR(36)` | Kondisi kembali (`Baru`/`Baik`/`Perlu Perbaikan`/`Rusak`) atau `'Terpakai'`, catatan, & box tujuan |
+| `allocated_item_ids` / `transaction_out_id` / `transaction_in_id` | `TEXT` / `VARCHAR(64)` | JSON ID item dialokasi, referensi transaksi keluar (atau `origin_request_id` pada pengajuan `kembalikan`), & referensi transaksi kembali |
+
+---
+
+### G. Skema WA Alert Otomatis & Ambang Berjenjang (`09_v125_paket6_wa_alert.sql`)
+
+1. **`wa_config`**: Pengaturan utama Fonnte (`id = 'main'`, `is_enabled`, `cooldown_minutes` default `15`, `last_sent_at`, `active_hours_start/end`, toggle alert `out_of_stock` / `low_stock` / `early_warning`, `global_low_stock_threshold`, `global_early_warning_threshold`, `recipients_json`, `api_url`, `api_token`).
+2. **`wa_thresholds`**: Konfigurasi ambang berjenjang (`level`: `'produk'` | `'tipe'`, `produk_id`, `tipe_id`, `low_stock_threshold`, `early_warning_threshold`, `is_watchlist`). Resolusi prioritas: **Tipe > Produk > Global**.
+3. **`wa_alert_status`**: Status anti-duplikat per target (`target_type`: `'item'` | `'tipe'` | `'produk'`, `target_id`, `current_status`, `last_alert_status`, `last_alert_sent_at`, `pending_in_queue`).
+4. **`wa_delivery_logs`**: Riwayat pengiriman alert (`id`, `sent_at`, `trigger_type`, `recipients`, `message_snippet`, `summary_counts`, `fonnte_status`, `fonnte_response`, `operator_id`).
 
 ---
 
@@ -319,7 +191,7 @@ Tabel `request` mengelola permohonan barang teknisi dari pengajuan hingga pengem
    $$\text{Stok Tersedia Baru} = \text{Stok Lama} + \text{Jumlah Masuk}$$
 2. **Mutasi Barang Keluar (`OUT`)**:
    $$\text{Stok Tersedia} = \text{Total Fisik Non-Rusak} - \text{Reservasi (`dipesan` / `reserved_qty`)}$$
-   - **Invarian Validasi**: Item berstatus `keluar`, `Rusak`, atau `dipesan` (tanpa kecocokan `request_id`) ditolak secara atomik; untuk `TANPA_ID`, $\text{Jumlah Keluar} \le \text{Stok Tersedia}$.
+   - **Invarian Validasi**: Item berstatus `keluar`, berkondisi `Rusak`, atau sedang `dipesan` (tanpa kecocokan `request_id`) ditolak secara atomik; untuk `TANPA_ID`, $\text{Jumlah Keluar} \le \text{Stok Tersedia}$.
 3. **Penyimpanan UTC & Tampilan WIB (`Asia/Jakarta`)**:
    - Server menjalankan `process.env.TZ = 'UTC'`. Seluruh datetime disimpan UTC di MariaDB, diformat `DD/MM/YYYY HH:mm WIB` di antarmuka, dan direkap mingguan dari Senin `00:00:00.000 WIB` hingga Minggu `23:59:59.999 WIB`.
 
