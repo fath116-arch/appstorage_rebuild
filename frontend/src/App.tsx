@@ -21,18 +21,14 @@ import type { PrintDocumentData } from './components/PrintDocumentModal';
 import type { CanonicalTransactionView } from './services/activityApi';
 
 const WeeklyReport = lazy(() => import('./components/WeeklyReport').then(m => ({ default: m.WeeklyReport })));
-const TicketIntegrationHub = lazy(() => import('./components/TicketIntegrationHub').then(m => ({ default: m.TicketIntegrationHub })));
+const SettingsHub = lazy(() => import('./components/SettingsHub').then(m => ({ default: m.SettingsHub })));
 const FieldTripChecklistModal = lazy(() => import('./components/FieldTripChecklistModal').then(m => ({ default: m.FieldTripChecklistModal })));
 const PrintDocumentModal = lazy(() => import('./components/PrintDocumentModal').then(m => ({ default: m.PrintDocumentModal })));
 const UserRoleSwitcher = lazy(() => import('./components/UserRoleSwitcher').then(m => ({ default: m.UserRoleSwitcher })));
 const DownloadModal = lazy(() => import('./components/DownloadModal').then(m => ({ default: m.DownloadModal })));
 const GoLiveModal = lazy(() => import('./components/GoLiveModal').then(m => ({ default: m.GoLiveModal })));
 const MobileAccessModal = lazy(() => import('./components/MobileAccessModal').then(m => ({ default: m.MobileAccessModal })));
-const WhatsAppConfigModal = lazy(() => import('./components/WhatsAppConfigModal').then(m => ({ default: m.WhatsAppConfigModal })));
-const SecurityReportModal = lazy(() => import('./components/SecurityReportModal').then(m => ({ default: m.SecurityReportModal })));
-const DataRestoreModal = lazy(() => import('./components/DataRestoreModal').then(m => ({ default: m.DataRestoreModal })));
 const BatchLabelPrintModal = lazy(() => import('./components/BatchLabelPrintModal').then(m => ({ default: m.BatchLabelPrintModal })));
-const SNPatternSettingsModal = lazy(() => import('./components/SNPatternSettingsModal').then(m => ({ default: m.SNPatternSettingsModal })));
 
 const TabLoadingFallback: React.FC = () => (
   <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center flex flex-col items-center justify-center space-y-3">
@@ -42,7 +38,7 @@ const TabLoadingFallback: React.FC = () => (
 );
 
 const AppContent: React.FC = () => {
-  const { activeTab, setActiveTab, refreshData, VERSION } = useInventory();
+  const { activeTab, setActiveTab, openSettingsSection, refreshData, VERSION } = useInventory();
   const { isAuthenticated, isLoading } = useAuth();
 
   const [isStockInputOpen, setIsStockInputOpen] = useState(false);
@@ -54,11 +50,7 @@ const AppContent: React.FC = () => {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isGoLiveOpen, setIsGoLiveOpen] = useState(false);
   const [isMobileAccessOpen, setIsMobileAccessOpen] = useState(false);
-  const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
-  const [isSecurityReportOpen, setIsSecurityReportOpen] = useState(false);
-  const [isRestoreOpen, setIsRestoreOpen] = useState(false);
   const [isLabelPrintOpen, setIsLabelPrintOpen] = useState(false);
-  const [isSNPatternsOpen, setIsSNPatternsOpen] = useState(false);
 
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printData, setPrintData] = useState<PrintDocumentData | null>(null);
@@ -115,11 +107,7 @@ const AppContent: React.FC = () => {
         onOpenDownload={() => setIsDownloadOpen(true)}
         onOpenGoLive={() => setIsGoLiveOpen(true)}
         onOpenMobileAccess={() => setIsMobileAccessOpen(true)}
-        onOpenWhatsApp={() => setIsWhatsAppOpen(true)}
-        onOpenSecurityReport={() => setIsSecurityReportOpen(true)}
-        onOpenRestore={() => setIsRestoreOpen(true)}
         onOpenLabelPrint={() => setIsLabelPrintOpen(true)}
-        onOpenSNPatterns={() => setIsSNPatternsOpen(true)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-20 md:pb-6">
@@ -136,7 +124,7 @@ const AppContent: React.FC = () => {
             onOpenStockIn={() => handleOpenStockIn()}
             onOpenStockOut={(it) => handleOpenStockOut(it)}
             onOpenChecklist={() => setIsChecklistOpen(true)}
-            onOpenRestore={() => setIsRestoreOpen(true)}
+            onOpenRestore={() => openSettingsSection('database')}
           />
         )}
 
@@ -156,9 +144,9 @@ const AppContent: React.FC = () => {
           </Suspense>
         )}
 
-        {activeTab === 'integration' && (
+        {activeTab === 'settings' && (
           <Suspense fallback={<TabLoadingFallback />}>
-            <TicketIntegrationHub />
+            <SettingsHub />
           </Suspense>
         )}
       </main>
@@ -263,47 +251,11 @@ const AppContent: React.FC = () => {
         </Suspense>
       )}
 
-      {isWhatsAppOpen && (
-        <Suspense fallback={null}>
-          <WhatsAppConfigModal
-            isOpen={isWhatsAppOpen}
-            onClose={() => setIsWhatsAppOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {isSecurityReportOpen && (
-        <Suspense fallback={null}>
-          <SecurityReportModal
-            isOpen={isSecurityReportOpen}
-            onClose={() => setIsSecurityReportOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {isRestoreOpen && (
-        <Suspense fallback={null}>
-          <DataRestoreModal
-            isOpen={isRestoreOpen}
-            onClose={() => setIsRestoreOpen(false)}
-          />
-        </Suspense>
-      )}
-
       {isLabelPrintOpen && (
         <Suspense fallback={null}>
           <BatchLabelPrintModal
             isOpen={isLabelPrintOpen}
             onClose={() => setIsLabelPrintOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {isSNPatternsOpen && (
-        <Suspense fallback={null}>
-          <SNPatternSettingsModal
-            isOpen={isSNPatternsOpen}
-            onClose={() => setIsSNPatternsOpen(false)}
           />
         </Suspense>
       )}

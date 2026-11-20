@@ -29,11 +29,13 @@ import { X, Settings, History, ListFilter, BellRing, Lock } from 'lucide-react';
 interface WhatsAppConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }
 
 export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  embedded = false
 }) => {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -85,12 +87,12 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
   }, [showToast]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (embedded || isOpen) {
       loadData();
     }
-  }, [isOpen, loadData]);
+  }, [embedded, isOpen, loadData]);
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,33 +153,37 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+  const cardContent = (
+    <div className={embedded
+      ? 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-full flex flex-col overflow-hidden'
+      : 'bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95'
+    }>
 
-        {/* Modal Header */}
-        <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/80 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 rounded-lg">
-              <BellRing className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Pengaturan WhatsApp Alert (Gateway Fonnte)
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Ambang Berjenjang (Tipe &gt; Produk &gt; Global), Jeda 15 Menit, dan Daftar Pantauan
-              </p>
-            </div>
+      {/* Modal Header */}
+      <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/80 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 rounded-lg">
+            <BellRing className="w-5 h-5" />
           </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              Pengaturan WhatsApp Alert (Gateway Fonnte)
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Ambang Berjenjang (Tipe &gt; Produk &gt; Global), Jeda 15 Menit, dan Daftar Pantauan
+            </p>
+          </div>
+        </div>
 
+        {!embedded && (
           <button
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
-        </div>
+        )}
+      </div>
 
         {/* Role Banners */}
         {!canEdit ? (
@@ -268,7 +274,7 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
+      {!embedded && (
         <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center text-xs text-slate-500 shrink-0">
           <span>FieldOps IT Fonnte Gateway Integration</span>
           <button
@@ -279,8 +285,17 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
             Tutup
           </button>
         </div>
+      )}
+    </div>
+  );
 
-      </div>
+  if (embedded) {
+    return cardContent;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+      {cardContent}
     </div>
   );
 };

@@ -8,6 +8,7 @@ process.env.TZ = 'UTC';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 import { initDatabase } from './db/database';
 import { authenticate, requireAuth, requireRole } from './middleware/authMiddleware';
 import authRoutes from './routes/auth';
@@ -21,11 +22,13 @@ import boxRoutes from './routes/box';
 import stockRoutes from './routes/stock';
 import requestRoutes from './routes/request';
 import snPatternsRoutes from './routes/snPatterns';
+import setupRoutes from './routes/setup';
 import { BackupService } from './services/backupService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '../../');
+dotenv.config({ path: path.resolve(rootDir, '.env'), quiet: true });
 
 async function startServer() {
   const app = express();
@@ -76,6 +79,7 @@ async function startServer() {
   app.use('/api/stock', stockRoutes);
   app.use('/api/requests', requestRoutes);
   app.use('/api/sn-patterns', snPatternsRoutes);
+  app.use('/api/setup', setupRoutes);
 
   // Endpoint Backup Khusus Data Barang (Bebas Akun) - Khusus Developer & Admin
   app.get('/api/backup/inventory/download', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {

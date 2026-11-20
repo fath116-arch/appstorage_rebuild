@@ -20,31 +20,60 @@ import {
   Server
 } from 'lucide-react';
 
+import { getAuthHeaders } from '../services/httpClient';
+
 interface DataRestoreModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  embedded?: boolean;
 }
 
-export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { showToast, refreshData } = useInventory();
+export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onClose, embedded = false }) => {
+  const { showToast } = useInventory();
   const { user } = useAuth();
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [downloadUrl, setDownloadUrl] = useState<string>('/api/backup/inventory/download');
+  const downloadUrl = '/api/backup/inventory/download';
 
   const isAuthorized = user?.role === 'admin' || user?.role === 'developer' || (user?.role as any) === 'superadmin' || user?.is_master_admin;
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
-  const handleDownloadBackup = () => {
-    window.open(downloadUrl, '_blank');
-    showToast('Proses unduh file cadangan inventaris (.json) dimulai.', 'info');
+  const handleDownloadBackup = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch(downloadUrl, {
+        credentials: 'include',
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) {
+        throw new Error('Gagal mengunduh file cadangan inventaris.');
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      link.download = match ? match[1] : `backup_inventory_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      showToast('File cadangan inventaris (.json) berhasil diunduh.', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal mengunduh file cadangan.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl flex flex-col glass rounded-2xl shadow-2xl border border-slate-200/60 dark:border-slate-800/80 overflow-hidden text-slate-800 dark:text-slate-200">
+  const innerContent = (
+    <div className={embedded
+      ? 'w-full flex flex-col bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200'
+      : 'relative w-full max-w-2xl flex flex-col glass rounded-2xl shadow-2xl border border-slate-200/60 dark:border-slate-800/80 overflow-hidden text-slate-800 dark:text-slate-200'
+    }>
         
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/50">
@@ -67,12 +96,14 @@ export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {!embedded && (
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Body Content */}
@@ -107,10 +138,11 @@ export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onCl
 
                 <button
                   onClick={handleDownloadBackup}
-                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors shadow-xs"
+                  disabled={isLoading}
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors shadow-xs"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Unduh File Backup Terkini</span>
+                  <span>{isLoading ? 'Menyiapkan File...' : 'Unduh File Backup Terkini'}</span>
                 </button>
               </div>
 
@@ -128,16 +160,26 @@ export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onCl
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-900 text-white dark:bg-slate-700 text-xs font-semibold hover:bg-slate-800 transition-colors"
-          >
-            Tutup
-          </button>
-        </div>
+        {!embedded && (
+          <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white dark:bg-slate-700 text-xs font-semibold hover:bg-slate-800 transition-colors"
+            >
+              Tutup
+            </button>
+          </div>
+        )}
       </div>
+  );
+
+  if (embedded) {
+    return innerContent;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+      {innerContent}
     </div>
   );
 };

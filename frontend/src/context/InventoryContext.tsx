@@ -16,11 +16,23 @@ import { getErrorMessage } from '../utils/errorUtils';
 import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
 
 export type { ToastMessage };
-export type TabType = 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'integration';
+export type TabType = 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'settings';
+export type SettingsSectionId =
+  | 'check'
+  | 'database'
+  | 'tunnel'
+  | 'whatsapp'
+  | 'integration'
+  | 'users'
+  | 'sn-patterns'
+  | 'security';
 
 interface InventoryContextType {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  activeSettingsSection: SettingsSectionId | null;
+  setActiveSettingsSection: (section: SettingsSectionId | null) => void;
+  openSettingsSection: (section: SettingsSectionId | null) => void;
   products: Produk[];
   jenisList: Jenis[];
   boxes: Box[];
@@ -45,7 +57,20 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, user } = useAuth();
   const { toasts, showToast, removeToast } = useToast();
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTabState] = useState<TabType>('dashboard');
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId | null>(null);
+
+  const setActiveTab = useCallback((tab: TabType) => {
+    setActiveTabState(tab);
+    if (tab !== 'settings') {
+      setActiveSettingsSection(null);
+    }
+  }, []);
+
+  const openSettingsSection = useCallback((section: SettingsSectionId | null) => {
+    setActiveSettingsSection(section);
+    setActiveTabState('settings');
+  }, []);
 
   const [products, setProducts] = useState<Produk[]>([]);
   const [jenisList, setJenisList] = useState<Jenis[]>([]);
@@ -151,6 +176,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       value={{
         activeTab,
         setActiveTab,
+        activeSettingsSection,
+        setActiveSettingsSection,
+        openSettingsSection,
         products,
         jenisList,
         boxes,

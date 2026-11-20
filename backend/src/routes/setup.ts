@@ -1,0 +1,166 @@
+/**
+ * System Setup & Connection Diagnostics Router
+ * FieldOps IT Inventory
+ * Strictly restricted to 'developer' and 'admin' roles
+ */
+
+import { Router, Response } from 'express';
+import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { SystemSetupService } from '../services/systemSetupService';
+import { getErrorMessage } from '../utils/errorUtils';
+
+const router = Router();
+
+// Seluruh endpoint /api/setup/* wajib terautentikasi & khusus Developer/Admin
+router.use(requireAuth, requireRole(['developer', 'admin']));
+
+/**
+ * GET /api/setup/status
+ * Membaca pengaturan .env tersamar, daftar command CLI setup, dan ringkasan diagnostik koneksi
+ */
+router.get('/status', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const settings = SystemSetupService.getMaskedSettings();
+    const report = await SystemSetupService.runSystemCheck();
+    const cliScripts = SystemSetupService.getCliScriptCatalog();
+
+    res.json({
+      success: true,
+      settings,
+      report,
+      cliScripts
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: getErrorMessage(err, 'Gagal membaca status konfigurasi sistem.')
+    });
+  }
+});
+
+/**
+ * POST /api/setup/check
+ * Menjalankan pemeriksaan ulang menyeluruh atas DB, WA, Tunnel, .env, dan Akun Admin
+ */
+router.post('/check', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const publicUrl = typeof req.body?.publicUrl === 'string' ? req.body.publicUrl.trim() : undefined;
+    const report = await SystemSetupService.runSystemCheck({ publicUrl });
+    const settings = SystemSetupService.getMaskedSettings();
+
+    res.json({
+      success: true,
+      settings,
+      report
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: getErrorMessage(err, 'Gagal menjalankan pemeriksaan koneksi sistem.')
+    });
+  }
+});
+
+/**
+ * POST /api/setup/database
+ * Menyimpan konfigurasi MariaDB ke .env lokal, menjalankan uji koneksi langsung, & memuat ulang pool
+ */
+router.post('/database', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { host, port, name, user, password, rootPassword, reloadPool } = req.body || {};
+    const result = await SystemSetupService.saveAndTestDatabase({
+      host,
+      port,
+      name,
+      user,
+      password,
+      rootPassword,
+      reloadPool
+    });
+
+    const settings = SystemSetupService.getMaskedSettings();
+    res.json({
+      success: result.testResult.connected,
+      message: result.testResult.connected
+        ? `Konfigurasi tersimpan ke .env & berhasil terhubung ke MariaDB (${result.testResult.latencyMs} ms).`
+        : `Konfigurasi tersimpan ke .env, namun koneksi ke MariaDB gagal: ${result.testResult.error || 'tidak terjangkau'}.`,
+      result,
+      settings
+    });
+  } catch (err: unknown) {
+    res.status(400).json({
+      success: false,
+      message: getErrorMessage(err, 'Gagal menyimpan konfigurasi database.')
+    });
+  }
+});
+
+/**
+ * POST /api/setup/tunnel
+ * Menyimpan token & URL Cloudflare Tunnel ke .env lokal, memvalidasi format token, & menguji URL publik opsional
+ */
+router.post('/tunnel', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { token, publicUrl, clearToken, testPublicUrl } = req.body || {};
+    const result = await SystemSetupService.saveAndTestTunnel({
+      token,
+      publicUrl,
+      clearToken: Boolean(clearToken),
+      testPublicUrl: Boolean(testPublicUrl)
+    });
+
+    const settings = SystemSetupService.getMaskedSettings();
+    res.json({
+      success: true,
+      message: clearToken
+        ? 'Token Cloudflare Tunnel dihapus dari .env.'
+        : result.inspection.validFormat
+        ? 'Konfigurasi Cloudflare Tunnel valid & tersimpan ke .env.'
+        : result.inspection.reason,
+      result,
+      settings
+    });
+  } catch (err: unknown) {
+    res.status(400).json({
+      success: false,
+      message: getErrorMessage(err, 'Gagal menyimpan konfigurasi Cloudflare Tunnel.')
+    });
+  }
+});
+
+/**
+ * POST /api/setup/whatsapp
+ * Menyimpan konfigurasi gateway WA Fonnte ke .env + tabel wa_config & menjalankan uji kirim opsional
+ */
+router.post('/whatsapp', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { apiUrl, apiToken, targetPhones, isEnabled, cooldownMinutes, runTest } = req.body || {};
+    const operator = { id: req.user!.id, name: req.user!.name };
+    const result = await SystemSetupService.saveAndTestWhatsapp(
+      {
+        apiUrl,
+        apiToken,
+        targetPhones,
+        isEnabled,
+        cooldownMinutes,
+        runTest: Boolean(runTest)
+      },
+      operator
+    );
+
+    const settings = SystemSetupService.getMaskedSettings();
+    res.json({
+      success: true,
+      message: 'Pengaturan WhatsApp Gateway tersimpan ke .env dan database.',
+      result,
+      settings
+    });
+  } catch (err: unknown) {
+    res.status(400).json({
+      success: false,
+      message: getErrorMessage(err, 'Gagal menyimpan konfigurasi WhatsApp.')
+    });
+  }
+});
+
+export default router;

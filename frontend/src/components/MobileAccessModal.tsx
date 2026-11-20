@@ -26,13 +26,17 @@ import { useInventory } from '../context/InventoryContext';
 interface MobileAccessModalProps {
   isOpen: boolean;
   onClose: () => void;
+  embedded?: boolean;
+  publicTunnelUrl?: string;
 }
 
 const DEFAULT_SHARED_URL = 'https://ais-pre-2wdud2ugxodbrvaxfgwpbd-603738448697.asia-southeast1.run.app';
 
 export const MobileAccessModal: React.FC<MobileAccessModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  embedded = false,
+  publicTunnelUrl
 }) => {
   const { showToast } = useInventory();
   
@@ -45,15 +49,16 @@ export const MobileAccessModal: React.FC<MobileAccessModalProps> = ({
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
 
+  const resolvedCloudUrl = publicTunnelUrl?.trim() || DEFAULT_SHARED_URL;
   const activeTargetUrl = 
     selectedUrlType === 'cloud' 
-      ? DEFAULT_SHARED_URL 
+      ? resolvedCloudUrl 
       : selectedUrlType === 'current' 
         ? currentOrigin 
         : (customUrl || currentOrigin);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!embedded && !isOpen) return;
 
     let isMounted = true;
     QRCode.toDataURL(activeTargetUrl, {
@@ -76,9 +81,9 @@ export const MobileAccessModal: React.FC<MobileAccessModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, activeTargetUrl]);
+  }, [embedded, isOpen, activeTargetUrl]);
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
   const handleCopy = async () => {
     try {
@@ -98,34 +103,37 @@ export const MobileAccessModal: React.FC<MobileAccessModalProps> = ({
     window.open(`https://api.whatsapp.com/send?text=${message}`, '_blank');
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div 
-        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150 transition-colors"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mobile-modal-title"
-      >
-        {/* Modal Header */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-700 dark:from-emerald-800 dark:to-teal-900 px-6 py-4 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center text-white backdrop-blur-xs">
-              <Smartphone className="w-5 h-5 text-emerald-100" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 id="mobile-modal-title" className="text-lg font-bold">
-                  Buka & Uji di HP Pengguna
-                </h2>
-                <span className="text-[10px] uppercase font-mono font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-100 border border-emerald-400/30">
-                  PWA Ready
-                </span>
-              </div>
-              <p className="text-xs text-emerald-100/90 mt-0.5">
-                Scan QR Code atau bagikan link ke teknisi untuk pengujian langsung lewat browser ponsel
-              </p>
-            </div>
+  const innerCard = (
+    <div 
+      className={embedded
+        ? 'bg-white dark:bg-slate-900 rounded-xl w-full border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col transition-colors'
+        : 'bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150 transition-colors'
+      }
+      role={embedded ? undefined : 'dialog'}
+      aria-modal={embedded ? undefined : 'true'}
+      aria-labelledby="mobile-modal-title"
+    >
+      {/* Modal Header */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-700 dark:from-emerald-800 dark:to-teal-900 px-6 py-4 text-white flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center text-white backdrop-blur-xs">
+            <Smartphone className="w-5 h-5 text-emerald-100" />
           </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 id="mobile-modal-title" className="text-lg font-bold">
+                Buka &amp; Uji di HP Pengguna
+              </h2>
+              <span className="text-[10px] uppercase font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-100 border border-emerald-400/30">
+                PWA Ready
+              </span>
+            </div>
+            <p className="text-xs text-emerald-100/90 mt-0.5">
+              Scan QR Code atau bagikan link ke teknisi untuk pengujian langsung lewat browser ponsel
+            </p>
+          </div>
+        </div>
+        {!embedded && (
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 transition"
@@ -133,7 +141,8 @@ export const MobileAccessModal: React.FC<MobileAccessModalProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
-        </div>
+        )}
+      </div>
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6">
@@ -367,19 +376,29 @@ export const MobileAccessModal: React.FC<MobileAccessModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <div className="px-6 py-3 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-            Tidak memerlukan instalasi dari Google Play Store / App Store
-          </span>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-slate-900 dark:bg-slate-700 text-white font-semibold text-xs hover:bg-slate-800 dark:hover:bg-slate-600 transition"
-          >
-            Tutup
-          </button>
-        </div>
-      </div>
+        {!embedded && (
+          <div className="px-6 py-3 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Tidak memerlukan instalasi dari Google Play Store / App Store
+            </span>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-slate-900 dark:bg-slate-700 text-white font-semibold text-xs hover:bg-slate-800 dark:hover:bg-slate-600 transition"
+            >
+              Tutup
+            </button>
+          </div>
+        )}
+    </div>
+  );
+
+  if (embedded) {
+    return innerCard;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      {innerCard}
     </div>
   );
 };

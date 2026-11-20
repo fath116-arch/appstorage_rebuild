@@ -32,6 +32,7 @@ import { APP_VERSION } from '../constants/version';
 interface SecurityReportModalProps {
   isOpen: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }
 
 interface FindingItem {
@@ -129,6 +130,7 @@ import { useAuth } from '../context/AuthContext';
 export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({
   isOpen,
   onClose,
+  embedded = false,
 }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'findings' | 'performance' | 'checklist'>('findings');
@@ -166,7 +168,7 @@ export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({
     }
   }, [completedTasks]);
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
   // Filter findings
   const filteredFindings = auditFindings.filter(f => {
@@ -204,42 +206,45 @@ Progres Remidiasi: ${remediationPercent}% (${resolvedCount}/${totalRemediationTa
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 transition-colors">
-        
-        {/* Header Modal */}
-        <div className="p-4 sm:p-5 bg-slate-900 text-white flex items-start justify-between border-b border-slate-800 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold font-display tracking-tight text-white">
-                  Laporan Audit Keamanan & Performa Sistem
-                </h2>
-                <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">
-                  v{APP_VERSION} (Security Patched)
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
-                <span>Evaluasi Hasil Audit AUDIT_REPORT.md</span>
-                <span>•</span>
-                <span className="text-emerald-400 font-mono text-[11px]">Akses Khusus Admin</span>
-              </p>
-            </div>
+  const innerCard = (
+    <div className={embedded
+      ? 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-full flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 transition-colors'
+      : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 transition-colors'
+    }>
+      
+      {/* Header Modal */}
+      <div className="p-4 sm:p-5 bg-slate-900 text-white flex items-start justify-between border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0">
+            <ShieldAlert className="w-5 h-5" />
           </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold font-display tracking-tight text-white">
+                Laporan Audit Keamanan &amp; Performa Sistem
+              </h2>
+              <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded">
+                v{APP_VERSION}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
+              <span>Evaluasi Hasil Audit AUDIT_REPORT.md</span>
+              <span>•</span>
+              <span className="text-emerald-400 font-mono text-[11px]">Akses Khusus Admin</span>
+            </p>
+          </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCopyReportSummary}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
-              title="Salin Ringkasan Audit"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Tersalin' : 'Salin Ringkasan'}</span>
-            </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopyReportSummary}
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
+            title="Salin Ringkasan Audit"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copied ? 'Tersalin' : 'Salin Ringkasan'}</span>
+          </button>
+          {!embedded && (
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
@@ -247,8 +252,9 @@ Progres Remidiasi: ${remediationPercent}% (${resolvedCount}/${totalRemediationTa
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
+          )}
         </div>
+      </div>
 
         {/* Top KPI Summary Banner */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-4 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 shrink-0 text-xs">
@@ -637,16 +643,26 @@ Progres Remidiasi: ${remediationPercent}% (${resolvedCount}/${totalRemediationTa
             >
               Salin Ringkasan
             </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-xs"
-            >
-              Tutup Modal
-            </button>
+            {!embedded && (
+              <button
+                onClick={onClose}
+                className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-xs"
+              >
+                Tutup Modal
+              </button>
+            )}
           </div>
         </div>
+    </div>
+  );
 
-      </div>
+  if (embedded) {
+    return innerCard;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+      {innerCard}
     </div>
   );
 };

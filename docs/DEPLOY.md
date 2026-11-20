@@ -87,12 +87,24 @@ Pastikan seluruh kontainer berada dalam status sehat (*healthy* / *running*):
 docker compose ps
 ```
 
-### Langkah 4: Buat Akun Master Admin / Developer Pertama
-Jalankan skrip inisialisasi akun admin interaktif di dalam kontainer backend:
+### Langkah 4: Setup Koneksi, Akun Admin Pertama, & Cek Sistem via CLI
+Gunakan suite skrip setup interaktif di kontainer backend (atau kelola langsung dari menu web **Setting** setelah login):
 ```bash
+# Lihat seluruh command setup yang tersedia
+docker compose exec backend npm run setup:help
+
+# Konfigurasi koneksi DB / Cloudflare Tunnel / WhatsApp Fonnte (opsional jika sudah isi .env)
+docker compose exec backend npm run setup:db
+docker compose exec backend npm run setup:tunnel
+docker compose exec backend npm run setup:wa
+
+# Buat akun Master Admin / Developer pertama (wajib)
 docker compose exec backend npm run setup:admin
+
+# Verifikasi apakah database, admin, WA, & Cloudflare Tunnel sudah terhubung
+docker compose exec backend npm run setup:check
 ```
-Sistem akan meminta username, nama lengkap, email, peran (`developer` / `admin` / `warehouse_admin` / `technician`), dan kata sandi kuat.
+*(Penjelasan detail tiap skrip dan flag tersedia pada [`docs/SKRIP_CLI.md`](./SKRIP_CLI.md).)*
 
 ### Langkah 5: Membuka Aplikasi dari PC Lain di Jaringan Kantor
 1. Cek alamat IP lokal server kantor:
@@ -111,7 +123,7 @@ Sistem akan meminta username, nama lengkap, email, peran (`developer` / `admin` 
 Bila terdapat pembaruan kode aplikasi dari repositori Git, lakukan langkah pembaruan aman berikut:
 
 1. **Lakukan Cadangan Data Terlebih Dahulu**:
-   Download berkas backup JSON dari menu **Tools → Database** pada UI aplikasi, atau periksa folder `backups/`.
+   Download berkas backup JSON dari menu **Setting → Database, Backup & Sampah** pada UI aplikasi, atau periksa folder `backups/`.
 2. **Tarik Kode Terbaru dari Git**:
    ```bash
    git pull origin main
@@ -148,7 +160,7 @@ Untuk mengamankan data dari risiko kerusakan fisik server:
 
 ### C. Pemulihan Data (Restore)
 Jika terjadi galat atau server baru dipasang, pulihkan data melalui:
-1. Buka menu **Tools → Database** (atau **Katalog → Kelola**) pada antarmuka web.
+1. Buka tab **Setting → Database, Backup & Sampah** (khusus `admin`/`developer`) pada antarmuka web.
 2. Unggah berkas backup JSON yang tersedia.
 3. Data inventaris dipulihkan secara atomik tanpa merusak tabel akun pengguna.
 
@@ -158,7 +170,7 @@ Jika terjadi galat atau server baru dipasang, pulihkan data melalui:
 
 ### 1. Kontainer Tidak Jalan / Error saat `docker compose up`
 - **Penyebab**: Variabel `.env` belum diisi.
-- **Solusi**: Pastikan file `.env` sudah dibuat dari `.env.example` dan variabel `DB_PASSWORD`, `DB_ROOT_PASSWORD`, serta `APP_SECRET_KEY` sudah terisi.
+- **Solusi**: Pastikan file `.env` sudah dibuat dari `.env.example` dan variabel `DB_PASSWORD`, `DB_ROOT_PASSWORD`, serta `APP_SECRET_KEY` sudah terisi, lalu jalankan `npm run setup:check`.
 
 ### 2. Cara Melihat Log Server Realtime
 Gunakan perintah berikut untuk mendiagnosis error:
@@ -249,7 +261,7 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    ```
 
 3. **Impor Skema Migration SQL (`01` s/d `12`)**:
-   *(Catatan: `initDatabase()` saat startup backend juga menjalankan migrasi otomatis yang idempoten.)*
+   *(Catatan: `initDatabase()` saat startup backend dan `npm run setup:db -- --migrate` juga menjalankan migrasi otomatis yang idempoten.)*
    - **Linux / Ubuntu**:
      ```bash
      for f in backend/src/db/migrations/*.sql; do
@@ -263,8 +275,14 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
      }
      ```
 
-4. **Konfigurasi File `.env`**:
-   Salin `.env.example` menjadi `.env`, lalu isi kredensial MariaDB lokal:
+4. **Konfigurasi File `.env` (Manual atau Interaktif `npm run setup:*`)**:
+   Salin `.env.example` menjadi `.env`, atau langsung jalankan skrip setup interaktif:
+   ```bash
+   npm run setup:db -- --migrate
+   npm run setup:tunnel
+   npm run setup:wa
+   ```
+   Contoh isi `.env` standalone:
    ```ini
    PORT=3000
    NODE_ENV=production
@@ -276,6 +294,7 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    DB_NAME=fieldops_inventory
    DB_USER=root
    DB_PASSWORD=password_mariadb_lokal_anda
+   CLOUDFLARE_PUBLIC_URL=
    ```
 
 5. **Install Dependensi & Build Assets**:
@@ -284,9 +303,10 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    npm run build
    ```
 
-6. **Buat Akun Admin Pertama**:
+6. **Buat Akun Admin Pertama & Cek Koneksi Sistem**:
    ```bash
    npm run setup:admin
+   npm run setup:check
    ```
 
 7. **Jalankan Aplikasi Produksi**:
@@ -302,6 +322,7 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
 | Prefix Route | Endpoint Terverifikasi | Keterangan |
 | :--- | :--- | :--- |
 | `/api/health` | `GET /` | Status kesehatan server, versi `1.2.6`, & status UTC MariaDB |
+| `/api/setup` | `GET /status`, `POST /check`, `POST /database`, `POST /tunnel`, `POST /whatsapp` | Diagnostik koneksi sistem (`.env`, DB, Admin, WA, Cloudflare Tunnel), simpan konfigurasi ke `.env`, reload pool DB, & katalog CLI (`developer`/`admin`) |
 | `/api/auth` | `POST /login`, `/register`, `/refresh`, `/logout`, `/reset-password`, `/confirm-token`; `GET /me`, `/actors`; `GET/POST/DELETE /users`, `POST /users/:id/(approve\|reject\|status\|reset-password\|revoke-sessions)`; `GET /settings`, `PUT /settings/:key`; `GET /activity-logs`, `/activity-logs/:id/details`; `GET /trash`, `POST /trash/purge` | Autentikasi cookie HTTP-only 30 hari, RBAC, konfirmasi Tier 2/3, daftar aktor lapangan, & tempat sampah 14 hari |
 | `/api/catalog` | `GET /jenis`, `/jenis/:id`, `POST/PUT/DELETE /jenis/:id`; `GET /jenis/:id/attributes`, `POST/PUT/DELETE /attributes/:id`, `POST /attributes/:id/options`; `GET /tipe-stok-suggestions`; `GET/POST/PUT/DELETE /products/:id`; `GET /products/:id/types`, `POST /types`, `PUT /types/:id/id-rule`; `GET /labels` | Manajemen penuh Kategori, Atribut, Opsi, Produk, Varian Tipe, aturan ID (`id_dikunci`), hapus terproteksi stok aktif, & data cetak label A4 |
 | `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move`, `DELETE /:id` | Manajemen storage box campuran, relokasi antar box, & hapus box kosong terproteksi |
@@ -310,7 +331,7 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
 | `/api/requests` | `POST /` (`ambil` / `kembalikan`), `POST /bag`, `GET /`, `/held`, `/open-for-actor/:actorId`, `/:id`, `/:id/timeline`, `POST /:id/(approve\|pickup\|return\|complete\|reject\|cancel)` | Siklus lengkap permohonan satuan, paket tas, pengajuan pengembalian 3 kondisi, barang di tangan teknisi, & penandaan selesai pelanggan |
 | `/api/checklists` | `GET/POST/PUT/DELETE /bags`, `GET /`, `POST /` | Manajemen Multi-Tas Kerja Lapangan (`BAG_TEMPLATE`) & catatan inspeksi harian (`TOOLKIT_CHECK`) |
 | `/api/reports` | `GET /weekly`, `GET /debug-clock`, `GET /export/csv` | Rekap mingguan WIB (Senin 00:00 – Minggu 23:59:59 WIB), verifikasi jam UTC/WIB, & ekspor CSV tersanitasi CWE-1236 |
-| `/api/sn-patterns` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` | Manajemen pola regex `SCAN_SN` & aturan normalisasi barcode (`pengaturan.SN_PATTERNS`) |
+| `/api/sn-patterns` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` | Manajemen pola regex `SCAN_SN` & aturan normalisasi barcode (`pengaturan.SN_PATTERNS`; edit oleh `developer`/`admin`/`warehouse_admin`) |
 | `/api/whatsapp` | `GET /config`, `POST /config`, `GET /thresholds`, `POST /thresholds`, `POST /evaluate`, `POST /send`, `POST /test`, `GET /logs` | Konfigurasi alert Fonnte, ambang berjenjang (*tipe > produk > global*), cooldown 15 menit, & log pengiriman |
 | `/api/tickets` | `POST /consume`, `GET /keys`, `POST /keys` | Webhook auto-deduct tiket eksternal via `X-API-Key`/Bearer & manajemen API key |
 | `/api/backup` | `GET /inventory/download` | Unduh snapshot JSON inventaris bebas kredensial akun (`developer`/`admin`) |

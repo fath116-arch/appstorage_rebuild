@@ -10,14 +10,14 @@ Definisi hak akses dipusatkan di `backend/src/utils/permissions.ts` dan disinkro
 
 - **`developer`** *(termasuk alias legacy `superadmin`)*: Pemegang kendali teknis penuh, manajemen akun termasuk akun `developer` lain, pengaturan sistem, API key, dan audit database.
 - **`admin`**: Administrator operasional dengan akses manajemen penuh kecuali membuat/mereset/menghapus akun berlevel `developer`.
-- **`warehouse_admin`**: Pengelola gudang untuk operasional stok, katalog, box, persetujuan/verifikasi request, koreksi audit, dan pengaturan ambang WA (tanpa mengubah kredensial Fonnte maupun setting sistem/API).
+- **`warehouse_admin`**: Pengelola gudang untuk operasional stok, katalog, box, persetujuan/verifikasi request, koreksi audit, serta akses **Tab Setting selektif** untuk **Notifikasi WhatsApp Alert** (tanpa kredensial token/URL Fonnte) dan **Pengaturan Pola Serial Number (SN)**.
 - **`technician`**: Teknisi lapangan untuk melihat katalog/stok/log WA (*read-only*), mengajukan permohonan ambil/kembalikan/paket tas, menandai selesai barang habis pakai miliknya, serta mengisi checklist/tas kerja.
 
 | Fitur / Endpoint / Modul | `technician` | `warehouse_admin` | `admin` | `developer` |
 | :--- | :---: | :---: | :---: | :---: |
 | **Lihat Katalog, Varian, Isi Box, Arsip, & Laporan Mingguan** | ✅ | ✅ | ✅ | ✅ |
 | **Lihat Status WA Alert, Ambang, & Log Pengiriman** | ✅ *(Read-Only)* | ✅ | ✅ | ✅ |
-| **Cetak Label QR A4, Ekspor Excel (`.xlsx`), & Akses HP** | ✅ | ✅ | ✅ | ✅ |
+| **Alat Harian Menu Tools (Akses HP, Ekspor Excel, Cetak Label A4)** | ✅ | ✅ | ✅ | ✅ |
 | **Kelola & Gunakan Tas Kerja / Checklist Inspeksi** (`/api/checklists/*`) | ✅ | ✅ | ✅ | ✅ |
 | **Buat Request Ambil Satuan / Paket Tas / Pengembalian** (`POST /api/requests*`) | ✅ *(Diri Sendiri)* | ✅ *(+ Atas Nama)* | ✅ *(+ Atas Nama)* | ✅ *(+ Atas Nama)* |
 | **Tandai Selesai Barang Habis Pakai** (`POST /api/requests/:id/complete`) | ✅ *(Milik Sendiri)* | ✅ | ✅ | ✅ |
@@ -26,10 +26,11 @@ Definisi hak akses dipusatkan di `backend/src/utils/permissions.ts` dan disinkro
 | **Setujui / Serahkan / Verifikasi Kembali / Tolak Request** | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Catat Koreksi Audit Append-Only** (`POST /api/activities/:id/correct`) | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Batas Tanggal Mundur (`occurred_at` Backdate)** | N/A | **Maks. 7 Hari** | **Tanpa Batas** | **Tanpa Batas** |
-| **Ubah Ambang / Kirim WA Alert** (`POST /api/whatsapp/*`) | ❌ *(403)* | ✅ *(Tanpa Token)* | ✅ | ✅ |
-| **Ubah Token/URL Fonnte, Aturan ID Tipe, & Pola SN** (`/sn-patterns`) | ❌ *(403)* | ❌ *(403)* | ✅ | ✅ |
-| **Tools Database, Audit, Backup Download, Sampah, & API Key Tiket** | ❌ *(403)* | ❌ *(403)* | ✅ | ✅ |
-| **Pengaturan Sistem & Kelola Pengguna** (`/api/auth/users`, `/settings`) | ❌ *(403)* | ❌ *(403)* | ✅ *(Non-Dev)* | ✅ *(Termasuk Dev)* |
+| **Tab Setting — Notifikasi WA Alert** (`POST /api/whatsapp/*`) | ❌ *(403)* | ✅ *(Tanpa Token/URL)* | ✅ | ✅ |
+| **Tab Setting — Pengaturan Pola Serial Number (SN)** (`/api/sn-patterns`) | ❌ *(403)* | ✅ | ✅ | ✅ |
+| **Aturan ID Tipe (`id_dikunci`), Database, Backup & Kotak Sampah** | ❌ *(403)* | ❌ *(403)* | ✅ | ✅ |
+| **Tab Setting — Setup `.env` (DB, Cloudflare Tunnel, Fonnte), Cek Sistem, API Key Tiket & Audit** (`/api/setup/*`) | ❌ *(403)* | ❌ *(403)* | ✅ | ✅ |
+| **Tab Setting — Pengaturan Sistem & Kelola Pengguna** (`/api/auth/users`, `/settings`) | ❌ *(403)* | ❌ *(403)* | ✅ *(Non-Dev)* | ✅ *(Termasuk Dev)* |
 
 > **Catatan Aturan Khusus**:
 > - Penghapusan **Kategori (`jenis`)**, **Atribut**, **Produk**, dan **Storage Box** selalu melalui pengecekan prasyarat di backend: sistem **menolak hapus (HTTP 400)** jika masih terdapat stok aktif/dipesan, request terbuka, produk aktif, atau varian tipe aktif yang memakainya.

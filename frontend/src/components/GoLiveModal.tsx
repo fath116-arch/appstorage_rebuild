@@ -32,7 +32,7 @@ import {
 interface GoLiveModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigateTab: (tab: 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'integration') => void;
+  onNavigateTab: (tab: 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'settings') => void;
 }
 
 import { useAuth } from '../context/AuthContext';
@@ -345,7 +345,7 @@ export const GoLiveModal: React.FC<GoLiveModalProps> = ({
                       6. Uji Integrasi Tiket Jira / Webhook Auto-Deduct
                     </h3>
                     <button
-                      onClick={() => { onClose(); onNavigateTab('integration'); }}
+                      onClick={() => { onClose(); onNavigateTab('settings'); }}
                       className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold text-[11px] flex items-center gap-1"
                     >
                       <span>Uji Webhook</span>

@@ -4,6 +4,9 @@
  * Strict UTC session timezone (+00:00)
  */
 
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
 import { getErrorMessage } from '../utils/errorUtils';
 import { memoryStore } from './memoryStore';
@@ -15,6 +18,12 @@ import { handleCatalogMemoryQuery } from './memoryHandlers/catalogMemory';
 import { handleStockMemoryQuery } from './memoryHandlers/stockMemory';
 import { normalizeDbDateToIso } from '../utils/timezone';
 
+const __dbFilename = fileURLToPath(import.meta.url);
+const __dbDirname = path.dirname(__dbFilename);
+export const PROJECT_ROOT_DIR = path.resolve(__dbDirname, '../../../');
+
+dotenv.config({ path: path.resolve(PROJECT_ROOT_DIR, '.env'), quiet: true });
+
 export interface DbConfig {
   host: string;
   port: number;
@@ -25,18 +34,122 @@ export interface DbConfig {
   timezone: string;
 }
 
-export const dbConfig: DbConfig = {
-  host: process.env.DB_HOST || process.env.MARIADB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || process.env.MARIADB_PORT || '3306', 10),
-  user: process.env.DB_USER || process.env.MARIADB_USER || 'fieldops_user',
-  password: process.env.DB_PASSWORD || process.env.MARIADB_PASSWORD || 'fieldops_secret',
-  database: process.env.DB_NAME || process.env.MARIADB_DATABASE || 'fieldops_inventory',
-  connectionLimit: 10,
-  timezone: '+00:00'
-};
+export function buildDbConfigFromEnv(): DbConfig {
+  return {
+    host: process.env.DB_HOST || process.env.MARIADB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || process.env.MARIADB_PORT || '3306', 10) || 3306,
+    user: process.env.DB_USER || process.env.MARIADB_USER || 'fieldops_user',
+    password: process.env.DB_PASSWORD || process.env.MARIADB_PASSWORD || 'fieldops_secret',
+    database: process.env.DB_NAME || process.env.MARIADB_DATABASE || 'fieldops_inventory',
+    connectionLimit: 10,
+    timezone: '+00:00'
+  };
+}
+
+export const dbConfig: DbConfig = buildDbConfigFromEnv();
 
 let pool: mysql.Pool | null = null;
 let isMariaDbActive = false;
+
+export interface DbConnectionTestResult {
+  connected: boolean;
+  latencyMs: number;
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  serverVersion?: string;
+  tableCount: number;
+  missingCoreTables: string[];
+  hasCoreTables: boolean;
+  error?: string;
+}
+
+const CORE_TABLES = ['users', 'jenis', 'produk', 'tipe', 'item', 'request', 'wa_config', 'pengaturan'];
+
+export function getDbRuntimeStatus() {
+  return {
+    isMariaDbActive,
+    host: dbConfig.host,
+    port: dbConfig.port,
+    database: dbConfig.database,
+    user: dbConfig.user
+  };
+}
+
+export async function testMariaDbConnection(override?: Partial<DbConfig>): Promise<DbConnectionTestResult> {
+  const effective: DbConfig = {
+    ...buildDbConfigFromEnv(),
+    ...(override || {})
+  };
+  const startedAt = Date.now();
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: effective.host,
+      port: effective.port,
+      user: effective.user,
+      password: effective.password,
+      database: effective.database,
+      connectTimeout: 5000,
+      timezone: '+00:00'
+    });
+    await conn.ping();
+    const [verRows] = await conn.query('SELECT VERSION() AS version');
+    const serverVersion = Array.isArray(verRows) && verRows[0] ? String((verRows[0] as { version?: string }).version || '') : undefined;
+    const [tableRows] = await conn.query('SHOW TABLES');
+    const tableNames = Array.isArray(tableRows)
+      ? tableRows.map((row) => String(Object.values(row as Record<string, unknown>)[0] || '').toLowerCase())
+      : [];
+    const missingCoreTables = CORE_TABLES.filter((t) => !tableNames.includes(t));
+
+    return {
+      connected: true,
+      latencyMs: Date.now() - startedAt,
+      host: effective.host,
+      port: effective.port,
+      database: effective.database,
+      user: effective.user,
+      serverVersion,
+      tableCount: tableNames.length,
+      missingCoreTables,
+      hasCoreTables: missingCoreTables.length === 0
+    };
+  } catch (err: unknown) {
+    return {
+      connected: false,
+      latencyMs: Date.now() - startedAt,
+      host: effective.host,
+      port: effective.port,
+      database: effective.database,
+      user: effective.user,
+      tableCount: 0,
+      missingCoreTables: [...CORE_TABLES],
+      hasCoreTables: false,
+      error: getErrorMessage(err, 'Gagal terhubung ke server MariaDB.')
+    };
+  } finally {
+    if (conn) {
+      await conn.end().catch(() => {});
+    }
+  }
+}
+
+export async function reloadDatabasePool(override?: Partial<DbConfig>): Promise<{ isMariaDb: boolean }> {
+  const refreshed = {
+    ...buildDbConfigFromEnv(),
+    ...(override || {})
+  };
+  Object.assign(dbConfig, refreshed);
+
+  if (pool) {
+    const oldPool = pool;
+    pool = null;
+    await oldPool.end().catch(() => {});
+  }
+
+  return initDatabase();
+}
 
 const DATE_COLUMNS = new Set([
   'waktu',

@@ -11,7 +11,6 @@ import {
   Package,
   ArrowLeftRight,
   FileText,
-  Webhook,
   ChevronDown,
   ChevronRight,
   RotateCcw,
@@ -25,15 +24,15 @@ import {
   Wrench,
   Database,
   LogOut,
-  MessageSquare,
   Printer,
   ClipboardCheck,
+  Settings,
   LucideIcon
 } from 'lucide-react';
 import { exportProductsToExcel } from '../utils/excelExporter';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeSelector } from './ThemeSelector';
-import { isAdminOrDev } from '../utils/permissions';
+import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
 import { getErrorMessage } from '../utils/errorUtils';
 
 interface NavbarProps {
@@ -76,7 +75,7 @@ const PRIMARY_TABS: NavTabConfig[] = [
   { id: 'inout', label: 'Masuk/Keluar', mobileLabel: 'Masuk/Keluar', icon: ArrowLeftRight, showOnDesktop: true, showOnMobile: true },
   { id: 'requests', label: 'Request & Alat', mobileLabel: 'Request', icon: ClipboardCheck, showOnDesktop: true, showOnMobile: true },
   { id: 'weekly-report', label: 'Laporan', mobileLabel: 'Laporan', icon: FileText, showOnDesktop: true, showOnMobile: true },
-  { id: 'integration', label: 'Integrasi', mobileLabel: 'Integrasi', icon: Webhook, showOnDesktop: false, showOnMobile: true },
+  { id: 'settings', label: 'Setting', mobileLabel: 'Setting', icon: Settings, showOnDesktop: true, showOnMobile: true },
 ];
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -85,17 +84,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenDownload,
   onOpenGoLive,
   onOpenMobileAccess,
-  onOpenWhatsApp,
-  onOpenSecurityReport,
-  onOpenRestore,
   onOpenLabelPrint,
-  onOpenSNPatterns
 }) => {
-  const { activeTab, setActiveTab, products, lowOrOutCount, refreshData, VERSION } = useInventory();
+  const { activeTab, setActiveTab, openSettingsSection, products, lowOrOutCount, refreshData, VERSION } = useInventory();
   const { showToast } = useToast();
   const { user, logout } = useAuth();
 
   const isDevOrAdmin = isAdminOrDev(user?.role);
+  const canAccessSettings = isWarehouseManager(user?.role);
 
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -141,45 +137,17 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'requests', label: 'Request & Alat Teknisi', icon: ClipboardCheck, iconClass: 'text-purple-600 dark:text-purple-400' },
   ];
 
-  const reportGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string }> = [
-    { id: 'weekly-report', label: 'Laporan Pergerakan Mingguan', icon: FileText, iconClass: 'text-indigo-600 dark:text-indigo-400' },
-    { id: 'integration', label: 'Integrasi Tiket Lapangan', icon: Webhook, iconClass: 'text-teal-600 dark:text-teal-400' },
+  const reportGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string; visible?: boolean }> = [
+    { id: 'weekly-report', label: 'Laporan Pergerakan Mingguan', icon: FileText, iconClass: 'text-indigo-600 dark:text-indigo-400', visible: true },
+    { id: 'settings', label: isDevOrAdmin ? 'Setting Sistem & Integrasi' : 'Setting Operasional Gudang', icon: Settings, iconClass: 'text-teal-600 dark:text-teal-400', visible: canAccessSettings },
   ];
 
+  // Menu Tools hanya berisi alat harian operasional (pengaturan sistem dipindahkan ke tab Setting)
   const toolsItems: ToolsItemConfig[] = [
     {
-      id: 'restore',
-      label: 'Database & Restore',
-      masterLabel: 'Data Backup & Restore',
-      icon: Database,
-      iconColorClass: 'text-blue-600 dark:text-blue-400',
-      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
-      adminOnly: true,
-      visible: Boolean(onOpenRestore),
-      onClick: () => onOpenRestore?.()
-    },
-    {
-      id: 'audit',
-      label: 'Laporan Keamanan Audit',
-      icon: ShieldCheck,
-      iconColorClass: 'text-amber-600 dark:text-amber-400',
-      masterTextClass: 'text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-slate-700/60',
-      adminOnly: true,
-      onClick: () => onOpenSecurityReport?.()
-    },
-    {
-      id: 'whatsapp',
-      label: 'Notifikasi WA Alert',
-      masterLabel: 'Notifikasi WA Stok Menipis',
-      icon: MessageSquare,
-      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
-      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
-      onClick: () => onOpenWhatsApp?.()
-    },
-    {
       id: 'mobile',
-      label: 'Akses HP & Cloudflare',
-      masterLabel: 'Panduan Cloudflare & Akses HP',
+      label: 'Akses HP & QR Code',
+      masterLabel: 'Akses HP & QR Code PWA',
       icon: Smartphone,
       iconColorClass: 'text-teal-600 dark:text-teal-400',
       masterTextClass: 'text-teal-800 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-slate-700/60',
@@ -200,14 +168,6 @@ export const Navbar: React.FC<NavbarProps> = ({
       iconColorClass: 'text-indigo-600 dark:text-indigo-400',
       masterTextClass: 'text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700/60',
       onClick: () => onOpenLabelPrint?.()
-    },
-    {
-      id: 'sn-patterns',
-      label: 'Pengaturan Pola SN',
-      icon: Package,
-      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
-      masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
-      onClick: () => onOpenSNPatterns?.()
     }
   ];
 
@@ -218,7 +178,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   });
 
   const masterAlatItems = [
-    ...visibleToolsItems.filter(t => t.id !== 'sn-patterns' && t.id !== 'restore'),
+    ...visibleToolsItems,
     {
       id: 'download',
       label: 'Download Source Code (.ZIP)',
@@ -227,12 +187,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       iconColorClass: 'text-blue-600 dark:text-blue-400',
       masterTextClass: 'text-blue-800 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-700/60',
       onClick: onOpenDownload
-    },
-    ...visibleToolsItems.filter(t => t.id === 'restore').map(item => ({
-      ...item,
-      icon: RotateCcw,
-      iconColorClass: 'text-emerald-600 dark:text-emerald-400'
-    }))
+    }
   ];
 
   return (
@@ -388,7 +343,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                         {expandedSections.laporan && (
                           <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1 animate-in fade-in duration-150">
-                            {reportGroupLinks.map((link) => {
+                            {reportGroupLinks.filter(link => link.visible !== false).map((link) => {
                               const Icon = link.icon;
                               const isActive = activeTab === link.id;
                               return (
@@ -489,11 +444,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                               </div>
 
                               <button
-                                onClick={() => { closeAllDropdowns(); onOpenUserModal(); }}
+                                onClick={() => {
+                                  closeAllDropdowns();
+                                  if (isDevOrAdmin) {
+                                    openSettingsSection('users');
+                                  } else {
+                                    onOpenUserModal();
+                                  }
+                                }}
                                 className="w-full text-left p-1.5 rounded-lg text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-slate-700/60 font-medium flex items-center gap-1.5"
                               >
                                 <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                                <span>Matriks Hak Akses &amp; Pengguna</span>
+                                <span>{isDevOrAdmin ? 'Kelola Akun (Setting)' : 'Matriks Hak Akses'}</span>
                               </button>
 
                               <button
@@ -543,7 +505,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Zone 2: Quick Desktop Nav Links */}
             <nav className="hidden xl:flex items-center gap-2 text-xs font-semibold">
-              {PRIMARY_TABS.filter(tab => tab.showOnDesktop).map((tab) => {
+              {PRIMARY_TABS.filter(tab => tab.showOnDesktop && (tab.id !== 'settings' || canAccessSettings)).map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
@@ -689,12 +651,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <button
                             onClick={() => {
                               closeAllDropdowns();
-                              onOpenUserModal();
+                              if (isDevOrAdmin) {
+                                openSettingsSection('users');
+                              } else {
+                                onOpenUserModal();
+                              }
                             }}
                             className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 rounded-lg transition-colors font-medium text-slate-800 dark:text-slate-200"
                           >
                             <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                            <span>Matriks Wewenang &amp; Kelola Akun</span>
+                            <span>{isDevOrAdmin ? 'Kelola Akun (Tab Setting)' : 'Matriks Wewenang Akun'}</span>
                           </button>
                         </div>
 
@@ -752,7 +718,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around py-1 px-1 shadow-lg no-print transition-colors"
         aria-label="Navigasi Bawah Smartphone"
       >
-        {PRIMARY_TABS.filter(tab => tab.showOnMobile).map((tab) => {
+        {PRIMARY_TABS.filter(tab => tab.showOnMobile && (tab.id !== 'settings' || canAccessSettings)).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

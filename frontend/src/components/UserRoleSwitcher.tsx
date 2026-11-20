@@ -28,17 +28,25 @@ import {
 interface UserRoleSwitcherProps {
   isOpen: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }
 
 export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
   isOpen,
-  onClose
+  onClose,
+  embedded = false
 }) => {
   const { user, logout } = useAuth();
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [activeTab, setActiveTab] = useState<'matrix' | 'approvals' | 'users' | 'add'>('matrix');
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [actionNotice, setActionNotice] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'reject' | 'delete' | 'reset-password';
+    userId: string;
+    username: string;
+  } | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
 
   const isDeveloper = isDeveloperRole(user?.role);
   const hasAdminAccess = isAdminOrDev(user?.role);
@@ -58,12 +66,12 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
   }, [hasAdminAccess]);
 
   useEffect(() => {
-    if (isOpen && hasAdminAccess) {
+    if ((embedded || isOpen) && hasAdminAccess) {
       loadUsers();
     }
-  }, [isOpen, hasAdminAccess, loadUsers]);
+  }, [embedded, isOpen, hasAdminAccess, loadUsers]);
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
   const pendingUsers = usersList.filter(u => u.status === 'PENDING_APPROVAL');
 
@@ -82,18 +90,7 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
   };
 
   const handleReject = async (userId: string, username: string) => {
-    if (!window.confirm(`Yakin ingin menolak pendaftaran akun "${username}"?`)) return;
-    try {
-      const res = await api.rejectUser(userId);
-      if (res.success) {
-        showNotice('success', `Pendaftaran akun "${username}" telah DITOLAK.`);
-        loadUsers();
-      } else {
-        showNotice('error', res.message || 'Gagal menolak akun.');
-      }
-    } catch (err: unknown) {
-      showNotice('error', getErrorMessage(err, 'Gagal menolak akun.'));
-    }
+    setPendingAction({ type: 'reject', userId, username });
   };
 
   const handleToggleStatus = async (userId: string, currentStatus: string, username: string) => {
@@ -112,78 +109,137 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
   };
 
   const handleDeleteUser = async (userId: string, username: string) => {
-    if (!window.confirm(`Hapus permanen akun "${username}"? Tindakan ini tidak dapat dibatalkan.`)) return;
-    try {
-      const res = await api.deleteUser(userId);
-      if (res.success) {
-        showNotice('success', `Akun "${username}" berhasil dihapus secara permanen.`);
-        loadUsers();
-      } else {
-        showNotice('error', res.message || 'Gagal menghapus akun.');
-      }
-    } catch (err: unknown) {
-      showNotice('error', getErrorMessage(err, 'Gagal menghapus akun.'));
-    }
+    setPendingAction({ type: 'delete', userId, username });
   };
 
   const handleAdminResetPassword = async (userId: string, username: string) => {
-    const pass = window.prompt(`Masukkan Kata Sandi Baru untuk akun "@${username}":`);
-    if (!pass || pass.trim().length === 0) return;
+    setResetPasswordValue('');
+    setPendingAction({ type: 'reset-password', userId, username });
+  };
+
+  const handleConfirmPendingAction = async () => {
+    if (!pendingAction) return;
+    const { type, userId, username } = pendingAction;
     try {
-      const res = await api.adminResetPassword(userId, pass.trim());
-      if (res.success) {
-        showNotice('success', `Kata sandi akun "@${username}" berhasil direset.`);
-      } else {
-        showNotice('error', res.message || 'Gagal mereset kata sandi.');
+      if (type === 'reject') {
+        const res = await api.rejectUser(userId);
+        if (res.success) {
+          showNotice('success', `Pendaftaran akun "${username}" telah DITOLAK.`);
+          loadUsers();
+        } else {
+          showNotice('error', res.message || 'Gagal menolak akun.');
+        }
+      } else if (type === 'delete') {
+        const res = await api.deleteUser(userId);
+        if (res.success) {
+          showNotice('success', `Akun "${username}" berhasil dihapus secara permanen.`);
+          loadUsers();
+        } else {
+          showNotice('error', res.message || 'Gagal menghapus akun.');
+        }
+      } else if (type === 'reset-password') {
+        if (!resetPasswordValue.trim()) {
+          showNotice('error', 'Kata sandi baru tidak boleh kosong.');
+          return;
+        }
+        const res = await api.adminResetPassword(userId, resetPasswordValue.trim());
+        if (res.success) {
+          showNotice('success', `Kata sandi akun "@${username}" berhasil direset.`);
+        } else {
+          showNotice('error', res.message || 'Gagal mereset kata sandi.');
+        }
       }
     } catch (err: unknown) {
-      showNotice('error', getErrorMessage(err, 'Gagal mereset kata sandi.'));
+      showNotice('error', getErrorMessage(err, 'Gagal memproses aksi akun.'));
+    } finally {
+      setPendingAction(null);
+      setResetPasswordValue('');
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95">
+  const innerCard = (
+    <div className={embedded
+      ? 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-full overflow-hidden'
+      : 'bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95'
+    }>
 
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/60">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-100 border border-slate-200 dark:border-slate-300/50 flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
-              <img src="/logo.webp" alt="FieldOps IT Logo" className="w-full h-full object-contain" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900 dark:text-white text-base font-display">
-                  Manajemen Akun, Peran &amp; Persetujuan
-                </h3>
-                <span className="text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-300 dark:border-cyan-800">
-                  Developer &amp; Admin Full Access
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Persetujuan akun di bawah Admin dikelola langsung di sini.
-              </p>
-            </div>
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/60">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-100 border border-slate-200 dark:border-slate-300/50 flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
+            <img src="/logo.webp" alt="FieldOps IT Logo" className="w-full h-full object-contain" />
           </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-900 dark:text-white text-base font-display">
+                Manajemen Akun, Peran &amp; Persetujuan
+              </h3>
+              <span className="text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 px-2 py-0.5 rounded border border-cyan-300 dark:border-cyan-800">
+                Server RBAC
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Persetujuan akun di bawah Admin dikelola langsung di sini.
+            </p>
+          </div>
+        </div>
+        {!embedded && (
           <button
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
-        </div>
-
-        {/* Action Notice */}
-        {actionNotice && (
-          <div className={`mx-6 mt-4 p-3 rounded-lg text-xs flex items-center gap-2 ${
-            actionNotice.type === 'error'
-              ? 'bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400'
-              : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-          }`}>
-            {actionNotice.type === 'error' ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
-            <span>{actionNotice.text}</span>
-          </div>
         )}
+      </div>
+
+      {/* Inline Confirmation / Reset Password Banner */}
+      {pendingAction && (
+        <div className="mx-6 mt-4 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs space-y-2">
+          <div className="font-semibold text-amber-900 dark:text-amber-200">
+            {pendingAction.type === 'reject' && `Konfirmasi tolak pendaftaran akun "@${pendingAction.username}"?`}
+            {pendingAction.type === 'delete' && `Konfirmasi hapus permanen akun "@${pendingAction.username}"? Tindakan ini tidak dapat dibatalkan.`}
+            {pendingAction.type === 'reset-password' && `Masukkan kata sandi baru untuk akun "@${pendingAction.username}":`}
+          </div>
+          {pendingAction.type === 'reset-password' && (
+            <input
+              type="password"
+              value={resetPasswordValue}
+              onChange={(e) => setResetPasswordValue(e.target.value)}
+              placeholder="Kata sandi baru..."
+              className="w-full max-w-sm px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+            />
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleConfirmPendingAction}
+              className="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-emerald-600 text-white font-semibold hover:bg-slate-800"
+            >
+              Konfirmasi
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPendingAction(null); setResetPasswordValue(''); }}
+              className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action Notice */}
+      {actionNotice && (
+        <div className={`mx-6 mt-4 p-3 rounded-lg text-xs flex items-center gap-2 ${
+          actionNotice.type === 'error'
+            ? 'bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400'
+            : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+        }`}>
+          {actionNotice.type === 'error' ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
+          <span>{actionNotice.text}</span>
+        </div>
+      )}
 
         {/* Current Active Session Info */}
         {user && (
@@ -291,7 +347,7 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 max-h-[58vh] overflow-y-auto space-y-6">
+        <div className={embedded ? 'p-6 space-y-6' : 'p-6 max-h-[58vh] overflow-y-auto space-y-6'}>
           {activeTab === 'matrix' && (
             <RoleMatrixTab currentUserRole={user?.role} />
           )}
@@ -329,20 +385,30 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 flex items-center justify-between text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-emerald-500" />
-            <span>Satu Kantor Tunggal &bull; MariaDB 11.x Server</span>
+        {!embedded && (
+          <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <Server className="w-4 h-4 text-emerald-500" />
+              <span>Satu Kantor Tunggal &bull; MariaDB 11.x Server</span>
+            </div>
+            <button
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-slate-700 hover:bg-slate-800 transition-colors font-medium cursor-pointer"
+            >
+              Tutup
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-slate-700 hover:bg-slate-800 transition-colors font-medium cursor-pointer"
-          >
-            Tutup
-          </button>
-        </div>
-      </div>
+        )}
+    </div>
+  );
+
+  if (embedded) {
+    return innerCard;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      {innerCard}
     </div>
   );
 };

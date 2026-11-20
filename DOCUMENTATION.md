@@ -60,6 +60,7 @@ WHATSAPP_AUTO_ALERT=true
 
 # Akses Jarak Jauh HTTPS (Opsional)
 CLOUDFLARE_TUNNEL_TOKEN=
+CLOUDFLARE_PUBLIC_URL=
 ```
 
 #### Deskripsi Variabel Lingkungan:
@@ -72,19 +73,24 @@ CLOUDFLARE_TUNNEL_TOKEN=
 | `VITE_API_BASE_URL` | Frontend | Tidak | Base URL API opsional jika frontend dipisah origin (kosong = same-origin `/api/*`). |
 | `VITE_APP_TITLE` | Frontend | Tidak | Judul kustom aplikasi di sisi klien. |
 | `WHATSAPP_API_URL`, `WHATSAPP_API_TOKEN`, `WHATSAPP_TARGET_PHONES`, `WHATSAPP_AUTO_ALERT` | Backend | Tidak | Konfigurasi gateway Fonnte bawaan (token rahasia tetap diproteksi di backend). |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Docker Compose | Tidak | Token Cloudflare Tunnel untuk akses jarak jauh HTTPS tanpa port forwarding. |
+| `CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_PUBLIC_URL` | Docker Compose & Backend | Tidak | Token Cloudflare Tunnel & URL publik HTTPS untuk akses jarak jauh serta pengecekan `/api/health`. |
 
 ---
 
-### C. Perintah Instalasi, CLI, & Mode Running
+### C. Perintah Instalasi, Suite Setup CLI, & Mode Running
 
 1. **Instal Dependensi**:
    ```bash
    npm install
    ```
-2. **Buat Akun Admin / Developer Pertama**:
+2. **Konfigurasi Server via Skrip Setup Interaktif** *(Lihat detail di [`docs/SKRIP_CLI.md`](./docs/SKRIP_CLI.md))*:
    ```bash
-   npm run setup:admin
+   npm run setup:help    # Menampilkan seluruh command setup & fungsinya
+   npm run setup:db      # Konfigurasi & uji koneksi MariaDB ke .env
+   npm run setup:admin   # Buat akun Admin / Developer pertama
+   npm run setup:tunnel  # Konfigurasi Cloudflare Tunnel & URL publik
+   npm run setup:wa      # Konfigurasi WhatsApp Gateway (Fonnte)
+   npm run setup:check   # Cek apakah DB, Admin, WA, & Tunnel sudah terhubung
    ```
 3. **Jalankan Mode Pengembangan (Express 5 + Vite Middleware di Port 3000)**:
    ```bash
@@ -180,9 +186,9 @@ Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie 
 - **Katalog & Storage Box (`/api/catalog`, `/api/boxes`)**: CRUD Kategori (`jenis`), Atribut & Opsi, Produk, Varian Tipe, aturan ID (`/types/:id/id-rule`), label cetak A4 (`/labels`), serta manajemen Storage Box dan pemindahan antar box (`/boxes/move`).
 - **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, serta feed aktivitas & koreksi append-only (`/activities/:id/correct`).
 - **Request & Multi-Tas (`/api/requests`, `/api/checklists`)**: Permohonan ambil satuan, paket tas (`/requests/bag`), pengembalian (`/requests` dengan `request_type: 'kembalikan'`), persetujuan, serah terima (`/pickup`), verifikasi kembali (`/return`), selesai pemakaian pelanggan (`/complete`), barang di tangan teknisi (`/held`), dan CRUD Multi-Tas (`/checklists/bags`).
-- **Laporan, Pola SN, WA Alert, Tiket & Backup**: `/api/reports/weekly` & `/debug-clock`, `/api/sn-patterns`, `/api/whatsapp/*`, `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
+- **Laporan, Pola SN, WA Alert, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly` & `/debug-clock`, `/api/sn-patterns`, `/api/whatsapp/*`, `/api/setup/*` (`SystemSetupService`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
 
-*(Daftar lengkap seluruh rute, metode HTTP, dan otorisasi peran tersedia pada [`docs/DEPLOY.md`](./docs/DEPLOY.md) dan [`docs/PERAN_DAN_AKSES.md`](./docs/PERAN_DAN_AKSES.md).)*
+*(Daftar lengkap seluruh rute, metode HTTP, dan otorisasi peran tersedia pada [`docs/DEPLOY.md`](./docs/DEPLOY.md), [`docs/PERAN_DAN_AKSES.md`](./docs/PERAN_DAN_AKSES.md), dan [`docs/SKRIP_CLI.md`](./docs/SKRIP_CLI.md).)*
 
 ---
 
@@ -191,7 +197,7 @@ Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie 
 ### A. Prosedur Cadangan Data (Backup & Restore)
 1. **Backup Harian Otomatis & Manual (JSON Bebas Akun)**:
    - `BackupService` menyimpan cadangan data bisnis (tanpa kredensial/hash pengguna) secara berkala di folder `./backups/`.
-   - Developer & Admin dapat mengunduh snapshot JSON via `GET /api/backup/inventory/download` (menu **Tools → Database**).
+   - Developer & Admin dapat mengunduh snapshot JSON via `GET /api/backup/inventory/download` (tab **Setting → Database, Backup & Kotak Sampah**).
 2. **Cadangan Native MariaDB (`mariadb-dump`)**:
    ```bash
    docker compose exec mariadb mariadb-dump -u root -p"$DB_ROOT_PASSWORD" fieldops_inventory > backup_fieldops_$(date +%F).sql
@@ -213,5 +219,5 @@ Seluruh fungsi ekspor CSV (`/api/reports/export/csv`) dan ExcelJS (`frontend/src
 | **HTTP 401 pada endpoint `/api/*`** | Sesi cookie kedaluwarsa atau belum login | Login ulang; periksa pengaturan cookie & `ACCESS_TOKEN_TTL_DETIK` di tabel `pengaturan`. |
 | **HTTP 403 saat ubah pengaturan / hapus katalog** | Peran tidak memenuhi syarat atau belum menyertakan token Konfirmasi Tingkat 2/3 | Pastikan peran sesuai matriks RBAC (`docs/PERAN_DAN_AKSES.md`) dan lengkapi dialog konfirmasi in-app. |
 | **Gagal terhubung ke MariaDB saat startup** | Layanan MariaDB belum siap atau kredensial `.env` salah | Periksa `DB_HOST`, `DB_USER`, `DB_PASSWORD`, dan status container `docker compose ps`. |
-| **Notifikasi WhatsApp tidak terkirim** | Token Fonnte kosong, akun di luar jam aktif, atau tertahan jeda *cooldown* 15 menit | Cek konfigurasi di **Tools → WA Alert** dan log pengiriman `GET /api/whatsapp/logs`. |
+| **Notifikasi WhatsApp tidak terkirim** | Token Fonnte kosong, akun di luar jam aktif, atau tertahan jeda *cooldown* 15 menit | Cek konfigurasi di **Setting → Notifikasi WhatsApp Alert** dan log pengiriman `GET /api/whatsapp/logs`. |
 | **Pencetakan Label A4 meluap ke 2 halaman** | Pengaturan margin cetak browser aktif | Pastikan skala cetak 100%, ukuran kertas A4, dan margin default CSS `@page { margin: 0 }` tidak ditimpa printer. |

@@ -71,10 +71,12 @@ FieldOps IT adalah aplikasi web manajemen inventaris suku cadang, pencatatan mut
    ```bash
    docker compose up -d --build
    ```
-2. **Buat Akun Master Admin / Developer Pertama**:
+2. **Buat Akun Master Admin / Developer & Cek Koneksi Sistem**:
    ```bash
    docker compose exec backend npm run setup:admin
+   docker compose exec backend npm run setup:check
    ```
+   *(Ketik `npm run setup:help` untuk melihat seluruh command setup interaktif: `setup:db`, `setup:admin`, `setup:tunnel`, `setup:wa`, `setup:check`, dan seluruhnya juga dapat diatur via tab **Setting** di web oleh `admin`/`developer`.)*
 
 ---
 
@@ -83,10 +85,11 @@ FieldOps IT adalah aplikasi web manajemen inventaris suku cadang, pencatatan mut
 Seluruh dokumen teknis dan operasional sistem tersedia di root proyek dan direktori [`docs/`](./docs/):
 
 - 📖 [**Dokumentasi Teknis Lengkap (`DOCUMENTATION.md`)**](./DOCUMENTATION.md) — Panduan setup `.env`, arsitektur modul frontend/backend, panduan API, dan pemeliharaan sistem.
+- 🧰 [**Panduan Skrip CLI & Setup Sistem (`docs/SKRIP_CLI.md`)**](./docs/SKRIP_CLI.md) — Daftar lengkap & penjelasan fungsi seluruh skrip NPM (`setup:db`, `setup:admin`, `setup:tunnel`, `setup:wa`, `setup:check`, `setup:help`, `sampah`, `test:backup`, `dev`, `build`, `lint`).
 - 📐 [**Arsitektur Sistem (`docs/ARCHITECTURE.md`)**](./docs/ARCHITECTURE.md) — Diagram arsitektur v1.2.6, layanan kanonik, zona waktu UTC/WIB, dan akses Cloudflare Tunnel.
 - 🚀 [**Panduan Deployment & API (`docs/DEPLOY.md`)**](./docs/DEPLOY.md) — Langkah deployment Docker/Native (Linux/Windows), backup, troubleshooting, dan referensi endpoint API aktif.
 - 🗄️ [**Struktur & Kamus Data (`docs/DATA.md`)**](./docs/DATA.md) — Skema tabel MariaDB hingga migrasi `12_unify_single_model_and_wib.sql`, relasi data, dan aturan mutasi stok.
-- 🔐 [**Peran & Hak Akses (`docs/PERAN_DAN_AKSES.md`)**](./docs/PERAN_DAN_AKSES.md) — Matriks RBAC 4 peran kanonis (`developer`, `admin`, `warehouse_admin`, `technician`), sesi cookie 30 hari, dan konfirmasi bertingkat.
+- 🔐 [**Peran & Hak Akses (`docs/PERAN_DAN_AKSES.md`)**](./docs/PERAN_DAN_AKSES.md) — Matriks RBAC 4 peran kanonis (`developer`, `admin`, `warehouse_admin`, `technician`), sesi cookie 30 hari, akses tab Setting, dan konfirmasi bertingkat.
 - 🎨 [**Sistem Tema & Desain (`docs/TEMA_DAN_DESAIN.md`)**](./docs/TEMA_DAN_DESAIN.md) — Token warna light/dark, disiplin *zero-pill*, responsivitas mobile, dan isolasi cetak A4.
 - ✅ [**Status Sistem (`docs/STATUS.md`)**](./docs/STATUS.md) — Status rilis terkini, audit keamanan, dan hasil pengujian otomatis.
 - 📊 [**Matriks Progres (`docs/PROGRESS.md`)**](./docs/PROGRESS.md) — Pelacak status penyelesaian modul dari Tahap 0 hingga rilis `v1.2.6`.

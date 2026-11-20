@@ -13,6 +13,12 @@
     "clean": "rm -rf frontend/dist dist",
     "lint": "tsc --noEmit",
     "setup:admin": "tsx backend/src/scripts/setupAdmin.ts",
+    "setup:db": "tsx backend/src/scripts/setupDatabase.ts",
+    "setup:tunnel": "tsx backend/src/scripts/setupTunnel.ts",
+    "setup:wa": "tsx backend/src/scripts/setupWhatsapp.ts",
+    "setup:check": "tsx backend/src/scripts/setupCheck.ts",
+    "setup:help": "tsx backend/src/scripts/setupHelp.ts",
+    "setup:list": "tsx backend/src/scripts/setupHelp.ts",
     "test:backup": "tsx backend/src/scripts/testBackupRestore.ts",
     "sampah": "tsx backend/src/scripts/sampahCli.ts"
   },

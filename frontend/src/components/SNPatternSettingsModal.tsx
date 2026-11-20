@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
+import { isWarehouseManager } from '../utils/permissions';
+import { apiFetch } from '../services/httpClient';
 import { 
   SNPattern, 
   DEFAULT_SN_PATTERNS, 
@@ -34,16 +36,19 @@ interface SNPatternSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPatternsUpdated?: () => void;
+  embedded?: boolean;
 }
 
 export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
   isOpen,
   onClose,
-  onPatternsUpdated
+  onPatternsUpdated,
+  embedded = false
 }) => {
   const { user } = useAuth();
   const { showToast } = useInventory();
-  const isDevOrAdmin = user?.role === 'developer' || user?.role === 'admin';
+  const canManagePatterns = isWarehouseManager(user?.role);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [patterns, setPatterns] = useState<SNPattern[]>(DEFAULT_SN_PATTERNS);
   const [loading, setLoading] = useState<boolean>(false);
@@ -66,12 +71,9 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
   const loadPatterns = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/sn-patterns');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.patterns && Array.isArray(data.patterns) && data.patterns.length > 0) {
-          setPatterns(data.patterns);
-        }
+      const data = await apiFetch<{ success: boolean; patterns?: SNPattern[] }>('/api/sn-patterns');
+      if (data.patterns && Array.isArray(data.patterns) && data.patterns.length > 0) {
+        setPatterns(data.patterns);
       }
     } catch {
       // Fallback local defaults
@@ -81,14 +83,15 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
   };
 
   useEffect(() => {
-    if (isOpen) {
+    if (embedded || isOpen) {
       loadPatterns();
       resetForm();
     }
-  }, [isOpen]);
+  }, [embedded, isOpen]);
 
   const resetForm = () => {
     setEditingId(null);
+    setConfirmDeleteId(null);
     setNamaInput('');
     setContohInput('');
     setPolaSederhanaInput('');
@@ -100,7 +103,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
     setTestInput('');
   };
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
   // Generate pola sederhana dari contoh SN
   const handleAutoGeneratePattern = () => {
@@ -131,18 +134,15 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
 
   // Toggle status aktif
   const handleToggleAktif = async (pat: SNPattern) => {
-    if (!isDevOrAdmin) return;
+    if (!canManagePatterns) return;
     try {
-      const res = await fetch(`/api/sn-patterns/${pat.id}`, {
+      await apiFetch(`/api/sn-patterns/${pat.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ aktif: !pat.aktif })
       });
-      if (res.ok) {
-        showToast(`Pola "${pat.nama}" ${!pat.aktif ? 'diaktifkan' : 'dinonaktifkan'}.`, 'success');
-        loadPatterns();
-        if (onPatternsUpdated) onPatternsUpdated();
-      }
+      showToast(`Pola "${pat.nama}" ${!pat.aktif ? 'diaktifkan' : 'dinonaktifkan'}.`, 'success');
+      loadPatterns();
+      if (onPatternsUpdated) onPatternsUpdated();
     } catch {
       showToast('Gagal mengubah status pola.', 'error');
     }
@@ -151,8 +151,8 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
   // Simpan Pola
   const handleSubmitPattern = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isDevOrAdmin) {
-      showToast('Akses ditolak: Hanya Developer & Admin yang dapat mengedit pola.', 'error');
+    if (!canManagePatterns) {
+      showToast('Akses ditolak: Anda tidak memiliki izin mengedit pola SN.', 'error');
       return;
     }
 
@@ -186,21 +186,14 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
       const url = editingId ? `/api/sn-patterns/${editingId}` : '/api/sn-patterns';
       const method = editingId ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const data = await apiFetch<{ success: boolean; message?: string }>(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || 'Pola SN berhasil disimpan.', 'success');
-        resetForm();
-        loadPatterns();
-        if (onPatternsUpdated) onPatternsUpdated();
-      } else {
-        showToast(data.message || 'Gagal menyimpan pola SN.', 'error');
-      }
+      showToast(data.message || 'Pola SN berhasil disimpan.', 'success');
+      resetForm();
+      loadPatterns();
+      if (onPatternsUpdated) onPatternsUpdated();
     } catch (err: any) {
       showToast(err.message || 'Gagal menyimpan pola SN.', 'error');
     }
@@ -208,16 +201,13 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
 
   // Hapus Pola
   const handleDeletePattern = async (id: string, nama: string) => {
-    if (!isDevOrAdmin) return;
-    if (!confirm(`Hapus pola SN "${nama}"?`)) return;
-
+    if (!canManagePatterns) return;
     try {
-      const res = await fetch(`/api/sn-patterns/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast(`Pola "${nama}" berhasil dihapus.`, 'success');
-        loadPatterns();
-        if (onPatternsUpdated) onPatternsUpdated();
-      }
+      await apiFetch(`/api/sn-patterns/${id}`, { method: 'DELETE' });
+      setConfirmDeleteId(null);
+      showToast(`Pola "${nama}" berhasil dihapus.`, 'success');
+      loadPatterns();
+      if (onPatternsUpdated) onPatternsUpdated();
     } catch {
       showToast('Gagal menghapus pola.', 'error');
     }
@@ -231,40 +221,44 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
     ? validatePatternMatch(testInput.trim(), currentEvaluatedRegex)
     : false;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col transition-colors">
-        
-        {/* Modal Header */}
-        <div className="px-5 py-4 bg-slate-900 text-white border-b border-slate-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <Settings className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold flex items-center gap-2">
-                <span>Pengaturan Pola Serial Number (SN)</span>
-              </h2>
-              <p className="text-xs text-slate-300">
-                Konfigurasi format sederhana (#, A, ?, *) untuk memilih barcode SN murni dari router/modem
-              </p>
-            </div>
+  const innerContent = (
+    <div className={embedded
+      ? 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-full overflow-hidden flex flex-col transition-colors'
+      : 'bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col transition-colors'
+    }>
+      
+      {/* Modal Header */}
+      <div className="px-5 py-4 bg-slate-900 text-white border-b border-slate-800 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <Settings className="w-4 h-4" />
           </div>
+          <div>
+            <h2 className="text-base font-bold flex items-center gap-2">
+              <span>Pengaturan Pola Serial Number (SN)</span>
+            </h2>
+            <p className="text-xs text-slate-300">
+              Konfigurasi format sederhana (#, A, ?, *) untuk memilih barcode SN murni dari router/modem
+            </p>
+          </div>
+        </div>
+        {!embedded && (
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
-        </div>
+        )}
+      </div>
 
         {/* Modal Body */}
         <div className="p-5 overflow-y-auto space-y-5 text-xs flex-1">
-          {!isDevOrAdmin && (
+          {!canManagePatterns && (
             <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-800 dark:text-amber-300 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>
-                Peran Anda (<strong className="font-semibold">{user?.role}</strong>) hanya dapat membaca daftar pola SN aktif. Perubahan konfigurasi dilindungi khusus Developer & Admin.
+                Peran Anda (<strong className="font-semibold">{user?.role}</strong>) hanya dapat membaca daftar pola SN aktif. Perubahan konfigurasi tersedia untuk Developer, Admin, dan Admin Gudang.
               </span>
             </div>
           )}
@@ -293,7 +287,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
                     <th className="p-2.5">Format Sederhana</th>
                     <th className="p-2.5">Contoh SN</th>
                     <th className="p-2.5 text-center">Status</th>
-                    {isDevOrAdmin && <th className="p-2.5 text-right">Aksi</th>}
+                    {canManagePatterns && <th className="p-2.5 text-right">Aksi</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono text-[11px]">
@@ -319,7 +313,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleToggleAktif(pat)}
-                          disabled={!isDevOrAdmin}
+                          disabled={!canManagePatterns}
                           className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
                             pat.aktif
                               ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
@@ -329,7 +323,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
                           {pat.aktif ? 'Aktif' : 'Nonaktif'}
                         </button>
                       </td>
-                      {isDevOrAdmin && (
+                      {canManagePatterns && (
                         <td className="p-2.5 text-right font-sans">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
@@ -340,14 +334,33 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeletePattern(pat.id, pat.nama)}
-                              className="p-1 text-rose-500 hover:text-rose-700 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                              title="Hapus Pola"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {confirmDeleteId === pat.id ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePattern(pat.id, pat.nama)}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-rose-600 text-white rounded hover:bg-rose-700"
+                                >
+                                  Hapus
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                                >
+                                  Batal
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(pat.id)}
+                                className="p-1 text-rose-500 hover:text-rose-700 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                title="Hapus Pola"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}
@@ -379,8 +392,8 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Form Create / Edit Pattern (Admin/Dev Only) */}
-          {isDevOrAdmin && (
+          {/* Form Create / Edit Pattern (Admin/Dev/Warehouse Admin) */}
+          {canManagePatterns && (
             <form onSubmit={handleSubmitPattern} className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                 <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -580,7 +593,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
           )}
         </div>
 
-        {/* Modal Footer */}
+      {!embedded && (
         <div className="px-5 py-3 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0">
           <button
             type="button"
@@ -590,8 +603,17 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
             Tutup
           </button>
         </div>
+      )}
+    </div>
+  );
 
-      </div>
+  if (embedded) {
+    return innerContent;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      {innerContent}
     </div>
   );
 };

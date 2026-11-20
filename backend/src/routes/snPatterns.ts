@@ -126,9 +126,9 @@ router.get('/', async (_req, res) => {
 
 /**
  * POST /api/sn-patterns
- * Tambah pola SN baru (Khusus Admin / Developer)
+ * Tambah pola SN baru (Developer, Admin, dan Admin Gudang)
  */
-router.post('/', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res) => {
+router.post('/', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const { nama, pola_sederhana, contoh_sn, pola_regex, is_advanced, auto_uppercase, strip_spaces, strip_prefixes } = req.body;
 
@@ -189,9 +189,9 @@ router.post('/', requireAuth, requireRole(['developer', 'admin']), async (req: A
 
 /**
  * PUT /api/sn-patterns/:id
- * Edit pola SN (Khusus Admin / Developer)
+ * Edit pola SN (Developer, Admin, dan Admin Gudang)
  */
-router.put('/:id', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res) => {
+router.put('/:id', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { nama, pola_sederhana, contoh_sn, pola_regex, is_advanced, aktif, auto_uppercase, strip_spaces, strip_prefixes } = req.body;
@@ -242,9 +242,9 @@ router.put('/:id', requireAuth, requireRole(['developer', 'admin']), async (req:
 
 /**
  * DELETE /api/sn-patterns/:id
- * Hapus pola SN (Khusus Admin / Developer)
+ * Hapus pola SN (Developer, Admin, dan Admin Gudang)
  */
-router.delete('/:id', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res) => {
+router.delete('/:id', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     let currentList = await getPatternsFromDb();
