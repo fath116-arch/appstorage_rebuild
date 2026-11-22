@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { executeQuery, runTransaction } from '../db/database';
 import { SettingService } from './settingService';
 import { ActivityLogService } from './activityLogService';
+import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
 
 export interface TrashItem {
   id: string;
@@ -35,7 +36,7 @@ export class TrashService {
     catatan?: string;
   }): Promise<{ trashId: string; aktivitasId: string }> {
     const retensiHari = await SettingService.getInt('RETENSI_SAMPAH_HARI');
-    const purgeSetelah = new Date(Date.now() + retensiHari * 24 * 3600 * 1000);
+    const purgeSetelahSql = toMysqlUtcSeconds(new Date(Date.now() + retensiHari * 24 * 3600 * 1000));
     const trashId = `trash-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
     return await runTransaction(async (conn) => {
@@ -60,7 +61,7 @@ export class TrashService {
       await conn.query(
         `INSERT INTO sampah_hapus (id, jenis_objek, objek_id, snapshot, dihapus_oleh, dihapus_pada, aktivitas_id, purge_setelah, status)
          VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, 'menunggu')`,
-        [trashId, input.jenis_objek, input.objek_id, snapshotJson, input.dihapus_oleh, idAktivitas, purgeSetelah]
+        [trashId, input.jenis_objek, input.objek_id, snapshotJson, input.dihapus_oleh, idAktivitas, purgeSetelahSql]
       );
 
       return { trashId, aktivitasId: idAktivitas };
@@ -82,7 +83,8 @@ export class TrashService {
 
     const now = Date.now();
     return rows.map(r => {
-      const purgeTime = new Date(r.purge_setelah).getTime();
+      const purgeDate = parseToDate(r.purge_setelah);
+      const purgeTime = purgeDate ? purgeDate.getTime() : now;
       const diffMs = purgeTime - now;
       const sisaHari = Math.max(0, Math.ceil(diffMs / (24 * 3600 * 1000)));
       return {

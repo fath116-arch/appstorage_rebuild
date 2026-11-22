@@ -2,10 +2,14 @@
  * Test Suite: MariaDB Strict Authentication & Session Compatibility + Login Diagnostics
  */
 
-import { executeQuery, initDatabase, memoryStore } from '../db/database';
+import fs from 'fs';
+import path from 'path';
+import { PROJECT_ROOT_DIR, executeQuery, initDatabase, memoryStore } from '../db/database';
 import { AuthService, sanitizeClientIp } from '../services/authService';
+import { ConfirmationService } from '../services/confirmationService';
 import { SessionService } from '../services/sessionService';
 import { SystemSetupService } from '../services/systemSetupService';
+import { TrashService } from '../services/trashService';
 import { toMysqlUtcSeconds } from '../utils/timezone';
 
 async function runTests() {
@@ -136,6 +140,51 @@ async function runTests() {
       password: 'abc'
     });
     assert(diagMissing.overallSuccess === false && Boolean(diagMissing.recommendation), 'runLoginDiagnostic reports missing account with clear recommendation');
+
+    // 8. Audit SQL Timestamp: ConfirmationService & TrashService menggunakan format UTC MariaDB yang sah
+    const confirmReq = await ConfirmationService.requestConfirmationToken({
+      userId: testUserId,
+      actionType: 'request_approve',
+      targetId: 'req-audit-1',
+      objectNameTyped: 'approve'
+    });
+    assert(confirmReq.success && Boolean(confirmReq.token), 'ConfirmationService.requestConfirmationToken succeeds with SQL UTC expiry');
+    const consumeRes = await ConfirmationService.consumeConfirmationToken(
+      confirmReq.token,
+      testUserId,
+      'request_approve',
+      'req-audit-1'
+    );
+    assert(consumeRes.valid, 'ConfirmationService.consumeConfirmationToken validates UTC expiry cleanly');
+
+    const trashRes = await TrashService.moveToTrash({
+      jenis_objek: 'item',
+      objek_id: `item-diag-${Date.now()}`,
+      snapshot: { id: 'item-diag', name: 'Sample Modem' },
+      dihapus_oleh: testUserId
+    });
+    const trashList = await TrashService.listTrash();
+    const matchedTrash = trashList.find((t) => t.id === trashRes.trashId);
+    assert(
+      Boolean(matchedTrash && typeof matchedTrash.sisa_hari === 'number' && matchedTrash.sisa_hari >= 1),
+      'TrashService.moveToTrash & listTrash compute retention cleanly using SQL UTC expiry'
+    );
+
+    // 9. Static invariant: Pastikan file layanan DB inti tidak lagi mengirim .toISOString() ke kueri SQL
+    const auditedServices = [
+      'backend/src/services/authService.ts',
+      'backend/src/services/sessionService.ts',
+      'backend/src/services/confirmationService.ts',
+      'backend/src/services/trashService.ts',
+      'backend/src/services/dataConsolidationService.ts'
+    ];
+    for (const relPath of auditedServices) {
+      const code = fs.readFileSync(path.resolve(PROJECT_ROOT_DIR, relPath), 'utf-8');
+      assert(
+        !/\bexpiresAt\.toISOString\(|\bpurgeSetelah\.toISOString\(|\bkedaluwarsaMutlak\.toISOString\(/i.test(code),
+        `${relPath} avoids .toISOString() in SQL TIMESTAMP parameters`
+      );
+    }
   } finally {
     await executeQuery('DELETE FROM users WHERE id = ?', [testUserId]).catch(() => {});
   }

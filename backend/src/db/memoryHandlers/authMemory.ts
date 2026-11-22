@@ -458,7 +458,7 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       dihapus_oleh: params[4],
       dihapus_pada: new Date().toISOString(),
       aktivitas_id: params[5],
-      purge_setelah: params[6] instanceof Date ? params[6].toISOString() : String(params[6]),
+      purge_setelah: normalizeDbDateToIso(params[6]) || String(params[6]),
       status: 'menunggu'
     };
     memoryStore.sampah_hapus.set(s.id, s);
@@ -494,7 +494,7 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       action_type: params[3],
       target_id: params[4],
       tier: params[5],
-      expires_at: params[6] instanceof Date ? params[6].toISOString() : String(params[6]),
+      expires_at: normalizeDbDateToIso(params[6]) || String(params[6]),
       used_at: null,
       created_at: new Date().toISOString()
     };

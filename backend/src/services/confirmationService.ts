@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { executeQuery, runTransaction } from '../db/database';
 import { SettingService } from './settingService';
 import { AuthService } from './authService';
+import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
 
 export interface ConfirmationRequestInput {
   userId: string;
@@ -111,12 +112,12 @@ export class ConfirmationService {
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const tokenId = `cf-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     const ttlSeconds = await SettingService.getInt('CONFIRMATION_TOKEN_TTL_DETIK');
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const expiresAtSql = toMysqlUtcSeconds(new Date(Date.now() + ttlSeconds * 1000));
 
     await executeQuery(
       `INSERT INTO token_konfirmasi (id, token_hash, user_id, action_type, target_id, tier, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tokenId, tokenHash, input.userId, input.actionType, input.targetId, tier, expiresAt]
+      [tokenId, tokenHash, input.userId, input.actionType, input.targetId, tier, expiresAtSql]
     );
 
     return {
@@ -171,7 +172,8 @@ export class ConfirmationService {
         return { valid: false, message: 'Token konfirmasi ini sudah pernah digunakan (anti-replay).' };
       }
 
-      if (new Date(tokenRecord.expires_at).getTime() < Date.now()) {
+      const expiresDate = parseToDate(tokenRecord.expires_at);
+      if (!expiresDate || expiresDate.getTime() < Date.now()) {
         return { valid: false, message: 'Token konfirmasi sudah kedaluwarsa (batas waktu 120 detik).' };
       }
 

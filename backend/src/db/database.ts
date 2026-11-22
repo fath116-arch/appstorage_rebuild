@@ -214,7 +214,7 @@ export async function initDatabase(): Promise<{ isMariaDb: boolean }> {
     conn.release();
     pool = testPool;
     isMariaDbActive = true;
-    console.log(`[FieldOps Database] Terhubung ke MariaDB (UTC +00:00) di ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
+    console.log(`[FieldOps Database] Terhubung ke MariaDB (UTC +00:00, Strict TIMESTAMP SQL Compat v1.2.6) di ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
 
     // Jalankan migrasi file skema berversi
     await runMigrations(pool);

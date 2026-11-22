@@ -9,7 +9,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { executeQuery, memoryStore } from '../db/database';
-import { toMysqlUtcDatetime } from '../utils/timezone';
+import { toMysqlUtcDatetime, toMysqlUtcSeconds } from '../utils/timezone';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -172,7 +172,9 @@ export class DataConsolidationService {
           const txId = `tx-init-${tipeId}`;
           const existingCanonical = await executeQuery<any>('SELECT id FROM transaksi WHERE id = ?', [txId]);
           if (!existingCanonical || existingCanonical.length === 0) {
-            const nowUtc = toMysqlUtcDatetime(new Date());
+            const nowDate = new Date();
+            const nowUtc = toMysqlUtcDatetime(nowDate);
+            const nowWaktuSql = toMysqlUtcSeconds(nowDate);
             const aktId = `AKT-INIT-${String(tipeId).padStart(4, '0')}`;
             await executeQuery(
               `INSERT INTO transaksi (
@@ -193,7 +195,7 @@ export class DataConsolidationService {
                 'Sistem Inventori',
                 'BOX-A-01',
                 `Saldo awal katalog (${initialStock} ${unit})`,
-                nowUtc,
+                nowWaktuSql,
                 nowUtc,
                 nowUtc,
                 'SALDO_AWAL',
@@ -226,7 +228,9 @@ export class DataConsolidationService {
 
         const tipeId = ltx.tipe_id || skuToTipeMap[String(ltx.sku || '').toUpperCase()] || skuToTipeMap[ltx.item_id] || null;
         const isOut = ltx.type === 'OUT' || ltx.tipe_mutasi === 'KELUAR';
-        const ts = toMysqlUtcDatetime(ltx.created_at || new Date());
+        const tsDate = ltx.created_at || new Date();
+        const ts = toMysqlUtcDatetime(tsDate);
+        const tsWaktuSql = toMysqlUtcSeconds(tsDate);
         const aktId = `AKT-HIS-${crypto.createHash('md5').update(String(ltx.id)).digest('hex').slice(0, 8).toUpperCase()}`;
 
         await executeQuery(
@@ -249,7 +253,7 @@ export class DataConsolidationService {
             isOut ? (ltx.recipient_destination || 'Gudang') : null,
             !isOut ? (ltx.recipient_destination || 'BOX-A-01') : null,
             ltx.notes || `${ltx.reference_type || 'MUTASI'} ${ltx.reference_number || ''}`.trim(),
-            ts,
+            tsWaktuSql,
             ts,
             ts,
             ltx.reference_type || 'MANUAL',
