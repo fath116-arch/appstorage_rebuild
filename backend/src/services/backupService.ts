@@ -5,10 +5,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { executeQuery, runTransaction } from '../db/database';
+import { PROJECT_ROOT_DIR, executeQuery, runTransaction } from '../db/database';
 
 export class BackupService {
-  private static backupsDir = path.resolve(process.cwd(), 'backups');
+  private static backupsDir = path.resolve(PROJECT_ROOT_DIR, 'backups');
 
   static ensureBackupDir(): string {
     if (!fs.existsSync(this.backupsDir)) {

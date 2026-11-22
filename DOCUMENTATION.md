@@ -27,7 +27,7 @@ Sebelum menjalankan atau men-deploy aplikasi secara lokal maupun on-premises, pa
 
 ### B. Konfigurasi Variabel Lingkungan (`.env`)
 
-Salin file `.env.example` di root repositori menjadi `.env`:
+Salin file `.env.example` di **root repositori** menjadi `.env` *(berkas utama yang dibaca oleh Docker Compose, backend, dan antarmuka web Setting; jika terdapat `backend/.env`, sistem membacanya sebagai fallback untuk variabel yang kosong di root)*:
 ```bash
 cp .env.example .env
 ```

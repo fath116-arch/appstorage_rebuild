@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { PROJECT_ROOT_DIR } from '../db/database';
 
 interface TestResult {
   name: string;
@@ -26,7 +27,7 @@ async function runTestSuite() {
   console.log(' RUNNING TESTS: FieldOps v1.2.5 Paket 7 (Branding & Logo Baru)');
   console.log('================================================================\n');
 
-  const rootDir = process.cwd();
+  const rootDir = PROJECT_ROOT_DIR;
 
   // 1. Keberadaan Aset Statis Logo Baru
   await test('File aset logo kubus baru tersedia lengkap di frontend/public dan public', () => {

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS request (
     id VARCHAR(36) PRIMARY KEY,
     pemohon_id VARCHAR(36) NOT NULL,
     penyetuju_id VARCHAR(36) NULL,
-    tipe_id INT NOT NULL,
+    tipe_id INT UNSIGNED NOT NULL,
     box_id VARCHAR(36) NULL,
     kode_id VARCHAR(100) NULL,
     jumlah INT NOT NULL DEFAULT 1,
@@ -22,6 +22,6 @@ CREATE TABLE IF NOT EXISTS request (
     CONSTRAINT fk_request_box FOREIGN KEY (box_id) REFERENCES box(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX idx_request_pemohon ON request(pemohon_id);
-CREATE INDEX idx_request_status ON request(status);
-CREATE INDEX idx_request_tipe ON request(tipe_id);
+CREATE INDEX IF NOT EXISTS idx_request_pemohon ON request(pemohon_id);
+CREATE INDEX IF NOT EXISTS idx_request_status ON request(status);
+CREATE INDEX IF NOT EXISTS idx_request_tipe ON request(tipe_id);

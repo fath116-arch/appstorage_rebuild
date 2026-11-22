@@ -31,6 +31,8 @@ async function main() {
   }
 
   printBanner('PEMERIKSAAN STATUS KONEKSI SISTEM', `Status Keseluruhan: ${report.overallStatus.toUpperCase()}`);
+  const envMeta = SystemSetupService.getMaskedSettings();
+  console.log(`Sumber .env : ${envMeta.envSourceSummary}\n`);
 
   for (const item of report.checks) {
     const icon =

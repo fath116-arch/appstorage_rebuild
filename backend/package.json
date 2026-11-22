@@ -1,13 +1,20 @@
 {
   "name": "fieldops-backend",
-  "version": "1.1.0",
+  "version": "1.2.6",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "NODE_ENV=production tsx src/server.ts",
     "setup:admin": "tsx src/scripts/setupAdmin.ts",
+    "setup:db": "tsx src/scripts/setupDatabase.ts",
+    "setup:tunnel": "tsx src/scripts/setupTunnel.ts",
+    "setup:wa": "tsx src/scripts/setupWhatsapp.ts",
+    "setup:check": "tsx src/scripts/setupCheck.ts",
+    "setup:help": "tsx src/scripts/setupHelp.ts",
+    "setup:list": "tsx src/scripts/setupHelp.ts",
+    "sampah": "tsx src/scripts/sampahCli.ts",
     "test:backup": "tsx src/scripts/testBackupRestore.ts",
     "migrate": "tsx src/db/migrate.ts"
   },

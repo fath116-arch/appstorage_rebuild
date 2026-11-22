@@ -7,9 +7,7 @@ process.env.TZ = 'UTC';
 
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-import { initDatabase } from './db/database';
+import { PROJECT_ROOT_DIR, initDatabase, loadLayeredEnv } from './db/database';
 import { authenticate, requireAuth, requireRole } from './middleware/authMiddleware';
 import authRoutes from './routes/auth';
 import activitiesRoutes from './routes/activities';
@@ -25,10 +23,7 @@ import snPatternsRoutes from './routes/snPatterns';
 import setupRoutes from './routes/setup';
 import { BackupService } from './services/backupService';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '../../');
-dotenv.config({ path: path.resolve(rootDir, '.env'), quiet: true });
+loadLayeredEnv();
 
 async function startServer() {
   const app = express();
@@ -96,7 +91,7 @@ async function startServer() {
     res.status(404).json({ success: false, message: 'Endpoint API tidak ditemukan.' });
   });
 
-  const frontendDir = path.resolve(rootDir, 'frontend');
+  const frontendDir = path.resolve(PROJECT_ROOT_DIR, 'frontend');
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (isProduction) {

@@ -3,8 +3,7 @@
  */
 
 import readline from 'readline';
-import dotenv from 'dotenv';
-import { SystemSetupService } from '../services/systemSetupService';
+import { loadLayeredEnv } from '../db/database';
 
 export interface ParsedCliArgs {
   flags: Record<string, string | boolean>;
@@ -12,7 +11,7 @@ export interface ParsedCliArgs {
 }
 
 export function loadLocalEnv(): void {
-  dotenv.config({ path: SystemSetupService.getEnvFilePath(), quiet: true });
+  loadLayeredEnv();
 }
 
 export function parseCliArgs(argv: string[] = process.argv.slice(2)): ParsedCliArgs {

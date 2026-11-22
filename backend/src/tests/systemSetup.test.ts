@@ -4,7 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { initDatabase } from '../db/database';
+import { PROJECT_ROOT_DIR, initDatabase } from '../db/database';
 import {
   SystemSetupService,
   inspectCloudflareTunnelToken,
@@ -128,9 +128,57 @@ async function runTests() {
   assert(isWarehouseManager('warehouse_admin'), 'Warehouse Admin passes isWarehouseManager (Setting selective + SN Patterns)');
   assert(!isWarehouseManager('technician'), 'Technician is blocked from isWarehouseManager');
 
-  // 7. Documentation existence check
-  const skripDocPath = path.resolve(process.cwd(), 'docs/SKRIP_CLI.md');
+  // 7. Documentation existence check (resolved via PROJECT_ROOT_DIR so works from root & backend/)
+  const skripDocPath = path.resolve(PROJECT_ROOT_DIR, 'docs/SKRIP_CLI.md');
   assert(fs.existsSync(skripDocPath), 'docs/SKRIP_CLI.md documentation file exists');
+
+  // 8. Migration 07 foreign key type match (tipe.id INT UNSIGNED)
+  const mig07Path = path.resolve(PROJECT_ROOT_DIR, 'backend/src/db/migrations/07_v2_request_schema.sql');
+  const mig07Sql = fs.readFileSync(mig07Path, 'utf-8');
+  assert(
+    /tipe_id\s+INT\s+UNSIGNED\s+NOT\s+NULL/i.test(mig07Sql),
+    '07_v2_request_schema.sql declares request.tipe_id as INT UNSIGNED NOT NULL matching tipe(id)'
+  );
+  assert(
+    /CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/i.test(mig07Sql),
+    '07_v2_request_schema.sql uses idempotent CREATE INDEX IF NOT EXISTS'
+  );
+
+  // 9. Backend package.json synced with root CLI scripts
+  const backendPkgPath = path.resolve(PROJECT_ROOT_DIR, 'backend/package.json');
+  const backendPkg = JSON.parse(fs.readFileSync(backendPkgPath, 'utf-8')) as {
+    scripts?: Record<string, string>;
+  };
+  for (const key of ['setup:admin', 'setup:db', 'setup:tunnel', 'setup:wa', 'setup:check', 'setup:help', 'setup:list', 'sampah', 'test:backup', 'migrate']) {
+    assert(Boolean(backendPkg.scripts?.[key]), `backend/package.json includes "${key}" script`);
+  }
+
+  // 10. Env source summary & root primary + backend/.env fallback check (safely restored if absent)
+  assert(
+    typeof maskedSettings.envSourceSummary === 'string' && maskedSettings.envSourceSummary.length > 0,
+    'Masked settings reports envSourceSummary clearly'
+  );
+  const backendEnvPath = SystemSetupService.getBackendFallbackEnvPath();
+  const backendEnvExisted = fs.existsSync(backendEnvPath);
+  const prevBackendEnv = backendEnvExisted ? fs.readFileSync(backendEnvPath, 'utf-8') : null;
+  try {
+    fs.writeFileSync(backendEnvPath, 'CLOUDFLARE_PUBLIC_URL=https://fallback-backend.example.com\n', 'utf-8');
+    const settingsWithFallback = SystemSetupService.getMaskedSettings();
+    assert(
+      settingsWithFallback.backendFallbackEnvExists === true,
+      'Detects backend/.env as read fallback when present'
+    );
+    assert(
+      settingsWithFallback.tunnel.publicUrl === 'https://fallback-backend.example.com',
+      'Reads key from backend/.env fallback when root .env lacks it'
+    );
+  } finally {
+    if (!backendEnvExisted && fs.existsSync(backendEnvPath)) {
+      fs.unlinkSync(backendEnvPath);
+    } else if (backendEnvExisted && prevBackendEnv !== null) {
+      fs.writeFileSync(backendEnvPath, prevBackendEnv, 'utf-8');
+    }
+  }
 
   console.log(`\nHasil: ${passed} PASS, ${failed} FAIL`);
   if (failed > 0) {

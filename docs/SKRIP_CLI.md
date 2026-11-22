@@ -5,9 +5,13 @@
 
 Dokumen ini menjadi referensi resmi seluruh perintah terminal yang tersedia di **FieldOps IT**, baik untuk instalasi awal server, konfigurasi integrasi (MariaDB, Cloudflare Tunnel, WhatsApp Fonnte), pemeriksaan kesehatan sistem, pemulihan Kotak Sampah 14 hari, maupun kompilasi & runtime aplikasi.
 
+> **Lokasi Menjalankan Perintah & Berkas `.env`**:
+> - **Bisa dijalankan dari Root maupun `backend/`**: Seluruh skrip `setup:*`, `sampah`, dan `test:backup` kini terdaftar di `package.json` **root** maupun `backend/package.json`.
+> - **Berkas `.env` yang Dipakai**: Berkas **`.env` utama selalu berada di root proyek** (`/.env`), sekaligus menjadi target penyimpanan otomatis saat menjalankan `setup:*` atau menyimpan dari tab **Setting**. Jika Anda sudah memiliki `backend/.env`, sistem membacanya otomatis sebagai **fallback** untuk variabel yang belum diisi di `.env` root (tanpa menimpa nilai root).
+
 ---
 
-## 📋 1. Ringkasan Seluruh Skrip di `package.json`
+## 📋 1. Ringkasan Seluruh Skrip di `package.json` (Root & `backend/`)
 
 ### A. Suite Skrip Setup & Diagnostik (`setup:*`)
 
@@ -196,7 +200,7 @@ docker compose exec backend npm run setup:check
 docker compose exec backend npm run sampah -- --list
 ```
 
-> **Catatan**: Jika ingin perubahan file `.env` ikut terbaca dari host setelah menjalankan `setup:*` di Docker, pastikan file `.env` host tetap sinkron atau jalankan `docker compose up -d --force-recreate` bila mengubah token `cloudflared` maupun kredensial MariaDB.
+> **Catatan**: Jika ingin perubahan file `.env` ikut terbaca dari host setelah menjalankan `setup:*` di Docker, pastikan file `.env` host di **root proyek** tetap sinkron atau jalankan `docker compose up -d --force-recreate` bila mengubah token `cloudflared` maupun kredensial MariaDB.
 
 ---
 

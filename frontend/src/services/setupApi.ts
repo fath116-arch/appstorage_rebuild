@@ -21,7 +21,9 @@ export interface TunnelTokenInspection {
 
 export interface SystemMaskedSettings {
   envFileExists: boolean;
+  backendFallbackEnvExists: boolean;
   envPathRelative: string;
+  envSourceSummary: string;
   app: {
     port: string;
     nodeEnv: string;

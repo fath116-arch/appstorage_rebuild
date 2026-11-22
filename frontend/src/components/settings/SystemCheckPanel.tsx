@@ -85,6 +85,11 @@ export const SystemCheckPanel: React.FC<SystemCheckPanelProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Menguji berkas lingkungan .env, MariaDB live ping, akun Admin aktif, Gateway WhatsApp, dan Cloudflare Tunnel.
             </p>
+            {settings?.envSourceSummary && (
+              <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300 mt-1">
+                Sumber .env: {settings.envSourceSummary}
+              </p>
+            )}
           </div>
 
           <button

@@ -67,3 +67,6 @@ ALTER TABLE request
   ADD COLUMN IF NOT EXISTS allocated_item_ids TEXT NULL,
   ADD COLUMN IF NOT EXISTS transaction_out_id VARCHAR(64) NULL,
   ADD COLUMN IF NOT EXISTS transaction_in_id VARCHAR(64) NULL;
+
+CREATE INDEX IF NOT EXISTS idx_request_actor ON request(actor_id);
+CREATE INDEX IF NOT EXISTS idx_request_tx_out ON request(transaction_out_id);

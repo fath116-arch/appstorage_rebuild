@@ -73,7 +73,8 @@ export class DataConsolidationService {
         legacyItems = await executeQuery<any>('SELECT * FROM items WHERE is_deleted = FALSE');
         legacyTxs = await executeQuery<any>('SELECT * FROM transactions ORDER BY created_at ASC');
         if (legacyItems.length > 0 || legacyTxs.length > 0) {
-          const backupsDir = path.resolve(process.cwd(), 'backups');
+          const { PROJECT_ROOT_DIR } = await import('../db/database');
+          const backupsDir = path.resolve(PROJECT_ROOT_DIR, 'backups');
           if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
           const backupPath = path.join(backupsDir, `pre_unification_snapshot_${Date.now()}.json`);
           fs.writeFileSync(

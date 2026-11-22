@@ -21,8 +21,17 @@ import { normalizeDbDateToIso } from '../utils/timezone';
 const __dbFilename = fileURLToPath(import.meta.url);
 const __dbDirname = path.dirname(__dbFilename);
 export const PROJECT_ROOT_DIR = path.resolve(__dbDirname, '../../../');
+export const ROOT_ENV_FILE_PATH = path.resolve(PROJECT_ROOT_DIR, '.env');
+export const BACKEND_ENV_FILE_PATH = path.resolve(PROJECT_ROOT_DIR, 'backend/.env');
 
-dotenv.config({ path: path.resolve(PROJECT_ROOT_DIR, '.env'), quiet: true });
+export function loadLayeredEnv(): void {
+  // 1. Utama: .env di root proyek
+  dotenv.config({ path: ROOT_ENV_FILE_PATH, quiet: true });
+  // 2. Fallback baca: backend/.env (hanya mengisi variabel yang belum ada di root/process.env)
+  dotenv.config({ path: BACKEND_ENV_FILE_PATH, quiet: true });
+}
+
+loadLayeredEnv();
 
 export interface DbConfig {
   host: string;

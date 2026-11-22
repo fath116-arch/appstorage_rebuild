@@ -12,7 +12,9 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import {
+  BACKEND_ENV_FILE_PATH,
   PROJECT_ROOT_DIR,
+  ROOT_ENV_FILE_PATH,
   executeQuery,
   getDbRuntimeStatus,
   reloadDatabasePool,
@@ -38,7 +40,9 @@ export interface TunnelTokenInspection {
 
 export interface SystemMaskedSettings {
   envFileExists: boolean;
+  backendFallbackEnvExists: boolean;
   envPathRelative: string;
+  envSourceSummary: string;
   app: {
     port: string;
     nodeEnv: string;
@@ -129,7 +133,8 @@ export interface WhatsappEnvSetupInput {
   runTest?: boolean;
 }
 
-const ENV_FILE_PATH = path.resolve(PROJECT_ROOT_DIR, '.env');
+const ENV_FILE_PATH = ROOT_ENV_FILE_PATH;
+const ENV_FALLBACK_PATH = BACKEND_ENV_FILE_PATH;
 const ENV_EXAMPLE_PATH = path.resolve(PROJECT_ROOT_DIR, '.env.example');
 
 function sanitizeEnvScalar(raw: string): string {
@@ -163,25 +168,46 @@ export function maskSecret(value?: string | null): MaskedSecretInfo {
   };
 }
 
-function readEnvFileMap(): Record<string, string> {
-  if (!fs.existsSync(ENV_FILE_PATH)) {
+function parseEnvFile(filePath: string): Record<string, string> {
+  if (!fs.existsSync(filePath)) {
     return {};
   }
   try {
-    const content = fs.readFileSync(ENV_FILE_PATH, 'utf-8');
+    const content = fs.readFileSync(filePath, 'utf-8');
     return dotenv.parse(content);
   } catch {
     return {};
   }
 }
 
-function getEffectiveEnvValue(key: string, fileMap: Record<string, string>, fallback = ''): string {
-  if (fileMap[key] !== undefined && fileMap[key] !== '') {
-    return fileMap[key];
+export interface EffectiveEnvMaps {
+  rootMap: Record<string, string>;
+  backendMap: Record<string, string>;
+  rootExists: boolean;
+  backendExists: boolean;
+}
+
+function readEnvFileMaps(): EffectiveEnvMaps {
+  const rootExists = fs.existsSync(ENV_FILE_PATH);
+  const backendExists = fs.existsSync(ENV_FALLBACK_PATH);
+  return {
+    rootMap: parseEnvFile(ENV_FILE_PATH),
+    backendMap: parseEnvFile(ENV_FALLBACK_PATH),
+    rootExists,
+    backendExists
+  };
+}
+
+function getEffectiveEnvValue(key: string, maps: EffectiveEnvMaps, fallback = ''): string {
+  if (maps.rootMap[key] !== undefined && maps.rootMap[key] !== '') {
+    return maps.rootMap[key];
   }
   const proc = process.env[key];
   if (proc !== undefined && proc !== '') {
     return proc;
+  }
+  if (maps.backendMap[key] !== undefined && maps.backendMap[key] !== '') {
+    return maps.backendMap[key];
   }
   return fallback;
 }
@@ -288,6 +314,10 @@ export class SystemSetupService {
     return ENV_FILE_PATH;
   }
 
+  static getBackendFallbackEnvPath(): string {
+    return ENV_FALLBACK_PATH;
+  }
+
   static ensureEnvFileExists(): boolean {
     if (fs.existsSync(ENV_FILE_PATH)) {
       return true;
@@ -344,33 +374,43 @@ export class SystemSetupService {
   }
 
   static getMaskedSettings(): SystemMaskedSettings {
-    const fileMap = readEnvFileMap();
+    const maps = readEnvFileMaps();
     const dbRuntime = getDbRuntimeStatus();
-    const secretVal = getEffectiveEnvValue('APP_SECRET_KEY', fileMap, '');
-    const dbPass = getEffectiveEnvValue('DB_PASSWORD', fileMap, getEffectiveEnvValue('MARIADB_PASSWORD', fileMap, ''));
-    const dbRootPass = getEffectiveEnvValue('DB_ROOT_PASSWORD', fileMap, '');
-    const tunnelToken = getEffectiveEnvValue('CLOUDFLARE_TUNNEL_TOKEN', fileMap, '');
-    const publicUrl = getEffectiveEnvValue('CLOUDFLARE_PUBLIC_URL', fileMap, '');
-    const waToken = getEffectiveEnvValue('WHATSAPP_API_TOKEN', fileMap, '');
-    const waUrl = getEffectiveEnvValue('WHATSAPP_API_URL', fileMap, 'https://api.fonnte.com/send');
-    const waPhones = getEffectiveEnvValue('WHATSAPP_TARGET_PHONES', fileMap, '');
-    const waAuto = getEffectiveEnvValue('WHATSAPP_AUTO_ALERT', fileMap, 'true').toLowerCase() !== 'false';
+    const secretVal = getEffectiveEnvValue('APP_SECRET_KEY', maps, '');
+    const dbPass = getEffectiveEnvValue('DB_PASSWORD', maps, getEffectiveEnvValue('MARIADB_PASSWORD', maps, ''));
+    const dbRootPass = getEffectiveEnvValue('DB_ROOT_PASSWORD', maps, '');
+    const tunnelToken = getEffectiveEnvValue('CLOUDFLARE_TUNNEL_TOKEN', maps, '');
+    const publicUrl = getEffectiveEnvValue('CLOUDFLARE_PUBLIC_URL', maps, '');
+    const waToken = getEffectiveEnvValue('WHATSAPP_API_TOKEN', maps, '');
+    const waUrl = getEffectiveEnvValue('WHATSAPP_API_URL', maps, 'https://api.fonnte.com/send');
+    const waPhones = getEffectiveEnvValue('WHATSAPP_TARGET_PHONES', maps, '');
+    const waAuto = getEffectiveEnvValue('WHATSAPP_AUTO_ALERT', maps, 'true').toLowerCase() !== 'false';
+
+    const envSourceSummary = maps.rootExists && maps.backendExists
+      ? 'Utama: /.env (root) · Fallback baca aktif: backend/.env'
+      : maps.rootExists
+      ? 'Utama: /.env (root)'
+      : maps.backendExists
+      ? 'Fallback baca: backend/.env (/.env root belum dibuat)'
+      : 'Belum ada berkas .env di root maupun backend/';
 
     return {
-      envFileExists: fs.existsSync(ENV_FILE_PATH),
+      envFileExists: maps.rootExists,
+      backendFallbackEnvExists: maps.backendExists,
       envPathRelative: '.env',
+      envSourceSummary,
       app: {
-        port: getEffectiveEnvValue('PORT', fileMap, '3000'),
-        nodeEnv: getEffectiveEnvValue('NODE_ENV', fileMap, 'development'),
-        appTitle: getEffectiveEnvValue('VITE_APP_TITLE', fileMap, 'FieldOps IT Inventory'),
+        port: getEffectiveEnvValue('PORT', maps, '3000'),
+        nodeEnv: getEffectiveEnvValue('NODE_ENV', maps, 'development'),
+        appTitle: getEffectiveEnvValue('VITE_APP_TITLE', maps, 'FieldOps IT Inventory'),
         secretKey: maskSecret(secretVal),
         secretKeyStrong: secretVal.length >= 16
       },
       database: {
-        host: getEffectiveEnvValue('DB_HOST', fileMap, dbRuntime.host),
-        port: parseInt(getEffectiveEnvValue('DB_PORT', fileMap, String(dbRuntime.port)), 10) || 3306,
-        name: getEffectiveEnvValue('DB_NAME', fileMap, dbRuntime.database),
-        user: getEffectiveEnvValue('DB_USER', fileMap, dbRuntime.user),
+        host: getEffectiveEnvValue('DB_HOST', maps, dbRuntime.host),
+        port: parseInt(getEffectiveEnvValue('DB_PORT', maps, String(dbRuntime.port)), 10) || 3306,
+        name: getEffectiveEnvValue('DB_NAME', maps, dbRuntime.database),
+        user: getEffectiveEnvValue('DB_USER', maps, dbRuntime.user),
         password: maskSecret(dbPass),
         rootPassword: maskSecret(dbRootPass),
         runtimeActiveMariaDb: dbRuntime.isMariaDbActive
@@ -394,11 +434,11 @@ export class SystemSetupService {
     testResult: DbConnectionTestResult;
     runtimeActiveMariaDb: boolean;
   }> {
-    const fileMap = readEnvFileMap();
-    const host = sanitizeEnvScalar(input.host ?? getEffectiveEnvValue('DB_HOST', fileMap, 'localhost')) || 'localhost';
-    const portNum = Math.max(1, parseInt(String(input.port ?? getEffectiveEnvValue('DB_PORT', fileMap, '3306')), 10) || 3306);
-    const database = sanitizeEnvScalar(input.name ?? getEffectiveEnvValue('DB_NAME', fileMap, 'fieldops_inventory')) || 'fieldops_inventory';
-    const user = sanitizeEnvScalar(input.user ?? getEffectiveEnvValue('DB_USER', fileMap, 'fieldops_user')) || 'fieldops_user';
+    const maps = readEnvFileMaps();
+    const host = sanitizeEnvScalar(input.host ?? getEffectiveEnvValue('DB_HOST', maps, 'localhost')) || 'localhost';
+    const portNum = Math.max(1, parseInt(String(input.port ?? getEffectiveEnvValue('DB_PORT', maps, '3306')), 10) || 3306);
+    const database = sanitizeEnvScalar(input.name ?? getEffectiveEnvValue('DB_NAME', maps, 'fieldops_inventory')) || 'fieldops_inventory';
+    const user = sanitizeEnvScalar(input.user ?? getEffectiveEnvValue('DB_USER', maps, 'fieldops_user')) || 'fieldops_user';
 
     const updates: Record<string, string> = {
       DB_HOST: host,
@@ -407,7 +447,7 @@ export class SystemSetupService {
       DB_USER: user
     };
 
-    const existingPassword = getEffectiveEnvValue('DB_PASSWORD', fileMap, 'fieldops_secret');
+    const existingPassword = getEffectiveEnvValue('DB_PASSWORD', maps, 'fieldops_secret');
     const effectivePassword = input.password && input.password.trim() !== ''
       ? sanitizeEnvScalar(input.password)
       : existingPassword;
@@ -453,7 +493,6 @@ export class SystemSetupService {
     publicUrlProbe?: SystemCheckReport['publicUrlProbe'];
     dockerHint: string;
   }> {
-    const fileMap = readEnvFileMap();
     const updates: Record<string, string> = {};
 
     if (input.clearToken) {
@@ -479,9 +518,9 @@ export class SystemSetupService {
       this.upsertEnvVars(updates);
     }
 
-    const updatedMap = readEnvFileMap();
-    const effectiveToken = getEffectiveEnvValue('CLOUDFLARE_TUNNEL_TOKEN', updatedMap, '');
-    const effectivePublicUrl = getEffectiveEnvValue('CLOUDFLARE_PUBLIC_URL', updatedMap, '');
+    const updatedMaps = readEnvFileMaps();
+    const effectiveToken = getEffectiveEnvValue('CLOUDFLARE_TUNNEL_TOKEN', updatedMaps, '');
+    const effectivePublicUrl = getEffectiveEnvValue('CLOUDFLARE_PUBLIC_URL', updatedMaps, '');
     const inspection = inspectCloudflareTunnelToken(effectiveToken);
 
     let publicUrlProbe: SystemCheckReport['publicUrlProbe'];
@@ -505,12 +544,12 @@ export class SystemSetupService {
     config: Awaited<ReturnType<typeof WhatsappAlertService.getConfig>>;
     testResult?: { success: boolean; message: string };
   }> {
-    const fileMap = readEnvFileMap();
+    const maps = readEnvFileMaps();
     const envUpdates: Record<string, string> = {};
 
     const cleanUrl = input.apiUrl !== undefined
       ? sanitizeEnvScalar(input.apiUrl)
-      : getEffectiveEnvValue('WHATSAPP_API_URL', fileMap, 'https://api.fonnte.com/send');
+      : getEffectiveEnvValue('WHATSAPP_API_URL', maps, 'https://api.fonnte.com/send');
 
     if (cleanUrl) {
       envUpdates.WHATSAPP_API_URL = cleanUrl;
@@ -566,18 +605,19 @@ export class SystemSetupService {
   }
 
   static async runSystemCheck(options?: { publicUrl?: string }): Promise<SystemCheckReport> {
-    const fileMap = readEnvFileMap();
-    const envExists = fs.existsSync(ENV_FILE_PATH);
-    const secretKey = getEffectiveEnvValue('APP_SECRET_KEY', fileMap, '');
+    const maps = readEnvFileMaps();
+    const envExists = maps.rootExists;
+    const backendEnvExists = maps.backendExists;
+    const secretKey = getEffectiveEnvValue('APP_SECRET_KEY', maps, '');
     const dbRuntime = getDbRuntimeStatus();
 
     const [databaseProbe, waConfig] = await Promise.all([
       testMariaDbConnection({
-        host: getEffectiveEnvValue('DB_HOST', fileMap, dbRuntime.host),
-        port: parseInt(getEffectiveEnvValue('DB_PORT', fileMap, String(dbRuntime.port)), 10) || 3306,
-        database: getEffectiveEnvValue('DB_NAME', fileMap, dbRuntime.database),
-        user: getEffectiveEnvValue('DB_USER', fileMap, dbRuntime.user),
-        password: getEffectiveEnvValue('DB_PASSWORD', fileMap, getEffectiveEnvValue('MARIADB_PASSWORD', fileMap, 'fieldops_secret'))
+        host: getEffectiveEnvValue('DB_HOST', maps, dbRuntime.host),
+        port: parseInt(getEffectiveEnvValue('DB_PORT', maps, String(dbRuntime.port)), 10) || 3306,
+        database: getEffectiveEnvValue('DB_NAME', maps, dbRuntime.database),
+        user: getEffectiveEnvValue('DB_USER', maps, dbRuntime.user),
+        password: getEffectiveEnvValue('DB_PASSWORD', maps, getEffectiveEnvValue('MARIADB_PASSWORD', maps, 'fieldops_secret'))
       }),
       WhatsappAlertService.getConfig()
     ]);
@@ -585,14 +625,24 @@ export class SystemSetupService {
     const checks: SystemDiagnosticItem[] = [];
 
     // 1. Environment & Secret Key
-    if (!envExists) {
+    if (!envExists && !backendEnvExists) {
       checks.push({
         key: 'env',
         label: 'Konfigurasi .env & Secret Key',
         status: 'unconfigured',
-        summary: 'Berkas .env belum ditemukan',
-        details: 'Aplikasi berjalan dengan nilai default/fallback. Buat .env melalui CLI setup atau simpan pengaturan dari tab Setting.',
-        hint: 'Salin .env.example menjadi .env atau jalankan setup:db / setup:tunnel.',
+        summary: 'Berkas .env belum ditemukan di root maupun backend/',
+        details: 'Aplikasi berjalan dengan nilai default/fallback. Buat .env di root melalui CLI setup atau simpan pengaturan dari tab Setting.',
+        hint: 'Salin .env.example menjadi .env di root atau jalankan setup:db / setup:tunnel.',
+        cliCommand: 'npm run setup:db'
+      });
+    } else if (!envExists && backendEnvExists) {
+      checks.push({
+        key: 'env',
+        label: 'Konfigurasi .env & Secret Key',
+        status: 'warning',
+        summary: 'Menggunakan fallback backend/.env (.env di root belum dibuat)',
+        details: 'File backend/.env terbaca sebagai fallback, namun sumber utama Docker & setup berada di .env root.',
+        hint: 'Simpan pengaturan lewat Setting atau jalankan setup:db agar .env utama tercipta di root proyek.',
         cliCommand: 'npm run setup:db'
       });
     } else if (secretKey.length < 16) {
@@ -601,8 +651,8 @@ export class SystemSetupService {
         label: 'Konfigurasi .env & Secret Key',
         status: 'warning',
         summary: 'APP_SECRET_KEY lemah atau belum diisi',
-        details: 'Berkas .env ditemukan, namun APP_SECRET_KEY kosong atau kurang dari 16 karakter.',
-        hint: 'Isi APP_SECRET_KEY di berkas .env dengan string acak panjang untuk keamanan sesi produksi.',
+        details: `Berkas .env root ditemukan${backendEnvExists ? ' (disertai fallback backend/.env)' : ''}, namun APP_SECRET_KEY kosong atau kurang dari 16 karakter.`,
+        hint: 'Isi APP_SECRET_KEY di berkas .env root dengan string acak panjang untuk keamanan sesi produksi.',
         cliCommand: 'npm run setup:check'
       });
     } else {
@@ -610,8 +660,8 @@ export class SystemSetupService {
         key: 'env',
         label: 'Konfigurasi .env & Secret Key',
         status: 'connected',
-        summary: '.env siap & APP_SECRET_KEY terkonfigurasi',
-        details: `Berkas .env aktif dengan panjang kunci sesi ${secretKey.length} karakter.`
+        summary: backendEnvExists ? '.env root aktif (fallback backend/.env terdeteksi)' : '.env root siap & APP_SECRET_KEY terkonfigurasi',
+        details: `Berkas utama /.env aktif dengan panjang kunci sesi ${secretKey.length} karakter.${backendEnvExists ? ' Catatan: file backend/.env masih ada sebagai fallback untuk kunci yang kosong di root.' : ''}`
       });
     }
 
@@ -681,7 +731,7 @@ export class SystemSetupService {
     }
 
     // 4. WhatsApp Notification Gateway
-    const waToken = getEffectiveEnvValue('WHATSAPP_API_TOKEN', fileMap, '');
+    const waToken = getEffectiveEnvValue('WHATSAPP_API_TOKEN', maps, '');
     const hasWaToken = Boolean(waToken || (waConfig.maskedToken && waConfig.maskedToken !== 'Belum diisi'));
     const hasRecipients = waConfig.recipients && waConfig.recipients.length > 0;
 
@@ -719,8 +769,8 @@ export class SystemSetupService {
     }
 
     // 5. Cloudflare Tunnel
-    const tunnelToken = getEffectiveEnvValue('CLOUDFLARE_TUNNEL_TOKEN', fileMap, '');
-    const configuredPublicUrl = options?.publicUrl || getEffectiveEnvValue('CLOUDFLARE_PUBLIC_URL', fileMap, '');
+    const tunnelToken = getEffectiveEnvValue('CLOUDFLARE_TUNNEL_TOKEN', maps, '');
+    const configuredPublicUrl = options?.publicUrl || getEffectiveEnvValue('CLOUDFLARE_PUBLIC_URL', maps, '');
     const tunnelInspection = inspectCloudflareTunnelToken(tunnelToken);
     let publicUrlProbe: SystemCheckReport['publicUrlProbe'];
 
