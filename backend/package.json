@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "NODE_ENV=production tsx src/server.ts",
     "setup:admin": "tsx src/scripts/setupAdmin.ts",
+    "setup:test-login": "tsx src/scripts/setupTestLogin.ts",
     "setup:db": "tsx src/scripts/setupDatabase.ts",
     "setup:tunnel": "tsx src/scripts/setupTunnel.ts",
     "setup:wa": "tsx src/scripts/setupWhatsapp.ts",

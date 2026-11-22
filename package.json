@@ -13,6 +13,7 @@
     "clean": "rm -rf frontend/dist dist",
     "lint": "tsc --noEmit",
     "setup:admin": "tsx backend/src/scripts/setupAdmin.ts",
+    "setup:test-login": "tsx backend/src/scripts/setupTestLogin.ts",
     "setup:db": "tsx backend/src/scripts/setupDatabase.ts",
     "setup:tunnel": "tsx backend/src/scripts/setupTunnel.ts",
     "setup:wa": "tsx backend/src/scripts/setupWhatsapp.ts",

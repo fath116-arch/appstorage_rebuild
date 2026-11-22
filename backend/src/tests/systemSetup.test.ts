@@ -75,6 +75,7 @@ async function runTests() {
   const commands = new Set(catalog.map((c) => c.command));
   assert(commands.has('npm run setup:help'), 'Catalog includes setup:help');
   assert(commands.has('npm run setup:admin'), 'Catalog includes setup:admin');
+  assert(commands.has('npm run setup:test-login'), 'Catalog includes setup:test-login');
   assert(commands.has('npm run setup:db'), 'Catalog includes setup:db');
   assert(commands.has('npm run setup:tunnel'), 'Catalog includes setup:tunnel');
   assert(commands.has('npm run setup:wa'), 'Catalog includes setup:wa');
@@ -149,7 +150,7 @@ async function runTests() {
   const backendPkg = JSON.parse(fs.readFileSync(backendPkgPath, 'utf-8')) as {
     scripts?: Record<string, string>;
   };
-  for (const key of ['setup:admin', 'setup:db', 'setup:tunnel', 'setup:wa', 'setup:check', 'setup:help', 'setup:list', 'sampah', 'test:backup', 'migrate']) {
+  for (const key of ['setup:admin', 'setup:test-login', 'setup:db', 'setup:tunnel', 'setup:wa', 'setup:check', 'setup:help', 'setup:list', 'sampah', 'test:backup', 'migrate']) {
     assert(Boolean(backendPkg.scripts?.[key]), `backend/package.json includes "${key}" script`);
   }
 

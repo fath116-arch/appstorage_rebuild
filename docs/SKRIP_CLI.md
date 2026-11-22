@@ -23,6 +23,7 @@ Seluruh skrip setup mendukung **mode interaktif** (tanya-jawab di terminal) seka
 | `npm run setup:list` | `backend/src/scripts/setupHelp.ts` | Alias dari `npm run setup:help`. |
 | `npm run setup:db` | `backend/src/scripts/setupDatabase.ts` | Mengatur kredensial koneksi MariaDB (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`), menguji koneksi langsung, menyimpan ke `.env`, dan opsional menjalankan migrasi database. |
 | `npm run setup:admin` | `backend/src/scripts/setupAdmin.ts` | Membuat akun Master Admin / Developer / Pengelola / Teknisi pertama langsung di database, atau mereset kata sandi dan peran akun yang sudah ada. |
+| `npm run setup:test-login` | `backend/src/scripts/setupTestLogin.ts` | Menguji diagnosa login bertahap: lookup akun, status `ACTIVE`, kecocokan kata sandi PBKDF2, probe tulis `sessions`/`sesi` MariaDB, dan kesiapan tabel `transaksi`. |
 | `npm run setup:tunnel` | `backend/src/scripts/setupTunnel.ts` | Menyimpan `CLOUDFLARE_TUNNEL_TOKEN` & `CLOUDFLARE_PUBLIC_URL` ke `.env`, memvalidasi struktur token Tunnel, dan menguji endpoint `/api/health` via URL publik. |
 | `npm run setup:wa` | `backend/src/scripts/setupWhatsapp.ts` | Mengatur integrasi WhatsApp Gateway **Fonnte** (`WHATSAPP_API_URL`, `WHATSAPP_API_TOKEN`, `WHATSAPP_TARGET_PHONES`, `WHATSAPP_AUTO_ALERT`), menyinkronkannya ke `.env` dan tabel `wa_config`, serta mengirim pesan tes jika diminta. |
 | `npm run setup:check` | `backend/src/scripts/setupCheck.ts` | Memeriksa kesiapan menyeluruh: ketersediaan `.env`, koneksi MariaDB, akun Admin/Developer aktif, konfigurasi WhatsApp Fonnte, serta status Cloudflare Tunnel & akses `/api/health`. |
@@ -155,6 +156,21 @@ Mengecek secara menyeluruh 5 komponen utama server dan melaporkan status **TERHU
   npm run setup:check -- --json
   ```
 
+### 6a. `npm run setup:test-login` — Diagnostik Tes Login & Kesiapan Sesi Akun
+Menguji kelayakan login suatu akun di database aktif secara aman (tanpa menampilkan hash/salt):
+1. Memastikan target runtime database (**MariaDB** vs **Memori Lokal**).
+2. Mencari akun di tabel `users` dan memverifikasi status `ACTIVE`.
+3. Menguji kecocokan kata sandi terhadap hash **PBKDF2 SHA-256** (atau memeriksa kelengkapan hash jika sandi dikosongkan).
+4. Menjalankan probe tulis + pembersihan otomatis pada tabel `sessions` dan `sesi` untuk memastikan kompatibilitas ketat tipe `TIMESTAMP` dan IP.
+5. Memeriksa kesiapan tabel `transaksi` untuk pencatatan audit login.
+
+- **Pemakaian**:
+  ```bash
+  npm run setup:test-login
+  npm run setup:test-login -- --username developer --password SandiAnda
+  npm run setup:test-login -- --username developer --json
+  ```
+
 ### 7. `npm run sampah` — Pemulihan Kotak Sampah 14 Hari
 Meninjau dan memulihkan objek yang dihapus permanen (*soft delete* ke `sampah_hapus`) selama masa retensi 14 hari.
 ```bash
@@ -193,8 +209,9 @@ docker compose exec backend npm run setup:admin
 docker compose exec backend npm run setup:tunnel
 docker compose exec backend npm run setup:wa
 
-# Cek status seluruh koneksi sistem
+# Cek status seluruh koneksi sistem & diagnosa login akun
 docker compose exec backend npm run setup:check
+docker compose exec backend npm run setup:test-login -- --username developer
 
 # Kelola tempat sampah 14 hari
 docker compose exec backend npm run sampah -- --list
@@ -209,7 +226,7 @@ docker compose exec backend npm run sampah -- --list
 Seluruh konfigurasi CLI di atas juga tersedia melalui tab **Setting** di antarmuka web FieldOps IT tanpa perlu membuka terminal server:
 
 - **Peran `admin` & `developer`** dapat mengakses seluruh kartu di tab **Setting**:
-  1. **Status & Cek Sistem** (`/api/setup/check` — setara `npm run setup:check`)
+  1. **Status & Cek Sistem** (`/api/setup/check` & `/api/setup/test-login` — setara `npm run setup:check` & `npm run setup:test-login`)
   2. **Koneksi Database MariaDB** (`/api/setup/database` — setara `npm run setup:db`)
   3. **Cloudflare Tunnel (HTTPS)** (`/api/setup/tunnel` — setara `npm run setup:tunnel`)
   4. **Notifikasi WhatsApp Alert** (`/api/setup/whatsapp` & `/api/whatsapp/*` — setara `npm run setup:wa`)

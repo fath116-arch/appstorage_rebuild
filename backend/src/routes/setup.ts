@@ -163,4 +163,38 @@ router.post('/whatsapp', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
+/**
+ * POST /api/setup/test-login
+ * Menguji diagnostik login bertahap (lookup user, status ACTIVE, verifikasi PBKDF2, probe tulis tabel sessions & sesi)
+ */
+router.post('/test-login', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : undefined;
+
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username wajib diisi untuk menjalankan diagnostik login.'
+      });
+    }
+
+    const diagnostic = await SystemSetupService.runLoginDiagnostic({
+      username,
+      password,
+      testSessionWrite: true
+    });
+
+    res.json({
+      success: true,
+      diagnostic
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: getErrorMessage(err, 'Gagal menjalankan diagnostik login akun.')
+    });
+  }
+});
+
 export default router;

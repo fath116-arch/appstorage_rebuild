@@ -8,6 +8,7 @@
  * - Unified system health diagnostics for CLI (setup:check) & Web Settings Hub
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
@@ -21,8 +22,10 @@ import {
   testMariaDbConnection,
   type DbConnectionTestResult
 } from '../db/database';
+import { AuthService, normalizeUserRole } from './authService';
 import { WhatsappAlertService } from './whatsappAlertService';
 import { getErrorMessage } from '../utils/errorUtils';
+import { toMysqlUtcSeconds } from '../utils/timezone';
 
 export interface MaskedSecretInfo {
   hasValue: boolean;
@@ -105,6 +108,31 @@ export interface SystemCheckReport {
     latencyMs?: number;
     error?: string;
   };
+}
+
+export interface LoginDiagnosticStep {
+  key: 'runtime_db' | 'user_lookup' | 'account_status' | 'password_verify' | 'session_tables' | 'activity_log';
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface LoginDiagnosticResult {
+  username: string;
+  overallSuccess: boolean;
+  runtimeMode: 'mariadb' | 'memory';
+  userSummary?: {
+    id: string;
+    username: string;
+    name: string;
+    role: string;
+    status: string;
+    hasPasswordHash: boolean;
+    hasSalt: boolean;
+  };
+  steps: LoginDiagnosticStep[];
+  recommendation?: string;
+  testedAt: string;
 }
 
 export interface DatabaseUpdateInput {
@@ -839,6 +867,227 @@ export class SystemSetupService {
     };
   }
 
+  static async runLoginDiagnostic(input: {
+    username: string;
+    password?: string;
+    testSessionWrite?: boolean;
+  }): Promise<LoginDiagnosticResult> {
+    const cleanUsername = String(input.username || '').trim();
+    const cleanPassword = typeof input.password === 'string' ? input.password.trim() : '';
+    const dbRuntime = getDbRuntimeStatus();
+    const runtimeMode: 'mariadb' | 'memory' = dbRuntime.isMariaDbActive ? 'mariadb' : 'memory';
+    const steps: LoginDiagnosticStep[] = [];
+
+    steps.push({
+      key: 'runtime_db',
+      label: 'Target Database Runtime',
+      passed: true,
+      detail: dbRuntime.isMariaDbActive
+        ? `Terhubung ke MariaDB (${dbRuntime.host}:${dbRuntime.port}/${dbRuntime.database}).`
+        : 'Berjalan dalam mode memori lokal (MariaDB belum aktif saat server dimulai).'
+    });
+
+    interface DiagUserRow {
+      id: string;
+      username: string;
+      name: string;
+      email: string;
+      role: string;
+      status: string;
+      password_hash?: string | null;
+      salt?: string | null;
+    }
+
+    let matchedUser: DiagUserRow | undefined;
+    try {
+      let rows = await executeQuery<DiagUserRow>(
+        'SELECT id, username, name, email, role, status, password_hash, salt FROM users WHERE LOWER(TRIM(username)) = LOWER(?)',
+        [cleanUsername]
+      );
+      if (!rows || rows.length === 0) {
+        rows = await executeQuery<DiagUserRow>(
+          'SELECT id, username, name, email, role, status, password_hash, salt FROM users WHERE username = ?',
+          [cleanUsername]
+        );
+      }
+      matchedUser = rows?.[0];
+    } catch (err: unknown) {
+      steps.push({
+        key: 'user_lookup',
+        label: 'Pencarian Akun di Tabel users',
+        passed: false,
+        detail: `Gagal membaca tabel users: ${getErrorMessage(err)}`
+      });
+      return {
+        username: cleanUsername,
+        overallSuccess: false,
+        runtimeMode,
+        steps,
+        recommendation: 'Pastikan migrasi skema tabel users telah berjalan di MariaDB aktif.',
+        testedAt: new Date().toISOString()
+      };
+    }
+
+    if (!matchedUser) {
+      steps.push({
+        key: 'user_lookup',
+        label: 'Pencarian Akun di Tabel users',
+        passed: false,
+        detail: `Akun dengan username "${cleanUsername}" tidak ditemukan di database ${runtimeMode === 'mariadb' ? 'MariaDB' : 'Memori Lokal'}.`
+      });
+      return {
+        username: cleanUsername,
+        overallSuccess: false,
+        runtimeMode,
+        steps,
+        recommendation: dbRuntime.isMariaDbActive
+          ? 'Buat akun admin di MariaDB aktif dengan "npm run setup:admin" (pastikan MariaDB sudah terhubung saat skrip dijalankan).'
+          : 'MariaDB belum aktif; periksa konfigurasi database lalu jalankan "npm run setup:admin".',
+        testedAt: new Date().toISOString()
+      };
+    }
+
+    const userSummary = {
+      id: matchedUser.id,
+      username: matchedUser.username,
+      name: matchedUser.name,
+      role: normalizeUserRole(matchedUser.role),
+      status: matchedUser.status,
+      hasPasswordHash: Boolean(matchedUser.password_hash && String(matchedUser.password_hash).trim().length > 0),
+      hasSalt: Boolean(matchedUser.salt && String(matchedUser.salt).trim().length > 0)
+    };
+
+    steps.push({
+      key: 'user_lookup',
+      label: 'Pencarian Akun di Tabel users',
+      passed: true,
+      detail: `Akun ditemukan (${matchedUser.username}, peran: ${userSummary.role}, ID: ${matchedUser.id}).`
+    });
+
+    const isActive = matchedUser.status === 'ACTIVE';
+    steps.push({
+      key: 'account_status',
+      label: 'Pemeriksaan Status Akun',
+      passed: isActive,
+      detail: isActive
+        ? 'Status akun ACTIVE (diizinkan login).'
+        : `Status akun saat ini adalah "${matchedUser.status}". Hanya akun ACTIVE yang dapat masuk.`
+    });
+
+    let passwordPassed = false;
+    let passwordDetail = '';
+    if (cleanPassword.length > 0) {
+      passwordPassed = AuthService.verifyPassword(cleanPassword, matchedUser.salt, matchedUser.password_hash);
+      passwordDetail = passwordPassed
+        ? userSummary.hasSalt
+          ? 'Kata sandi cocok dengan hash PBKDF2 SHA-256 (100.000 iterasi).'
+          : 'Kata sandi cocok dengan nilai tersimpan di database.'
+        : 'Kata sandi tidak cocok dengan password_hash / salt yang tersimpan di database.';
+    } else {
+      passwordPassed = userSummary.hasPasswordHash;
+      passwordDetail = userSummary.hasPasswordHash
+        ? `Kata sandi tidak dimasukkan (mode cek struktur). Kolom password_hash terisi & salt ${userSummary.hasSalt ? 'tersedia' : 'kosong'}.`
+        : 'Kolom password_hash di database kosong.';
+    }
+
+    steps.push({
+      key: 'password_verify',
+      label: cleanPassword.length > 0 ? 'Verifikasi Kata Sandi (PBKDF2)' : 'Struktur Hash Kata Sandi',
+      passed: passwordPassed,
+      detail: passwordDetail
+    });
+
+    let sessionWriteOk = false;
+    let sessionDetail = '';
+    if (input.testSessionWrite !== false) {
+      const diagSessionId = `diag-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+      const diagSesiId = `diag-ses-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+      const expirySql = toMysqlUtcSeconds(new Date(Date.now() + 3600 * 1000));
+      const dummyHash = crypto.createHash('sha256').update(diagSesiId).digest('hex');
+
+      try {
+        await executeQuery(
+          'INSERT INTO sessions (session_id, user_id, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, ?)',
+          [diagSessionId, matchedUser.id, '127.0.0.1', 'FieldOps-Diagnostic', expirySql]
+        );
+        await executeQuery(
+          `INSERT INTO sesi (id, user_id, refresh_hash, device_id_hash, user_agent, ip, dibuat_pada, aktivitas_terakhir, kedaluwarsa_mutlak)
+           VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)`,
+          [diagSesiId, matchedUser.id, dummyHash, dummyHash, 'FieldOps-Diagnostic', '127.0.0.1', expirySql]
+        );
+        sessionWriteOk = true;
+        sessionDetail = `Penulisan & pembersihan probe pada tabel sessions & sesi berhasil (format UTC: ${expirySql}).`;
+      } catch (err: unknown) {
+        sessionWriteOk = false;
+        sessionDetail = `Gagal menulis probe sesi ke tabel sessions/sesi: ${getErrorMessage(err)}`;
+      } finally {
+        await executeQuery('DELETE FROM sessions WHERE session_id = ?', [diagSessionId]).catch(() => {});
+        await executeQuery('DELETE FROM sesi WHERE id = ?', [diagSesiId]).catch(() => {});
+      }
+    } else {
+      try {
+        await executeQuery('SELECT session_id FROM sessions LIMIT 1');
+        await executeQuery('SELECT id FROM sesi LIMIT 1');
+        sessionWriteOk = true;
+        sessionDetail = 'Tabel sessions dan sesi tersedia dan dapat dibaca.';
+      } catch (err: unknown) {
+        sessionWriteOk = false;
+        sessionDetail = `Tabel sesi bermasalah: ${getErrorMessage(err)}`;
+      }
+    }
+
+    steps.push({
+      key: 'session_tables',
+      label: 'Kesiapan Tabel Sesi (sessions & sesi)',
+      passed: sessionWriteOk,
+      detail: sessionDetail
+    });
+
+    let auditOk = false;
+    let auditDetail = '';
+    try {
+      await executeQuery('SELECT id_aktivitas, actor_id, occurred_at FROM transaksi LIMIT 1');
+      auditOk = true;
+      auditDetail = 'Tabel transaksi (ledger audit login) lengkap dan siap digunakan.';
+    } catch (err: unknown) {
+      auditOk = false;
+      auditDetail = `Peringatan kolom transaksi: ${getErrorMessage(err)} (login tetap dilindungi agar tidak gagal akibat log).`;
+    }
+
+    steps.push({
+      key: 'activity_log',
+      label: 'Kesiapan Ledger Audit Login (transaksi)',
+      passed: auditOk,
+      detail: auditDetail
+    });
+
+    const overallSuccess =
+      isActive &&
+      passwordPassed &&
+      sessionWriteOk;
+
+    let recommendation: string | undefined;
+    if (!isActive) {
+      recommendation = `Ubah status akun "${matchedUser.username}" menjadi ACTIVE melalui Setting > Manajemen Akun atau "npm run setup:admin".`;
+    } else if (!passwordPassed) {
+      recommendation = `Reset kata sandi akun "${matchedUser.username}" lewat "npm run setup:admin -- --username ${matchedUser.username} --force" atau menu Reset Kata Sandi.`;
+    } else if (!sessionWriteOk) {
+      recommendation = 'Periksa kembali migrasi tabel sessions/sesi di MariaDB dan pastikan tipe kolom TIMESTAMP/DATETIME sesuai skema terbaru.';
+    } else if (!auditOk) {
+      recommendation = 'Jalankan restart server agar migrasi kolom terbaru pada tabel transaksi tuntas; login utama tetap dapat berjalan.';
+    }
+
+    return {
+      username: cleanUsername,
+      overallSuccess,
+      runtimeMode,
+      userSummary,
+      steps,
+      recommendation,
+      testedAt: new Date().toISOString()
+    };
+  }
+
   static getCliScriptCatalog(): CliScriptEntry[] {
     return [
       {
@@ -851,6 +1100,12 @@ export class SystemSetupService {
         category: 'setup',
         summary: 'Membuat atau mereset akun Master Admin / Developer / Admin Gudang / Teknisi dengan hash PBKDF2 100.000 iterasi.',
         flags: '-- --username developer --password <sandi> --role developer --email dev@fieldops.local'
+      },
+      {
+        command: 'npm run setup:test-login',
+        category: 'setup',
+        summary: 'Menguji kredensial akun, status aktif, verifikasi hash PBKDF2, dan kesiapan penulisan tabel sessions/sesi secara bertahap.',
+        flags: '-- --username developer --password <sandi>'
       },
       {
         command: 'npm run setup:db',

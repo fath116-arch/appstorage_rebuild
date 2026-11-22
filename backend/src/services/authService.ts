@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { executeQuery } from '../db/database';
+import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
 
 export interface UserProfile {
   id: string;
@@ -36,10 +37,18 @@ interface LegacySessionRow {
   expires_at: string;
 }
 
-function normalizeUserRole(rawRole: UserRecordRow['role']): UserProfile['role'] {
+export function normalizeUserRole(rawRole: UserRecordRow['role'] | string): UserProfile['role'] {
   if (rawRole === 'superadmin') return 'developer';
   if (rawRole === 'supervisor') return 'admin';
-  return rawRole;
+  return rawRole as UserProfile['role'];
+}
+
+export function sanitizeClientIp(rawIp?: string | null): string {
+  const raw = String(rawIp || '').trim();
+  if (!raw) return '127.0.0.1';
+  const firstHop = raw.split(',')[0].trim();
+  const clean = firstHop.startsWith('::ffff:') ? firstHop.slice(7) : firstHop;
+  return (clean || '127.0.0.1').slice(0, 45);
 }
 
 export class AuthService {
@@ -146,10 +155,12 @@ export class AuthService {
     // Buat session ID 32-byte acak
     const sessionId = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000); // 7 hari
+    const safeIp = sanitizeClientIp(clientIp);
+    const expiresAtSql = toMysqlUtcSeconds(expiresAt);
 
     await executeQuery(
       'INSERT INTO sessions (session_id, user_id, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, ?)',
-      [sessionId, user.id, clientIp, userAgent, expiresAt.toISOString()]
+      [sessionId, user.id, safeIp, userAgent, expiresAtSql]
     );
 
     const profile: UserProfile = {
@@ -181,7 +192,8 @@ export class AuthService {
     const session = sessions[0];
     if (!session) return null;
 
-    if (new Date(session.expires_at).getTime() < Date.now()) {
+    const expiresDate = parseToDate(session.expires_at);
+    if (!expiresDate || expiresDate.getTime() < Date.now()) {
       await executeQuery('DELETE FROM sessions WHERE session_id = ?', [sessionId]);
       return null;
     }

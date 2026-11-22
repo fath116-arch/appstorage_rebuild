@@ -60,6 +60,17 @@ export function toMysqlUtcDatetime(input: Date | string | number = new Date()): 
   return `${y}-${m}-${day} ${hh}:${mm}:${ss}.${ms}`;
 }
 
+export function toMysqlUtcSeconds(input: Date | string | number = new Date()): string {
+  const d = parseToDate(input) || new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
 export function getWibDateParts(input: Date | string | number = new Date()): {
   year: number;
   month: number;

@@ -104,6 +104,31 @@ export interface SystemCheckReport {
   publicUrlProbe?: PublicUrlProbe;
 }
 
+export interface LoginDiagnosticStep {
+  key: 'runtime_db' | 'user_lookup' | 'account_status' | 'password_verify' | 'session_tables' | 'activity_log';
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface LoginDiagnosticResult {
+  username: string;
+  overallSuccess: boolean;
+  runtimeMode: 'mariadb' | 'memory';
+  userSummary?: {
+    id: string;
+    username: string;
+    name: string;
+    role: string;
+    status: string;
+    hasPasswordHash: boolean;
+    hasSalt: boolean;
+  };
+  steps: LoginDiagnosticStep[];
+  recommendation?: string;
+  testedAt: string;
+}
+
 export interface SetupStatusResponse {
   success: boolean;
   settings: SystemMaskedSettings;
@@ -196,5 +221,18 @@ export const setupApi = {
         body: JSON.stringify(payload)
       },
       'Gagal memperbarui konfigurasi WhatsApp Gateway.'
+    ),
+
+  testLogin: (payload: { username: string; password?: string }) =>
+    apiFetch<{
+      success: boolean;
+      diagnostic: LoginDiagnosticResult;
+    }>(
+      '/api/setup/test-login',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      },
+      'Gagal menjalankan diagnostik tes login akun.'
     )
 };

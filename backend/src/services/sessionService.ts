@@ -8,8 +8,10 @@
 import crypto from 'crypto';
 import { executeQuery, runTransaction } from '../db/database';
 import { SettingService } from './settingService';
-import { UserProfile } from './authService';
+import { UserProfile, normalizeUserRole, sanitizeClientIp } from './authService';
 import { ActivityLogService } from './activityLogService';
+import { getErrorMessage } from '../utils/errorUtils';
+import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
 
 export interface SessionRecord {
   id: string;
@@ -75,11 +77,15 @@ export class SessionService {
       const sessionsToRevoke = activeSessions.slice(0, activeSessions.length - maxSesi + 1);
       for (const s of sessionsToRevoke) {
         await executeQuery('UPDATE sesi SET dicabut_pada = NOW() WHERE id = ?', [s.id]);
-        await ActivityLogService.recordActivity({
-          aksi: 'cabut_sesi_otomatis',
-          pelaku_id: user.id,
-          catatan: `Sesi ${s.id} dicabut otomatis karena batas maksimal ${maxSesi} sesi per akun.`
-        });
+        try {
+          await ActivityLogService.recordActivity({
+            aksi: 'cabut_sesi_otomatis',
+            pelaku_id: user.id,
+            catatan: `Sesi ${s.id} dicabut otomatis karena batas maksimal ${maxSesi} sesi per akun.`
+          });
+        } catch (auditErr: unknown) {
+          console.warn('[SessionService] Peringatan gagal mencatat log pencabutan sesi otomatis:', getErrorMessage(auditErr));
+        }
       }
     }
 
@@ -91,22 +97,27 @@ export class SessionService {
 
     const refreshHash = this.hashToken(refreshToken);
     const deviceHash = this.hashToken(deviceId);
+    const safeIp = sanitizeClientIp(clientIp);
+    const safeAbsoluteHours = Number.isFinite(absoluteHours) && absoluteHours > 0 ? absoluteHours : 720;
+    const kedaluwarsaMutlakSql = toMysqlUtcSeconds(new Date(Date.now() + safeAbsoluteHours * 3600 * 1000));
 
-    const kedaluwarsaMutlak = new Date(Date.now() + absoluteHours * 3600 * 1000);
-
-    // 3. Simpan ke tabel sesi
+    // 3. Simpan ke tabel sesi (format tanggal UTC SQL ketat + IP tersanitasi <= 45 karakter)
     await executeQuery(
       `INSERT INTO sesi (id, user_id, refresh_hash, device_id_hash, user_agent, ip, dibuat_pada, aktivitas_terakhir, kedaluwarsa_mutlak)
        VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)`,
-      [sessionId, user.id, refreshHash, deviceHash, userAgent || 'Unknown', clientIp || '127.0.0.1', kedaluwarsaMutlak]
+      [sessionId, user.id, refreshHash, deviceHash, userAgent || 'Unknown', safeIp, kedaluwarsaMutlakSql]
     );
 
-    // 4. Catat aktivitas login
-    await ActivityLogService.recordActivity({
-      aksi: 'login',
-      pelaku_id: user.id,
-      catatan: `Login pengguna ${user.username} (Peran: ${user.role}) dari IP ${clientIp}`
-    });
+    // 4. Catat aktivitas login (non-blocking terhadap otentikasi jika log mengalami kendala teknis)
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'login',
+        pelaku_id: user.id,
+        catatan: `Login pengguna ${user.username} (Peran: ${user.role}) dari IP ${safeIp}`
+      });
+    } catch (auditErr: unknown) {
+      console.warn('[SessionService] Peringatan gagal mencatat aktivitas login ke ledger transaksi:', getErrorMessage(auditErr));
+    }
 
     return {
       sessionId,
@@ -163,14 +174,16 @@ export class SessionService {
     const now = Date.now();
 
     // Cek batas kedaluwarsa mutlak (ABSOLUTE_TIMEOUT_JAM)
-    if (new Date(session.kedaluwarsa_mutlak).getTime() < now) {
+    const expiryDate = parseToDate(session.kedaluwarsa_mutlak);
+    if (!expiryDate || expiryDate.getTime() < now) {
       await executeQuery('UPDATE sesi SET dicabut_pada = NOW() WHERE id = ?', [session.id]);
-      return { valid: false, reason: 'Sesi telah melampaui batas kedaluwarsa mutlak (12 jam)' };
+      return { valid: false, reason: 'Sesi telah melampaui batas kedaluwarsa mutlak' };
     }
 
     // Cek batas idle timeout (IDLE_TIMEOUT_MENIT)
     const idleMenit = await SettingService.getInt('IDLE_TIMEOUT_MENIT');
-    const lastActiveTime = new Date(session.aktivitas_terakhir).getTime();
+    const lastActiveDate = parseToDate(session.aktivitas_terakhir);
+    const lastActiveTime = lastActiveDate ? lastActiveDate.getTime() : now;
     if (now - lastActiveTime > idleMenit * 60 * 1000) {
       await executeQuery('UPDATE sesi SET dicabut_pada = NOW() WHERE id = ?', [session.id]);
       return { valid: false, reason: `Sesi telah kedaluwarsa karena tidak ada aktivitas selama ${idleMenit} menit` };
@@ -194,7 +207,7 @@ export class SessionService {
       username: session.username,
       name: session.name,
       email: session.email,
-      role: session.role,
+      role: normalizeUserRole(session.role),
       department: session.department,
       phone: session.phone,
       status: session.status
@@ -279,10 +292,12 @@ export class SessionService {
       const newRefreshHash = this.hashToken(newRefreshToken);
       const newAccessToken = `${session.id}.${crypto.randomBytes(16).toString('hex')}`;
 
+      const safeIp = clientIp ? sanitizeClientIp(clientIp) : sanitizeClientIp(session.ip);
+
       // Perbarui refresh_hash dan aktivitas_terakhir di sesi
       await conn.query(
         `UPDATE sesi SET refresh_hash = ?, aktivitas_terakhir = NOW(), ip = ?, user_agent = ? WHERE id = ?`,
-        [newRefreshHash, clientIp || session.ip, userAgent || session.user_agent, session.id]
+        [newRefreshHash, safeIp, userAgent || session.user_agent, session.id]
       );
 
       const user: UserProfile = {
@@ -290,7 +305,7 @@ export class SessionService {
         username: session.username,
         name: session.name,
         email: session.email,
-        role: session.role,
+        role: normalizeUserRole(session.role),
         department: session.department,
         phone: session.phone,
         status: session.status
@@ -312,11 +327,15 @@ export class SessionService {
   static async revokeSession(sessionId: string, userId?: string): Promise<void> {
     await executeQuery('UPDATE sesi SET dicabut_pada = NOW() WHERE id = ?', [sessionId]);
     if (userId) {
-      await ActivityLogService.recordActivity({
-        aksi: 'logout',
-        pelaku_id: userId,
-        catatan: `Pengguna logout (Sesi ${sessionId} dicabut)`
-      });
+      try {
+        await ActivityLogService.recordActivity({
+          aksi: 'logout',
+          pelaku_id: userId,
+          catatan: `Pengguna logout (Sesi ${sessionId} dicabut)`
+        });
+      } catch (auditErr: unknown) {
+        console.warn('[SessionService] Peringatan gagal mencatat aktivitas logout:', getErrorMessage(auditErr));
+      }
     }
   }
 

@@ -12,6 +12,7 @@ import {
   getWibCompactDate,
   normalizeDbDateToIso,
   toMysqlUtcDatetime,
+  toMysqlUtcSeconds,
   validateOccurredAt
 } from '../utils/timezone';
 
@@ -256,6 +257,7 @@ export class ActivityLogService {
     }
 
     const nowUtcSql = toMysqlUtcDatetime(new Date());
+    const waktuSql = toMysqlUtcSeconds(timeCheck.utcIso);
     const occurredSql = timeCheck.mysqlDatetimeUtc;
     const tipeMutasi = input.tipe_mutasi || inferTipeMutasi(input.aksi);
     const qtyTotal =
@@ -299,7 +301,7 @@ export class ActivityLogService {
           input.box_asal || null,
           input.box_tujuan || null,
           input.catatan || null,
-          occurredSql,
+          waktuSql,
           occurredSql,
           nowUtcSql
         ]

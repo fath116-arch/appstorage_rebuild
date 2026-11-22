@@ -47,7 +47,7 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       user_id: params[1],
       ip_address: params[2],
       user_agent: params[3],
-      expires_at: params[4],
+      expires_at: normalizeDbDateToIso(params[4]) || String(params[4]),
       created_at: new Date().toISOString()
     });
     return { affectedRows: 1 };
@@ -218,10 +218,15 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       ip: params[5],
       dibuat_pada: new Date().toISOString(),
       aktivitas_terakhir: new Date().toISOString(),
-      kedaluwarsa_mutlak: params[6] instanceof Date ? params[6].toISOString() : String(params[6]),
+      kedaluwarsa_mutlak: normalizeDbDateToIso(params[6]) || String(params[6]),
       dicabut_pada: null
     });
     return { affectedRows: 1 };
+  }
+
+  if (upper.startsWith('DELETE FROM SESI WHERE ID = ?')) {
+    const deleted = memoryStore.sesi.delete(params[0]);
+    return { affectedRows: deleted ? 1 : 0 };
   }
 
   if (upper.startsWith('UPDATE SESI')) {

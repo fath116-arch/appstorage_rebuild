@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { AuthService } from '../services/authService';
+import { AuthService, sanitizeClientIp } from '../services/authService';
 import { AuthenticatedRequest, requireAuth, requireRole, parseCookies } from '../middleware/authMiddleware';
 import { SessionService } from '../services/sessionService';
 import { ConfirmationService } from '../services/confirmationService';
@@ -45,6 +45,12 @@ const resetPasswordRateLimiter = createRateLimiter({
   message: 'Terlalu banyak permintaan reset kata sandi. Silakan tunggu 15 menit.'
 });
 
+function isHttpsRequest(req: express.Request): boolean {
+  if (req.secure) return true;
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  return forwardedProto === 'https';
+}
+
 /**
  * POST /api/auth/login
  * Memverifikasi username dan password di backend, mengeluarkan cookie httpOnly v2 (access, refresh, device)
@@ -60,7 +66,7 @@ router.post('/login', loginRateLimiter, async (req: AuthenticatedRequest, res: e
       });
     }
 
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const clientIp = sanitizeClientIp((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1');
     const userAgent = req.headers['user-agent'] || 'Unknown Client';
 
     const result = await AuthService.login(String(username).trim(), String(password), clientIp, userAgent);
@@ -83,8 +89,7 @@ router.post('/login', loginRateLimiter, async (req: AuthenticatedRequest, res: e
       clientDeviceId
     );
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    const secureFlag = isProduction ? '; Secure' : '';
+    const secureFlag = isHttpsRequest(req) ? '; Secure' : '';
 
     // Pasang cookie HttpOnly terisolasi (30 Hari Persistent Session)
     res.setHeader('Set-Cookie', [
@@ -204,7 +209,7 @@ router.post('/refresh', async (req: AuthenticatedRequest, res: express.Response)
     const cookies = parseCookies(req.headers.cookie);
     const refreshToken = cookies['fieldops_refresh'] || req.body.refreshToken;
     const deviceId = cookies['fieldops_device'] || req.body.deviceId;
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const clientIp = sanitizeClientIp((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1');
     const userAgent = req.headers['user-agent'] || 'Unknown Client';
 
     if (!refreshToken) {
@@ -222,8 +227,7 @@ router.post('/refresh', async (req: AuthenticatedRequest, res: express.Response)
       return res.status(401).json({ success: false, message: result.message });
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    const secureFlag = isProduction ? '; Secure' : '';
+    const secureFlag = isHttpsRequest(req) ? '; Secure' : '';
 
     res.setHeader('Set-Cookie', [
       `fieldops_access=${result.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureFlag}`,
