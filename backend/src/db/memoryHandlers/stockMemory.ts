@@ -505,11 +505,13 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
 
   if (upper.startsWith('INSERT INTO REQUEST')) {
     const isReturnSubmit = upper.includes('RETURN_CONDITION');
+    const isPurchaseSubmit = upper.includes('PURCHASE_ITEM_NAME');
+    const parsedTipeId = params[2] !== null && params[2] !== undefined ? parseInt(String(params[2]), 10) : null;
     const req: any = {
       id: params[0],
       pemohon_id: params[1],
       penyetuju_id: null,
-      tipe_id: parseInt(String(params[2]), 10),
+      tipe_id: parsedTipeId !== null && !isNaN(parsedTipeId) ? parsedTipeId : null,
       box_id: params[3] || null,
       kode_id: params[4] || null,
       jumlah: parseInt(String(params[5]), 10) || 1,
@@ -518,6 +520,9 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       status: params[7] || 'menunggu',
       actor_id: params[8] || params[1],
       recorded_by_id: params[9] || params[1],
+      request_type: isReturnSubmit ? 'kembalikan' : isPurchaseSubmit ? 'beli' : 'ambil',
+      purchase_item_name: isPurchaseSubmit ? (params[10] || null) : null,
+      purchase_estimated_price: isPurchaseSubmit ? (params[11] !== undefined && params[11] !== null ? Number(params[11]) : null) : null,
       dibuat_pada: new Date().toISOString(),
       diproses_pada: null,
       taken_at: null,
@@ -591,11 +596,12 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       return { affectedRows: 1 };
     }
     if (upper.includes("SET STATUS = 'SELESAI'")) {
-      if (req.status !== 'diambil') return { affectedRows: 0 };
+      const allowedFromPurchase = req.request_type === 'beli' && req.status === 'disetujui';
+      if (req.status !== 'diambil' && !allowedFromPurchase) return { affectedRows: 0 };
       req.status = 'selesai';
       req.returned_at = params[0] ? (normalizeDbDateToIso(params[0]) || new Date().toISOString()) : new Date().toISOString();
       req.returned_by_id = params[1] || null;
-      req.return_condition = 'Terpakai';
+      req.return_condition = req.request_type === 'beli' ? 'Dibeli' : 'Terpakai';
       req.return_notes = params[2] || null;
       req.diproses_pada = new Date().toISOString();
       return { affectedRows: 1 };
@@ -633,11 +639,12 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
         const q = String(params[idx] || '').replace(/%/g, '').toUpperCase();
         list = list.filter(r => {
           const u1 = memoryStore.users.get(r.pemohon_id);
-          const t = memoryStore.tipe.get(r.tipe_id);
+          const t = r.tipe_id ? memoryStore.tipe.get(r.tipe_id) : null;
           const p = t ? memoryStore.produk.get(t.produk_id) : null;
           return (
             (p && p.nama.toUpperCase().includes(q)) ||
             (t && t.nama_tipe.toUpperCase().includes(q)) ||
+            (r.purchase_item_name && r.purchase_item_name.toUpperCase().includes(q)) ||
             (u1 && u1.name.toUpperCase().includes(q)) ||
             (r.alasan && r.alasan.toUpperCase().includes(q)) ||
             (r.kode_id && r.kode_id.toUpperCase().includes(q))
@@ -650,7 +657,7 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
       const u1 = memoryStore.users.get(r.pemohon_id);
       const uActor = memoryStore.users.get(r.actor_id || r.pemohon_id);
       const u2 = r.penyetuju_id ? memoryStore.users.get(r.penyetuju_id) : null;
-      const t = memoryStore.tipe.get(r.tipe_id);
+      const t = r.tipe_id ? memoryStore.tipe.get(r.tipe_id) : null;
       const p = t ? memoryStore.produk.get(t.produk_id) : null;
       const b = r.box_id ? memoryStore.box.get(r.box_id) : null;
       const rb = r.return_box_id ? memoryStore.box.get(r.return_box_id) : null;
@@ -660,8 +667,8 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
         username_pemohon: uActor?.username || u1?.username || '',
         nama_penyetuju: u2 ? u2.name : '',
         username_penyetuju: u2 ? u2.username : '',
-        nama_tipe: t ? t.nama_tipe : '',
-        nama_produk: p ? p.nama : '',
+        nama_tipe: t ? t.nama_tipe : (r.request_type === 'beli' ? 'Usulan Barang Baru' : ''),
+        nama_produk: p ? p.nama : (r.purchase_item_name || ''),
         kategori_barang: p ? (p.kategori_barang || 'Barang Habis Pakai') : 'Barang Habis Pakai',
         tipe_stok: p ? (p.tipe_stok || 'unit') : 'unit',
         mode_stok: t ? t.mode_stok : 'jumlah',

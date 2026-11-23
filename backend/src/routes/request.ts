@@ -24,10 +24,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
       origin_request_id,
       return_condition,
       return_box_id,
-      return_notes
+      return_notes,
+      purchase_item_name,
+      purchase_estimated_price
     } = req.body;
 
-    const reqType = request_type === 'kembalikan' ? 'kembalikan' : 'ambil';
+    const reqType = request_type === 'kembalikan' ? 'kembalikan' : request_type === 'beli' ? 'beli' : 'ambil';
     if (reqType === 'ambil' && (!tipe_id || !alasan)) {
       return res.status(400).json({ success: false, message: 'tipe_id dan alasan permohonan wajib diisi.' });
     }
@@ -35,6 +37,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
       return res.status(400).json({
         success: false,
         message: 'Pilih barang yang dibawa dan kondisi barang yang akan dikembalikan.'
+      });
+    }
+    if (reqType === 'beli' && (!alasan || (!tipe_id && !purchase_item_name))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pilih barang dari katalog atau ketik nama barang baru serta isi alasan pengajuan pembelian.'
       });
     }
 
@@ -53,7 +61,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
       boxId: box_id ? String(box_id) : undefined,
       kodeId: kode_id ? String(kode_id) : undefined,
       jumlah: jumlah ? Number(jumlah) : undefined,
-      alasan: alasan ? String(alasan) : undefined
+      alasan: alasan ? String(alasan) : undefined,
+      purchaseItemName: purchase_item_name ? String(purchase_item_name) : undefined,
+      purchaseEstimatedPrice:
+        purchase_estimated_price !== undefined && purchase_estimated_price !== null && String(purchase_estimated_price).trim() !== ''
+          ? Number(purchase_estimated_price)
+          : undefined
     });
 
     return res.status(201).json({ success: true, data: requestObj });
@@ -252,7 +265,12 @@ router.post(
     try {
       const requestId = String(req.params.id);
       const { customer_name, usage_notes, occurred_at } = req.body;
-      if (!customer_name || !usage_notes) {
+
+      const existing = await RequestService.getRequestById(requestId);
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Permohonan tidak ditemukan.' });
+      }
+      if (existing.request_type !== 'beli' && (!customer_name || !usage_notes)) {
         return res.status(400).json({
           success: false,
           message: 'Nama / ID Pelanggan dan catatan pemasangan wajib diisi.'
@@ -264,8 +282,8 @@ router.post(
         userId: req.user!.id,
         userName: req.user!.name,
         userRole: req.user!.role,
-        customerName: String(customer_name),
-        usageNotes: String(usage_notes),
+        customerName: customer_name ? String(customer_name) : undefined,
+        usageNotes: usage_notes ? String(usage_notes) : undefined,
         occurredAt: occurred_at ? String(occurred_at) : undefined
       });
       return res.json(result);

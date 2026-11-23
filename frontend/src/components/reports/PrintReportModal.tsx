@@ -10,6 +10,7 @@
 import React from 'react';
 import { X, Printer, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { DEFAULT_REPORT_APPROVAL_CONFIG, ReportApprovalConfig } from '../../services/activityApi';
 import { formatWibDateTime, getWibDateKey } from '../../utils/timezone';
 
 export interface ReportItemRow {
@@ -34,6 +35,7 @@ interface PrintReportModalProps {
   totalOutflow: number;
   criticalCount: number;
   outOfStockCount: number;
+  approvalConfig?: ReportApprovalConfig;
 }
 
 export const PrintReportModal: React.FC<PrintReportModalProps> = ({
@@ -45,6 +47,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
   totalOutflow,
   criticalCount,
   outOfStockCount,
+  approvalConfig = DEFAULT_REPORT_APPROVAL_CONFIG,
 }) => {
   const { user } = useAuth();
 
@@ -100,13 +103,13 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
                 />
                 <div>
                   <h1 className="text-base sm:text-lg font-bold tracking-tight uppercase text-slate-900 leading-tight">
-                    PT. SOLUSI INFORMATIKA LAPANGAN
+                    {approvalConfig.companyName}
                   </h1>
                   <p className="text-xs font-semibold text-slate-700">
-                    Divisi Operasional & Manajemen Infrastruktur IT Lapangan
+                    {approvalConfig.divisionName}
                   </p>
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    Gedung Pusat Operasi IT · Jl. Sudirman Kav. 45, Jakarta Pusat · Telp: (021) 555-0199 · info@fieldops.id
+                    {approvalConfig.companyAddress}
                   </p>
                 </div>
               </div>
@@ -228,34 +231,21 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
             </div>
 
             <div className="grid grid-cols-3 gap-6 text-center text-xs text-slate-800">
-              <div className="border border-slate-200 p-3 rounded bg-slate-50/50">
-                <p className="font-semibold text-slate-700">Dibuat Oleh (Admin Logistik):</p>
-                <div className="h-16 flex items-center justify-center">
-                  <span className="text-slate-300 font-mono text-[10px] tracking-widest">( Tanda Tangan )</span>
-                </div>
-                <p className="font-bold underline text-slate-900">Siti Rahma</p>
-                <p className="text-[10px] text-slate-500">Admin Logistik IT</p>
-              </div>
-
-              <div className="border border-slate-200 p-3 rounded bg-slate-50/50">
-                <p className="font-semibold text-slate-700">Diverifikasi (Teknisi Lapangan):</p>
-                <div className="h-16 flex items-center justify-center">
-                  <span className="text-slate-300 font-mono text-[10px] tracking-widest">( Tanda Tangan )</span>
-                </div>
-                <p className="font-bold underline text-slate-900">
-                  {user?.role === 'technician' ? user.name : 'Budi Santoso'}
-                </p>
-                <p className="text-[10px] text-slate-500">Lead Field Technician</p>
-              </div>
-
-              <div className="border border-slate-200 p-3 rounded bg-slate-50/50">
-                <p className="font-semibold text-slate-700">Disetujui Oleh (Supervisor IT):</p>
-                <div className="h-16 flex items-center justify-center">
-                  <span className="text-slate-300 font-mono text-[10px] tracking-widest">( Tanda Tangan )</span>
-                </div>
-                <p className="font-bold underline text-slate-900">Hendra Wijaya, S.Kom</p>
-                <p className="text-[10px] text-slate-500">Supervisor IT Infrastructure</p>
-              </div>
+              {approvalConfig.signers.map((signer, idx) => {
+                const resolvedName = signer.useCurrentUser
+                  ? (user?.name || signer.name)
+                  : signer.name;
+                return (
+                  <div key={idx} className="border border-slate-200 p-3 rounded bg-slate-50/50">
+                    <p className="font-semibold text-slate-700">{signer.roleLabel}:</p>
+                    <div className="h-16 flex items-center justify-center">
+                      <span className="text-slate-300 font-mono text-[10px] tracking-widest">( Tanda Tangan )</span>
+                    </div>
+                    <p className="font-bold underline text-slate-900">{resolvedName}</p>
+                    <p className="text-[10px] text-slate-500">{signer.title}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

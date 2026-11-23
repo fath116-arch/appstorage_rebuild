@@ -1,6 +1,6 @@
 # DOCUMENTATION.md - Dokumentasi Teknis & Panduan Operasional FieldOps IT
 
-![System Version](https://img.shields.io/badge/System_Version-v1.2.6-emerald.svg)
+![System Version](https://img.shields.io/badge/System_Version-v1.2.7-emerald.svg)
 ![React](https://img.shields.io/badge/React-19.3.0-61DAFB?logo=react)
 ![Express](https://img.shields.io/badge/Express-5.0.0-000000?logo=express)
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.4_LTS-003545?logo=mariadb)
@@ -9,7 +9,7 @@
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.3.3-38BDF8?logo=tailwindcss)
 ![Node](https://img.shields.io/badge/Node.js-22+_LTS-339933?logo=node.js)
 
-Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.6`)**.
+Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.7`)**.
 
 ---
 
@@ -90,6 +90,7 @@ CLOUDFLARE_PUBLIC_URL=
    npm run setup:admin   # Buat akun Admin / Developer pertama
    npm run setup:tunnel  # Konfigurasi Cloudflare Tunnel & URL publik
    npm run setup:wa      # Konfigurasi WhatsApp Gateway (Fonnte)
+   npm run setup:test-login # Uji diagnostik login akun 6 tahap (PBKDF2 & MariaDB)
    npm run setup:check   # Cek apakah DB, Admin, WA, & Tunnel sudah terhubung
    ```
 3. **Jalankan Mode Pengembangan (Express 5 + Vite Middleware di Port 3000)**:
@@ -157,15 +158,16 @@ CLOUDFLARE_PUBLIC_URL=
    - Mendukung 4 peran kanonis: `developer` (alias legacy `superadmin`), `admin`, `warehouse_admin`, dan `technician`.
 2. **`InventoryContext.tsx`**:
    - Mengelola sinkronisasi satu sumber data kanonik dari endpoint `/api/catalog/*`, `/api/boxes`, `/api/stock/*`, `/api/activities`, dan `/api/requests/*`.
-   - Setiap mutasi otomatis memanggil `refreshData()` tanpa perlu muat ulang halaman.
+   - Setiap mutasi otomatis memanggil `refreshData()`, ditambah **auto-refresh senyap setiap 5 menit** yang sadar visibilitas tab (`visibilitychange`).
 3. **`ToastContext.tsx` & `ThemeContext.tsx`**:
    - `ToastContext` menggantikan dialog `alert()`/`confirm()` bawaan browser dengan toast dan modal in-app (`ConfirmDeleteModal.tsx`).
    - `ThemeContext` mengelola preferensi `light`, `dark`, dan `system` melalui kelas `.dark` dan token CSS di `frontend/src/index.css`.
 4. **Komponen Operasional Utama**:
    - **Katalog & Box**: `CatalogV2Manager.tsx` (subtab `Produk`, `Kategori`, `Storage Box`, `Kelola`), `BoxContentModal.tsx`, `BatchLabelPrintModal.tsx`.
    - **Mutasi & Scanner**: `StockInputModal.tsx` (`SCAN_SN` ketat + Uji Regex + `useBarcodeScanner.ts`), `StockInOutModal.tsx` (Keranjang Keluar multi-item + Hubungkan ke Request).
-   - **Request & Tas Kerja**: `TechnicianRequestsView.tsx` (Ambil Satuan, Pilih Paket Tas, Kembalikan dengan 3 kondisi, Selesai Terpakai Pelanggan untuk Barang Habis Pakai), `FieldTripChecklistModal.tsx` (Inspeksi Harian + Manajemen Multi-Tas Kerja Kantor).
-   - **Laporan & Audit**: `TransactionHistory.tsx` (Ledger append-only + Catat Koreksi Audit), `WeeklyReport.tsx` (Senin–Minggu WIB, ekspor `.xlsx` ExcelJS tersanitasi CWE-1236, `PrintReportModal.tsx`).
+   - **Request & Tas Kerja**: `TechnicianRequestsView.tsx` (Ambil Satuan, Pilih Paket Tas, Kembalikan dengan 3 kondisi, Pengajuan Pembelian Barang `beli` + WA selektif, Selesai Terpakai/Sudah Dibeli), `FieldTripChecklistModal.tsx` (Inspeksi Harian + Manajemen Multi-Tas Kerja Kantor).
+   - **Laporan & Audit**: `TransactionHistory.tsx` (Ledger append-only + Catat Koreksi Audit), `WeeklyReport.tsx` (Senin–Minggu WIB, ekspor `.xlsx` ExcelJS tersanitasi CWE-1236, `PrintReportModal.tsx`, `PrintDocumentModal.tsx`, serta editor Kop Surat & Lembar Pengesahan `REPORT_APPROVAL_CONFIG`).
+   - **Notifikasi WhatsApp**: `WhatsAppConfigModal.tsx` & `WaConfigTab.tsx` (4 slot nomor penerima dengan saklar ON/OFF individual).
 
 ### C. Modul Layanan Backend (`backend/src/`)
 1. **Keamanan, Sesi, & Kriptografi**:
@@ -185,8 +187,8 @@ Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie 
 - **Autentikasi & Administrasi (`/api/auth`)**: Login/refresh/logout, profil `/me`, daftar `/actors`, manajemen `/users`, `/confirm-token`, `/settings`, dan `/trash`.
 - **Katalog & Storage Box (`/api/catalog`, `/api/boxes`)**: CRUD Kategori (`jenis`), Atribut & Opsi, Produk, Varian Tipe, aturan ID (`/types/:id/id-rule`), label cetak A4 (`/labels`), serta manajemen Storage Box dan pemindahan antar box (`/boxes/move`).
 - **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, serta feed aktivitas & koreksi append-only (`/activities/:id/correct`).
-- **Request & Multi-Tas (`/api/requests`, `/api/checklists`)**: Permohonan ambil satuan, paket tas (`/requests/bag`), pengembalian (`/requests` dengan `request_type: 'kembalikan'`), persetujuan, serah terima (`/pickup`), verifikasi kembali (`/return`), selesai pemakaian pelanggan (`/complete`), barang di tangan teknisi (`/held`), dan CRUD Multi-Tas (`/checklists/bags`).
-- **Laporan, Pola SN, WA Alert, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly` & `/debug-clock`, `/api/sn-patterns`, `/api/whatsapp/*`, `/api/setup/*` (`SystemSetupService`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
+- **Request & Multi-Tas (`/api/requests`, `/api/checklists`)**: Permohonan ambil satuan, paket tas (`/requests/bag`), pengembalian (`request_type: 'kembalikan'`), pengajuan pembelian barang (`request_type: 'beli'` dengan WA selektif), persetujuan, serah terima (`/pickup`), verifikasi kembali (`/return`), selesai pemakaian/pembelian (`/complete`), barang di tangan teknisi (`/held`), dan CRUD Multi-Tas (`/checklists/bags`).
+- **Laporan, Pola SN, WA Alert, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly`, `/debug-clock`, & `/approval-config`, `/api/sn-patterns`, `/api/whatsapp/*` (4 slot ON/OFF), `/api/setup/*` (`SystemSetupService` + `test-login`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
 
 *(Daftar lengkap seluruh rute, metode HTTP, dan otorisasi peran tersedia pada [`docs/DEPLOY.md`](./docs/DEPLOY.md), [`docs/PERAN_DAN_AKSES.md`](./docs/PERAN_DAN_AKSES.md), dan [`docs/SKRIP_CLI.md`](./docs/SKRIP_CLI.md).)*
 

@@ -4,10 +4,11 @@
  */
 
 import express from 'express';
-import { requireAuth } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
 import { CatalogService } from '../services/catalogService';
 import { ActivityLogService } from '../services/activityLogService';
 import { RequestService } from '../services/requestService';
+import { SettingService } from '../services/settingService';
 import { sanitizeFormulaInput } from '../utils/security';
 import {
   APP_TIMEZONE,
@@ -19,6 +20,118 @@ import {
 } from '../utils/timezone';
 
 const router = express.Router();
+
+export interface ReportSignerConfig {
+  roleLabel: string;
+  name: string;
+  title: string;
+  useCurrentUser: boolean;
+}
+
+export interface ReportApprovalConfig {
+  companyName: string;
+  divisionName: string;
+  companyAddress: string;
+  signers: [ReportSignerConfig, ReportSignerConfig, ReportSignerConfig];
+}
+
+export const DEFAULT_REPORT_APPROVAL_CONFIG: ReportApprovalConfig = {
+  companyName: 'PT. SOLUSI INFORMATIKA LAPANGAN',
+  divisionName: 'Divisi Operasional & Manajemen Infrastruktur IT Lapangan',
+  companyAddress: 'Gedung Pusat Operasi IT · Jl. Sudirman Kav. 45, Jakarta Pusat · Telp: (021) 555-0199 · info@fieldops.id',
+  signers: [
+    {
+      roleLabel: 'Dibuat Oleh (Admin Logistik)',
+      name: 'Admin Logistik IT',
+      title: 'Admin Inventori & Logistik IT',
+      useCurrentUser: true
+    },
+    {
+      roleLabel: 'Diverifikasi (Teknisi Lapangan)',
+      name: 'Lead Field Technician',
+      title: 'Lead Field Technician',
+      useCurrentUser: false
+    },
+    {
+      roleLabel: 'Disetujui Oleh (Supervisor IT)',
+      name: 'Supervisor IT Infrastructure',
+      title: 'Supervisor IT Infrastructure',
+      useCurrentUser: false
+    }
+  ]
+};
+
+function sanitizeApprovalConfig(raw: any): ReportApprovalConfig {
+  const companyName = String(raw?.companyName || '').trim() || DEFAULT_REPORT_APPROVAL_CONFIG.companyName;
+  const divisionName = String(raw?.divisionName || '').trim() || DEFAULT_REPORT_APPROVAL_CONFIG.divisionName;
+  const companyAddress = String(raw?.companyAddress || '').trim() || DEFAULT_REPORT_APPROVAL_CONFIG.companyAddress;
+  const rawSigners = Array.isArray(raw?.signers) ? raw.signers : [];
+
+  const normalizedSigners = DEFAULT_REPORT_APPROVAL_CONFIG.signers.map((def, idx) => {
+    const s = rawSigners[idx] || {};
+    return {
+      roleLabel: String(s.roleLabel || '').trim() || def.roleLabel,
+      name: String(s.name || '').trim() || def.name,
+      title: String(s.title || '').trim() || def.title,
+      useCurrentUser: s.useCurrentUser !== undefined ? Boolean(s.useCurrentUser) : def.useCurrentUser
+    };
+  }) as [ReportSignerConfig, ReportSignerConfig, ReportSignerConfig];
+
+  return {
+    companyName,
+    divisionName,
+    companyAddress,
+    signers: normalizedSigners
+  };
+}
+
+/**
+ * GET /api/reports/approval-config
+ * Mengambil konfigurasi Kop Surat & Penandatangan Lembar Pengesahan Laporan
+ */
+router.get('/approval-config', requireAuth, async (_req, res) => {
+  try {
+    const raw = await SettingService.getJSON<any>('REPORT_APPROVAL_CONFIG');
+    const config = sanitizeApprovalConfig(raw && Object.keys(raw).length > 0 ? raw : DEFAULT_REPORT_APPROVAL_CONFIG);
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    return res.json({ success: true, config: DEFAULT_REPORT_APPROVAL_CONFIG, fallback: err?.message });
+  }
+});
+
+/**
+ * PUT /api/reports/approval-config
+ * Menyimpan konfigurasi Kop Surat & Penandatangan Lembar Pengesahan Laporan secara permanen
+ */
+router.put(
+  '/approval-config',
+  requireAuth,
+  requireRole(['developer', 'admin', 'warehouse_admin']),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const sanitized = sanitizeApprovalConfig(req.body);
+      await SettingService.set(
+        'REPORT_APPROVAL_CONFIG',
+        JSON.stringify(sanitized),
+        'Konfigurasi Kop Surat dan Penandatangan Lembar Pengesahan Laporan Stok'
+      );
+
+      await ActivityLogService.recordActivity({
+        aksi: 'ubah_pengaturan',
+        pelaku_id: req.user!.id,
+        catatan: `Memperbarui konfigurasi Kop & Lembar Pengesahan laporan (${sanitized.companyName})`
+      });
+
+      return res.json({
+        success: true,
+        message: 'Konfigurasi Kop & Lembar Pengesahan laporan berhasil disimpan.',
+        config: sanitized
+      });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
 
 /**
  * GET /api/reports/debug-clock

@@ -1,12 +1,12 @@
-# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.6)
+# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.7)
 
-Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `12_unify_single_model_and_wib.sql`, mekanisme **Reservasi, Pengembalian, Multi-Tas & Status Selesai**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.6`)**.
+Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `13_purchase_wa4_and_report_config.sql`, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.7`)**.
 
 ---
 
 ## 🗄️ 1. Skema Database Relasional MariaDB 11.4 LTS
 
-Penyimpanan sistem menggunakan database relasional **MariaDB 11.4 LTS** on-premises (UTC) yang terbagi ke dalam beberapa kelompok skema migrasi (`01` s/d `12`):
+Penyimpanan sistem menggunakan database relasional **MariaDB 11.4 LTS** on-premises (UTC) yang terbagi ke dalam beberapa kelompok skema migrasi (`01` s/d `13`):
 
 ### A. Skema Akun Pengguna (`01_auth_schema.sql`)
 
@@ -31,7 +31,7 @@ Menyimpan akun pengguna internal kantor (`developer`, `admin`, `warehouse_admin`
 
 ### B. Skema Checklist Inspeksi, Multi-Tas Lapangan, & API Keys (`02_inventory_schema.sql`)
 
-> **Catatan Unifikasi Model Tunggal (v1.2.6)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.6 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
+> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.7 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
 
 #### 1. Tabel `checklists` (Inspeksi Harian & Template Multi-Tas Kerja Lapangan)
 Tabel `checklists` menjalankan dua peran melalui kolom `inspection_type`:
@@ -91,6 +91,7 @@ Menyimpan parameter konfigurasi sistem serta daftar pola ekstraksi SN (`SN_PATTE
 - `REAUTH_MENIT = '15'`, `RETENSI_SAMPAH_HARI = '14'`, `CONFIRMATION_TOKEN_TTL_DETIK = '120'`
 - `CONFIRMATION_TIERS`: Pemetaan JSON Tier 0–3 (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`, `request_approve`, `change_id_rule`, dsb.)
 - `SN_PATTERNS`: Array JSON `SNPatternRecord[]` untuk manajemen aturan regex & normalisasi `SCAN_SN` via `/api/sn-patterns`.
+- `REPORT_APPROVAL_CONFIG`: JSON konfigurasi Kop Surat (`companyName`, `divisionName`, `companyAddress`) dan 3 penandatangan **Lembar Pengesahan** (`signers` dengan `roleLabel`, `name`, `title`, dan opsi `useCurrentUser`) yang dikelola via `/api/reports/approval-config`.
 
 #### 3. Tabel `transaksi` & `transaksi_detail` (Append-Only Ledger Kanonik Format `AKT-YYYYMMDD-NNNN`)
 Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04` & `12_unify_single_model_and_wib.sql`) dengan penyimpanan waktu UTC penuh.
@@ -154,11 +155,12 @@ Hierarki kanonik: **`jenis` (Kategori)** → **`atribut` / `atribut_opsi`** → 
 
 ---
 
-### F. Skema Siklus Request Teknisi (`07_v2_request_schema.sql` & `12_unify_single_model_and_wib.sql`)
+### F. Skema Siklus Request Teknisi (`07_v2_request_schema.sql`, `12` & `13_purchase_wa4_and_report_config.sql`)
 
 Tabel `request` mengelola seluruh siklus:
-- **Alur Ambil**: `diajukan` *(atau `menunggu`)* → `disetujui` *(reservasi)* → `diambil` → `dikembalikan` *(wajib untuk `Alat`)* | `selesai` *(khusus `Barang Habis Pakai` terpakai pelanggan)* | `ditolak` | `dibatalkan`.
-- **Alur Pengajuan Pengembalian (`kembalikan`)**: Pengajuan mengacu ke request pengambilan asal via kolom `transaction_out_id` (`req-...`) dengan `return_condition` terpetakan (`Baru` / `Baik` / `Rusak`) dan `return_box_id` tujuan; saat gudang menjalankan `POST /api/requests/:id/return`, baik request pengajuan maupun request asal ditutup ke status `'dikembalikan'`.
+- **Alur Ambil (`request_type = 'ambil'`)**: `diajukan` *(atau `menunggu`)* → `disetujui` *(reservasi)* → `diambil` → `dikembalikan` *(wajib untuk `Alat`)* | `selesai` *(khusus `Barang Habis Pakai` terpakai pelanggan)* | `ditolak` | `dibatalkan`.
+- **Alur Pengajuan Pengembalian (`request_type = 'kembalikan'`)**: Pengajuan mengacu ke request pengambilan asal via kolom `transaction_out_id` (`req-...`) dengan `return_condition` terpetakan (`Baru` / `Baik` / `Rusak`) dan `return_box_id` tujuan; saat gudang menjalankan `POST /api/requests/:id/return`, baik request pengajuan maupun request asal ditutup ke status `'dikembalikan'`.
+- **Alur Pengajuan Pembelian Barang (`request_type = 'beli'`)**: Pengajuan pembelian dari katalog (`tipe_id`) maupun barang baru non-katalog (`tipe_id = NULL`, mengisi `purchase_item_name` & opsional `purchase_estimated_price`). Alur status `diajukan` → `disetujui` *(persetujuan admin/gudang tanpa memotong/mereservasi stok fisik)* → `selesai` (`return_condition = 'Dibeli'`, via `POST /api/requests/:id/complete`). Hanya jenis `beli` yang memicu notifikasi WhatsApp.
 - **Alur `Selesai (Terpakai Pelanggan)` (`POST /api/requests/:id/complete`)**: Mengubah status menjadi `'selesai'`, mengisi `returned_at` (UTC), `returned_by_id`, `return_condition = 'Terpakai'`, dan `return_notes = 'Pelanggan: <Nama/ID> | Pemasangan: <Catatan>'`.
 
 | Nama Kolom | Tipe Data | Deskripsi |
@@ -166,19 +168,21 @@ Tabel `request` mengelola seluruh siklus:
 | `id` | `VARCHAR(36)` | Primary Key permohonan |
 | `pemohon_id` / `actor_id` / `recorded_by_id` | `VARCHAR(36)` | Teknisi pemohon, pelaku lapangan, & petugas pencatat |
 | `penyetuju_id` | `VARCHAR(36) NULL` | Pengelola yang menyetujui / menolak / memverifikasi |
-| `tipe_id` / `box_id` / `kode_id` / `jumlah` | `INT` / `VARCHAR` | Target varian tipe, box, SN opsional, & kuantitas |
+| `request_type` | `VARCHAR(16)` | Jenis request: `'ambil'`, `'kembalikan'`, atau `'beli'` *(migrasi `13`)* |
+| `tipe_id` / `box_id` / `kode_id` / `jumlah` | `INT NULL` / `VARCHAR` | Target varian tipe (`NULL` jika pembelian barang baru), box, SN opsional, & kuantitas |
+| `purchase_item_name` / `purchase_estimated_price` | `VARCHAR(200) NULL` / `DECIMAL(14,2) NULL` | Nama barang baru non-katalog & estimasi harga satuan/pengajuan opsional *(migrasi `13`)* |
 | `alasan` / `catatan_penolakan` | `TEXT` | Alasan permohonan (memuat tag `[Tas: <Nama>]` untuk paket tas) & catatan penolakan |
 | `status` | `VARCHAR(32)` | `'diajukan'`, `'menunggu'`, `'disetujui'`, `'diambil'`, `'dikembalikan'`, `'selesai'`, `'ditolak'`, `'dibatalkan'` |
 | `taken_at` / `returned_at` | `DATETIME(3) NULL` | Waktu serah terima (`diambil`) & waktu kembali / selesai pemakaian (UTC) |
 | `returned_by_id` | `VARCHAR(36) NULL` | ID petugas/teknisi yang memverifikasi pengembalian atau menyelesaikan pemakaian |
-| `return_condition` / `return_notes` / `return_box_id` | `VARCHAR(32)` / `TEXT` / `VARCHAR(36)` | Kondisi kembali (`Baru`/`Baik`/`Perlu Perbaikan`/`Rusak`) atau `'Terpakai'`, catatan, & box tujuan |
+| `return_condition` / `return_notes` / `return_box_id` | `VARCHAR(32)` / `TEXT` / `VARCHAR(36)` | Kondisi kembali (`Baru`/`Baik`/`Perlu Perbaikan`/`Rusak`), `'Terpakai'`, atau `'Dibeli'`, catatan, & box tujuan |
 | `allocated_item_ids` / `transaction_out_id` / `transaction_in_id` | `TEXT` / `VARCHAR(64)` | JSON ID item dialokasi, referensi transaksi keluar (atau `origin_request_id` pada pengajuan `kembalikan`), & referensi transaksi kembali |
 
 ---
 
-### G. Skema WA Alert Otomatis & Ambang Berjenjang (`09_v125_paket6_wa_alert.sql`)
+### G. Skema WA Alert Otomatis & Ambang Berjenjang (`09_v125_paket6_wa_alert.sql` & `13`)
 
-1. **`wa_config`**: Pengaturan utama Fonnte (`id = 'main'`, `is_enabled`, `cooldown_minutes` default `15`, `last_sent_at`, `active_hours_start/end`, toggle alert `out_of_stock` / `low_stock` / `early_warning`, `global_low_stock_threshold`, `global_early_warning_threshold`, `recipients_json`, `api_url`, `api_token`).
+1. **`wa_config`**: Pengaturan utama Fonnte (`id = 'main'`, `is_enabled`, `cooldown_minutes` default `15`, `last_sent_at`, `active_hours_start/end`, toggle alert `out_of_stock` / `low_stock` / `early_warning`, `global_low_stock_threshold`, `global_early_warning_threshold`, `recipients_json`, `recipient_slots_json`, `api_url`, `api_token`). Kolom `recipient_slots_json` *(migrasi `13`)* menyimpan maksimal **4 slot penerima** (`slot`, `label`, `number`, `enabled`) dengan saklar ON/OFF individual; hanya slot aktif yang masuk ke `recipients_json`.
 2. **`wa_thresholds`**: Konfigurasi ambang berjenjang (`level`: `'produk'` | `'tipe'`, `produk_id`, `tipe_id`, `low_stock_threshold`, `early_warning_threshold`, `is_watchlist`). Resolusi prioritas: **Tipe > Produk > Global**.
 3. **`wa_alert_status`**: Status anti-duplikat per target (`target_type`: `'item'` | `'tipe'` | `'produk'`, `target_id`, `current_status`, `last_alert_status`, `last_alert_sent_at`, `pending_in_queue`).
 4. **`wa_delivery_logs`**: Riwayat pengiriman alert (`id`, `sent_at`, `trigger_type`, `recipients`, `message_snippet`, `summary_counts`, `fonnte_status`, `fonnte_response`, `operator_id`).

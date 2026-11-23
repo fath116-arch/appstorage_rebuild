@@ -22,7 +22,7 @@ export interface RequestRecord {
   actor_id?: string | null;
   recorded_by_id?: string | null;
   penyetuju_id?: string | null;
-  tipe_id: number;
+  tipe_id: number | null;
   box_id?: string | null;
   kode_id?: string | null;
   jumlah: number;
@@ -52,10 +52,12 @@ export interface RequestRecord {
   mode_stok?: 'per_id' | 'jumlah';
   kode_box?: string;
   held_duration_ms?: number | null;
-  request_type?: 'ambil' | 'kembalikan';
+  request_type?: 'ambil' | 'kembalikan' | 'beli';
   origin_request_id?: string | null;
   has_pending_return?: boolean;
   bag_name?: string | null;
+  purchase_item_name?: string | null;
+  purchase_estimated_price?: number | null;
 }
 
 export class RequestService {
@@ -69,7 +71,7 @@ export class RequestService {
     actorRole?: string;
     recordedByRole?: string;
     onBehalfReason?: string;
-    requestType?: 'ambil' | 'kembalikan';
+    requestType?: 'ambil' | 'kembalikan' | 'beli';
     originRequestId?: string;
     returnCondition?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
     returnBoxId?: string;
@@ -79,6 +81,8 @@ export class RequestService {
     kodeId?: string;
     jumlah?: number;
     alasan?: string;
+    purchaseItemName?: string;
+    purchaseEstimatedPrice?: number | null;
   }): Promise<RequestRecord> {
     const effectiveActorId = (input.actorId || input.pemohonId).trim();
     const isOnBehalf = effectiveActorId !== input.pemohonId;
@@ -89,7 +93,7 @@ export class RequestService {
       throw new Error('Alasan pengajuan atas nama teknisi lain wajib diisi.');
     }
 
-    // Cabang 1: Pengajuan Pengembalian Barang yang sedang dibawa teknisi ('kembalikan')
+    // Cabang 1: Pengajuan Pengembalian Barang yang sedang dibawa teknisi ('kembalikan') — TANPA notifikasi WA
     if (input.requestType === 'kembalikan') {
       if (!input.originRequestId) {
         throw new Error('Pilih barang yang sedang dibawa untuk diajukan pengembaliannya.');
@@ -140,8 +144,8 @@ export class RequestService {
         `INSERT INTO request (
            id, pemohon_id, tipe_id, box_id, kode_id, jumlah, alasan, status,
            actor_id, recorded_by_id, return_condition, return_notes, return_box_id,
-           allocated_item_ids, transaction_out_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           allocated_item_ids, transaction_out_id, request_type
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'kembalikan')`,
         [
           requestId,
           effectiveActorId,
@@ -180,7 +184,99 @@ export class RequestService {
       return created!;
     }
 
-    // Cabang 2: Permohonan Ambil Barang / Alat (Alur Eksisting)
+    // Cabang 2: Pengajuan Pembelian Barang ('beli') — SATU-SATUNYA jenis request yang mengirim notifikasi WA!
+    if (input.requestType === 'beli') {
+      const cleanAlasan = String(input.alasan || '').trim();
+      if (!cleanAlasan) {
+        throw new Error('Alasan pengajuan pembelian barang wajib diisi.');
+      }
+
+      let resolvedTipeId: number | null = null;
+      let resolvedItemName = String(input.purchaseItemName || '').trim();
+      let satuan = 'unit';
+
+      if (input.tipeId) {
+        const tipe = await CatalogService.getTipeById(input.tipeId);
+        if (!tipe) {
+          throw new Error(`Tipe #${input.tipeId} tidak ditemukan di katalog.`);
+        }
+        resolvedTipeId = tipe.id;
+        const produk = await CatalogService.getProdukById(tipe.produk_id);
+        satuan = produk?.tipe_stok || 'unit';
+        if (!resolvedItemName) {
+          resolvedItemName = `${tipe.produk_nama} - ${tipe.nama_tipe}`;
+        }
+      }
+
+      if (resolvedItemName.length < 2) {
+        throw new Error('Pilih barang dari katalog atau ketik nama barang baru (minimal 2 karakter).');
+      }
+
+      const qty = input.jumlah && Number(input.jumlah) > 0 ? Math.floor(Number(input.jumlah)) : 1;
+
+      let estimatedPrice: number | null = null;
+      if (input.purchaseEstimatedPrice !== undefined && input.purchaseEstimatedPrice !== null && String(input.purchaseEstimatedPrice).trim() !== '') {
+        const num = Number(input.purchaseEstimatedPrice);
+        if (isNaN(num) || num < 0) {
+          throw new Error('Estimasi harga pembelian harus berupa angka valid (>= 0).');
+        }
+        estimatedPrice = num > 0 ? Math.round(num) : null;
+      }
+
+      const requestId = `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+      await executeQuery(
+        `INSERT INTO request (
+           id, pemohon_id, tipe_id, box_id, kode_id, jumlah, alasan, status,
+           actor_id, recorded_by_id, purchase_item_name, purchase_estimated_price, request_type
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'beli')`,
+        [
+          requestId,
+          effectiveActorId,
+          resolvedTipeId,
+          null,
+          null,
+          qty,
+          cleanAlasan,
+          'diajukan',
+          effectiveActorId,
+          input.pemohonId,
+          resolvedItemName,
+          estimatedPrice
+        ]
+      );
+
+      const priceNote = estimatedPrice ? ` · Estimasi: Rp ${estimatedPrice.toLocaleString('id-ID')}` : '';
+      await ActivityLogService.recordActivity({
+        aksi: 'ajukan_pembelian',
+        pelaku_id: input.pemohonId,
+        actor_id: effectiveActorId,
+        recorded_by_id: input.pemohonId,
+        recorded_by_role: input.recordedByRole,
+        on_behalf_reason: isOnBehalf ? input.onBehalfReason : null,
+        request_id: requestId,
+        tipe_mutasi: 'SYSTEM',
+        reference_type: 'REQUEST_PURCHASE_CREATE',
+        reference_number: requestId,
+        catatan: `Mengajukan pembelian barang: ${resolvedItemName} (${qty} ${satuan})${priceNote}`
+      });
+
+      const { NotificationService } = await import('./notificationService');
+      NotificationService.notifyPurchaseRequest({
+        requestId,
+        pemohonId: effectiveActorId,
+        itemName: resolvedItemName,
+        jumlah: qty,
+        satuan,
+        estimatedPrice,
+        alasan: cleanAlasan
+      }).catch(e => console.warn('[RequestService] Non-fatal WA notification error:', e.message));
+
+      const created = await this.getRequestById(requestId);
+      return created!;
+    }
+
+    // Cabang 3: Permohonan Ambil Barang / Alat ('ambil') — TIDAK mengirim notifikasi WA
     if (!input.alasan || input.alasan.trim().length === 0) {
       throw new Error('Alasan permohonan wajib diisi.');
     }
@@ -211,8 +307,8 @@ export class RequestService {
     const requestId = `req-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
     await executeQuery(
-      `INSERT INTO request (id, pemohon_id, tipe_id, box_id, kode_id, jumlah, alasan, status, actor_id, recorded_by_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO request (id, pemohon_id, tipe_id, box_id, kode_id, jumlah, alasan, status, actor_id, recorded_by_id, request_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ambil')`,
       [
         requestId,
         effectiveActorId,
@@ -240,16 +336,6 @@ export class RequestService {
       reference_number: requestId,
       catatan: `Membuat permohonan barang: ${tipe.produk_nama} - ${tipe.nama_tipe} (${qty} unit)`
     });
-
-    const { NotificationService } = await import('./notificationService');
-    NotificationService.notifyNewRequest({
-      requestId,
-      pemohonId: effectiveActorId,
-      produkNama: tipe.produk_nama || 'Produk',
-      tipeNama: tipe.nama_tipe,
-      jumlah: qty,
-      alasan: input.alasan.trim()
-    }).catch(e => console.warn('[RequestService] Non-fatal notification error:', e.message));
 
     const created = await this.getRequestById(requestId);
     return created!;
@@ -351,8 +437,8 @@ export class RequestService {
       FROM request r
       JOIN users u1 ON COALESCE(r.actor_id, r.pemohon_id) = u1.id
       LEFT JOIN users u2 ON r.penyetuju_id = u2.id
-      JOIN tipe t ON r.tipe_id = t.id
-      JOIN produk p ON t.produk_id = p.id
+      LEFT JOIN tipe t ON r.tipe_id = t.id
+      LEFT JOIN produk p ON t.produk_id = p.id
       LEFT JOIN box b ON r.box_id = b.id
       LEFT JOIN box rb ON r.return_box_id = rb.id
       WHERE r.id = ?
@@ -372,16 +458,33 @@ export class RequestService {
         heldMs = Math.max(0, end - start);
       }
     }
-    const isReturnReq = Boolean(row.transaction_out_id && String(row.transaction_out_id).startsWith('req-'));
+    const isReturnReq =
+      row.request_type === 'kembalikan' ||
+      Boolean(row.transaction_out_id && String(row.transaction_out_id).startsWith('req-'));
+    const isPurchaseReq = row.request_type === 'beli' || Boolean(row.purchase_item_name && !row.tipe_id);
+    const resolvedRequestType: 'ambil' | 'kembalikan' | 'beli' = isPurchaseReq
+      ? 'beli'
+      : isReturnReq
+      ? 'kembalikan'
+      : 'ambil';
     const bagMatch = typeof row.alasan === 'string' ? row.alasan.match(/^\[Tas:\s*([^\]]+)\]\s*/i) : null;
+    const fallbackNamaProduk = row.nama_produk || row.purchase_item_name || (isPurchaseReq ? 'Barang Baru (Usulan Pembelian)' : '');
+    const fallbackNamaTipe = row.nama_tipe || (isPurchaseReq && !row.tipe_id ? 'Usulan Barang Baru' : '');
+
     return {
       ...row,
+      nama_produk: fallbackNamaProduk,
+      nama_tipe: fallbackNamaTipe,
       kategori_barang: row.kategori_barang || 'Barang Habis Pakai',
       tipe_stok: row.tipe_stok || 'unit',
       held_duration_ms: heldMs,
-      request_type: isReturnReq ? 'kembalikan' : 'ambil',
+      request_type: resolvedRequestType,
       origin_request_id: isReturnReq ? row.transaction_out_id : null,
-      bag_name: bagMatch ? bagMatch[1].trim() : null
+      bag_name: bagMatch ? bagMatch[1].trim() : null,
+      purchase_estimated_price:
+        row.purchase_estimated_price !== undefined && row.purchase_estimated_price !== null
+          ? Number(row.purchase_estimated_price)
+          : null
     };
   }
 
@@ -402,8 +505,8 @@ export class RequestService {
       FROM request r
       JOIN users u1 ON COALESCE(r.actor_id, r.pemohon_id) = u1.id
       LEFT JOIN users u2 ON r.penyetuju_id = u2.id
-      JOIN tipe t ON r.tipe_id = t.id
-      JOIN produk p ON t.produk_id = p.id
+      LEFT JOIN tipe t ON r.tipe_id = t.id
+      LEFT JOIN produk p ON t.produk_id = p.id
       LEFT JOIN box b ON r.box_id = b.id
       LEFT JOIN box rb ON r.return_box_id = rb.id
       WHERE 1=1
@@ -426,9 +529,9 @@ export class RequestService {
     }
 
     if (filters?.search) {
-      sql += ' AND (UPPER(p.nama) LIKE UPPER(?) OR UPPER(t.nama_tipe) LIKE UPPER(?) OR UPPER(u1.name) LIKE UPPER(?) OR UPPER(r.alasan) LIKE UPPER(?))';
+      sql += " AND (UPPER(COALESCE(p.nama, '')) LIKE UPPER(?) OR UPPER(COALESCE(t.nama_tipe, '')) LIKE UPPER(?) OR UPPER(COALESCE(r.purchase_item_name, '')) LIKE UPPER(?) OR UPPER(u1.name) LIKE UPPER(?) OR UPPER(r.alasan) LIKE UPPER(?))";
       const q = `%${filters.search.trim()}%`;
-      params.push(q, q, q, q);
+      params.push(q, q, q, q, q);
     }
 
     sql += ' ORDER BY r.dibuat_pada DESC';
@@ -450,10 +553,11 @@ export class RequestService {
       FROM request r
       JOIN users u1 ON COALESCE(r.actor_id, r.pemohon_id) = u1.id
       LEFT JOIN users u2 ON r.penyetuju_id = u2.id
-      JOIN tipe t ON r.tipe_id = t.id
-      JOIN produk p ON t.produk_id = p.id
+      LEFT JOIN tipe t ON r.tipe_id = t.id
+      LEFT JOIN produk p ON t.produk_id = p.id
       LEFT JOIN box b ON r.box_id = b.id
       WHERE (r.pemohon_id = ? OR r.actor_id = ?)
+        AND COALESCE(r.request_type, 'ambil') = 'ambil'
         AND r.status IN ('menunggu', 'diajukan', 'disetujui')
       ORDER BY r.dibuat_pada DESC
     `;
@@ -474,8 +578,8 @@ export class RequestService {
       FROM request r
       JOIN users u1 ON COALESCE(r.actor_id, r.pemohon_id) = u1.id
       LEFT JOIN users u2 ON r.penyetuju_id = u2.id
-      JOIN tipe t ON r.tipe_id = t.id
-      JOIN produk p ON t.produk_id = p.id
+      LEFT JOIN tipe t ON r.tipe_id = t.id
+      LEFT JOIN produk p ON t.produk_id = p.id
       LEFT JOIN box b ON r.box_id = b.id
       WHERE r.status = 'diambil'
     `;
@@ -545,6 +649,43 @@ export class RequestService {
       const allocatedIds: string[] = [];
       let usedBoxId = req.box_id || input.targetBoxId || null;
 
+      // Pengajuan Pembelian Barang: disetujui tanpa memotong atau mereservasi stok fisik gudang
+      if (req.request_type === 'beli') {
+        const updateRes = await conn.query(
+          `UPDATE request
+           SET status = 'disetujui', penyetuju_id = ?, diproses_pada = NOW()
+           WHERE id = ? AND status IN ('menunggu', 'diajukan')`,
+          [input.penyetujuId, input.requestId]
+        );
+        const affected = typeof updateRes.affectedRows === 'number' ? updateRes.affectedRows : 1;
+        if (affected === 0) {
+          throw new Error('Pengajuan pembelian sudah diproses oleh pengelola lain.');
+        }
+
+        const itemDisplay = req.purchase_item_name || `${req.nama_produk} - ${req.nama_tipe}`;
+        const txLog = await ActivityLogService.recordActivity({
+          aksi: 'setujui_request',
+          pelaku_id: targetActorId,
+          actor_id: targetActorId,
+          recorded_by_id: input.penyetujuId,
+          recorded_by_role: input.penyetujuRole || 'warehouse_admin',
+          on_behalf_reason: targetActorId !== input.penyetujuId ? `Persetujuan pengajuan pembelian Request #${input.requestId}` : null,
+          penyetuju_id: input.penyetujuId,
+          request_id: input.requestId,
+          tipe_mutasi: 'SYSTEM',
+          reference_type: 'REQUEST_PURCHASE_APPROVE',
+          reference_number: input.requestId,
+          catatan: `Menyetujui pengajuan pembelian #${input.requestId} (${itemDisplay}, ${req.jumlah} ${req.tipe_stok || 'unit'})`
+        }, conn);
+
+        return {
+          success: true,
+          message: `Pengajuan pembelian #${input.requestId} DISETUJUI oleh pengelola.`,
+          requestId: input.requestId,
+          activityId: txLog.idAktivitas
+        };
+      }
+
       if (req.kode_id) {
         const itemCheck = await StockService.checkDuplicateKodeId(req.kode_id);
         if (!itemCheck.exists || !itemCheck.item) {
@@ -564,6 +705,9 @@ export class RequestService {
         allocatedIds.push(itemCheck.item.id);
         usedBoxId = usedBoxId || itemCheck.item.box_id;
       } else {
+        if (!req.tipe_id) {
+          throw new Error('Data tipe katalog tidak ditemukan pada permohonan ambil barang ini.');
+        }
         const tipeItems = await StockService.getItemsByTipe(req.tipe_id, { excludeRusak: true });
         if (req.mode_stok === 'per_id' || (tipeItems.items && tipeItems.items.length > 0 && req.jumlah <= tipeItems.items.length)) {
           const candidates = usedBoxId
@@ -666,6 +810,9 @@ export class RequestService {
     const req = await this.getRequestById(input.requestId);
     if (!req) {
       throw new Error(`Permohonan #${input.requestId} tidak ditemukan.`);
+    }
+    if (req.request_type === 'beli') {
+      throw new Error('Pengajuan pembelian barang tidak melalui serah terima gudang; gunakan "Tandai Sudah Dibeli (Selesai)".');
     }
     if (req.status !== 'disetujui') {
       throw new Error(`Hanya permohonan berstatus DISETUJUI yang dapat diserahkan/diambil (Status saat ini: ${req.status.toUpperCase()}).`);
@@ -945,8 +1092,8 @@ export class RequestService {
     userId: string;
     userName?: string;
     userRole: string;
-    customerName: string;
-    usageNotes: string;
+    customerName?: string;
+    usageNotes?: string;
     occurredAt?: string;
   }) {
     const req = await this.getRequestById(input.requestId);
@@ -957,6 +1104,65 @@ export class RequestService {
     const isManager = isWarehouseManager(input.userRole);
     const targetActorId = (req.actor_id || req.pemohon_id).trim();
     const isOwner = req.pemohon_id === input.userId || targetActorId === input.userId;
+
+    const timeCheck = validateOccurredAt({ occurredAt: input.occurredAt, role: input.userRole });
+    if (!timeCheck.valid) {
+      throw new Error(timeCheck.message || 'Waktu penyelesaian tidak valid.');
+    }
+
+    // Cabang Pengajuan Pembelian Barang -> Tandai Sudah Dibeli / Selesai oleh Admin / Gudang
+    if (req.request_type === 'beli') {
+      if (!isManager) {
+        throw new Error('Hanya Admin atau Admin Gudang yang dapat menandai pengajuan pembelian sebagai selesai dibeli.');
+      }
+      if (req.status !== 'disetujui') {
+        throw new Error(`Pengajuan pembelian harus berstatus DISETUJUI terlebih dahulu (Status saat ini: ${req.status.toUpperCase()}).`);
+      }
+
+      const itemDisplay = req.purchase_item_name || `${req.nama_produk} - ${req.nama_tipe}`;
+      const purchaseNotes = String(input.usageNotes || '').trim() || 'Pengajuan pembelian telah selesai dibeli dan diproses.';
+
+      return await runTransaction(async (conn) => {
+        const updateRes = await conn.query(
+          `UPDATE request
+           SET status = 'selesai', returned_at = ?, returned_by_id = ?, return_condition = 'Dibeli',
+               return_notes = ?, diproses_pada = NOW()
+           WHERE id = ? AND status = 'disetujui'`,
+          [timeCheck.mysqlDatetimeUtc, input.userId, purchaseNotes, req.id]
+        );
+        const affected = typeof updateRes.affectedRows === 'number' ? updateRes.affectedRows : 1;
+        if (affected === 0) {
+          throw new Error('Pengajuan pembelian sudah diselesaikan sebelumnya.');
+        }
+
+        const txLog = await ActivityLogService.recordActivity({
+          aksi: 'selesai_pembelian',
+          pelaku_id: targetActorId,
+          actor_id: targetActorId,
+          actor_nama: req.nama_pemohon,
+          recorded_by_id: input.userId,
+          recorded_by_nama: input.userName,
+          recorded_by_role: input.userRole,
+          on_behalf_reason: targetActorId !== input.userId ? `Penyelesaian pengajuan pembelian Request #${req.id}` : null,
+          occurred_at: timeCheck.utcIso,
+          request_id: req.id,
+          tipe_mutasi: 'SYSTEM',
+          reference_type: 'REQUEST_PURCHASE_COMPLETE',
+          reference_number: req.id,
+          qty_total: req.jumlah,
+          catatan: `Pembelian barang selesai (${itemDisplay}, ${req.jumlah} ${req.tipe_stok || 'unit'}): ${purchaseNotes}`
+        }, conn);
+
+        return {
+          success: true,
+          message: `Pengajuan pembelian #${req.id} (${itemDisplay}) ditandai SELESAI / SUDAH DIBELI.`,
+          requestId: req.id,
+          activityId: txLog.idAktivitas,
+          transaksiId: txLog.transaksiId
+        };
+      });
+    }
+
     if (!isManager && !isOwner) {
       throw new Error('Hanya teknisi pemilik permohonan atau pengelola gudang yang dapat menandai selesai.');
     }
@@ -987,11 +1193,6 @@ export class RequestService {
     }
     if (cleanUsage.length < 3) {
       throw new Error('Catatan pemasangan pada pelanggan wajib diisi.');
-    }
-
-    const timeCheck = validateOccurredAt({ occurredAt: input.occurredAt, role: input.userRole });
-    if (!timeCheck.valid) {
-      throw new Error(timeCheck.message || 'Waktu penyelesaian tidak valid.');
     }
 
     const formattedUsageNotes = `Pelanggan: ${cleanCustomer} | Pemasangan: ${cleanUsage}`;
@@ -1155,8 +1356,8 @@ export class RequestService {
     }
 
     return await runTransaction(async (conn) => {
-      // Lepas reservasi jika sebelumnya sudah disetujui
-      if (req.status === 'disetujui') {
+      // Lepas reservasi jika sebelumnya sudah disetujui (kecuali pengajuan pembelian)
+      if (req.status === 'disetujui' && req.request_type !== 'beli') {
         await conn.query(
           `UPDATE item SET reserved_for_request_id = NULL, reserved_for_user_id = NULL, status = 'aktif' WHERE reserved_for_request_id = ?`,
           [req.id]

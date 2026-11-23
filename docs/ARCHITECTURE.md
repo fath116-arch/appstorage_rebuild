@@ -1,10 +1,10 @@
 # DOKUMEN ARSITEKTUR SISTEM (ARCHITECTURE.MD)
-**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.6)  
+**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.7)  
 **Database Mesin**: MariaDB 11.4 LTS (Server Lokal On-Premises, UTC)  
 **Arsitektur**: Decoupled Monorepo (`frontend/` React 19 SPA + `backend/` Express 5 REST API) dengan Model Data Kanonik Tunggal  
-**Status**: Rilis v1.2.6 Terverifikasi Penuh
+**Status**: Rilis v1.2.7 Terverifikasi Penuh
 
-> **Pembaruan Arsitektur v1.2.6**: Jalur legacy v1 (`inventoryService`, `transactionService`, `/api/inventory`, `/api/transactions`) telah dilepas sepenuhnya. Seluruh aplikasi beroperasi di atas satu model data kanonik (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`) dengan layanan terpadu `CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`, `ConfirmationService`, `TrashService`, `WhatsappAlertService`, `TicketIntegration`, `BackupService`, dan kebijakan zona waktu UTC ↔ WIB (`timezone.ts`).
+> **Pembaruan Arsitektur v1.2.7**: Di atas satu model data kanonik (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`), rilis v1.2.7 menambahkan siklus pengajuan pembelian barang (`request_type = 'beli'`) dengan notifikasi WhatsApp selektif, pembatasan **4 slot penerima WA dengan saklar ON/OFF individual** (`wa_config.recipient_slots_json`), sinkronisasi latar belakang **auto-refresh senyap 5 menit**, konfigurasi dinamis **Kop & Lembar Pengesahan Laporan** (`pengaturan.REPORT_APPROVAL_CONFIG`), serta kompatibilitas ketat format `TIMESTAMP` SQL MariaDB & diagnostik tes login 6 tahap.
 
 ---
 
@@ -35,7 +35,7 @@ flowchart TD
             AuthSvc["AuthService • SessionService • ConfirmationService • SettingService"]
             CatalogSvc["CatalogService (Jenis, Atribut, Produk, Tipe) & SNPatterns"]
             StockSvc["StockService (Box, Item Ber-ID, Stok Jumlah, Arsip, Restore)"]
-            ReqBagSvc["RequestService (Ambil/Kembalikan/Selesai) & BagService (Multi-Tas)"]
+            ReqBagSvc["RequestService (Ambil/Kembalikan/Beli/Selesai) & BagService (Multi-Tas)"]
             LedgerSvc["ActivityLogService (Append-Only AKT-) & TrashService (14 Hari)"]
             ExtSvc["WhatsappAlertService • NotificationService • TicketIntegration • BackupService"]
         end
@@ -73,19 +73,19 @@ Sesuai prinsip pemisahan keamanan repositori, data autentikasi/kredensial akun d
 1. **Domain Autentikasi, Sesi & Keamanan (`01_auth_schema.sql` & `04_v2_foundation_schema.sql`)**:
    - `users`: Profil internal dan hash PBKDF2 100k iterasi + 16-byte salt (peran kanonis `developer`, `admin`, `warehouse_admin`, `technician`).
    - `sesi`: Sesi cookie server-authoritative dengan `refresh_hash`, `device_id_hash`, `kedaluwarsa_mutlak`, dan pencabutan anti-replay.
-   - `pengaturan`: Parameter sistem dinamis (masa sesi 30 hari, `CONFIRMATION_TIERS`, `REAUTH_MENIT`, `RETENSI_SAMPAH_HARI`, serta konfigurasi `SN_PATTERNS`).
+   - `pengaturan`: Parameter sistem dinamis (masa sesi 30 hari, `CONFIRMATION_TIERS`, `REAUTH_MENIT`, `RETENSI_SAMPAH_HARI`, `SN_PATTERNS`, serta `REPORT_APPROVAL_CONFIG` untuk Kop Surat & Lembar Pengesahan laporan).
    - `token_konfirmasi`: Token sekali pakai TTL 120 detik untuk verifikasi Tingkat 2 dan 3.
    - `sampah_hapus`: Snapshot JSON penghapusan permanen kategori/produk/box/akun dengan retensi 14 hari sebelum pemusnahan otomatis.
-2. **Domain Katalog, Stok Fisik, Request, Multi-Tas, & Ledger (`05`–`08`, `12` SQL migrations + `checklists`)**:
+2. **Domain Katalog, Stok Fisik, Request, Multi-Tas, & Ledger (`05`–`08`, `12`, `13` SQL migrations + `checklists`)**:
    - Katalog bertingkat: `jenis` → `atribut` / `atribut_opsi` → `produk` (`kategori_barang`, `tipe_stok`) → `tipe` / `tipe_nilai` (`sumber_id`, `prefix_id`, `pola_id`, `id_dikunci`).
    - Stok & Box: `box` (box campuran) → `item` (unit ber-ID unik dengan `status` & `kondisi`) dan `stok_jumlah` (stok mode `tanpa_id` dengan `reserved_qty`).
-   - Permohonan & Paket Tas: `request` (mendukung pengambilan satuan, pengambilan paket tas, pengajuan pengembalian, serta penandaan `selesai` pemakaian pelanggan) dan `checklists` (`TOOLKIT_CHECK` untuk inspeksi harian & `BAG_TEMPLATE` untuk Multi-Tas Kerja Lapangan).
+   - Permohonan & Paket Tas: `request` (mendukung pengambilan satuan `ambil`, pengambilan paket tas, pengajuan pengembalian `kembalikan`, pengajuan pembelian barang `beli` termasuk barang baru non-katalog `tipe_id = NULL`, serta penandaan `selesai` pemakaian pelanggan/pembelian) dan `checklists` (`TOOLKIT_CHECK` untuk inspeksi harian & `BAG_TEMPLATE` untuk Multi-Tas Kerja Lapangan).
    - Ledger Append-Only: `transaksi` & `transaksi_detail` dengan ID aktivitas harian `AKT-YYYYMMDD-NNNN`, pemisahan `actor_id` vs `recorded_by_id`, `occurred_at` UTC, dan `correction_of_id`.
-3. **Domain Integrasi Eksternal, WA Alert, & Audit (`02`, `03`, `09`)**:
+3. **Domain Integrasi Eksternal, WA Alert, & Audit (`02`, `03`, `09`, `13`)**:
    - `api_keys` untuk integrasi helpdesk (`/api/tickets/consume`).
-   - `wa_config`, `wa_thresholds`, `wa_alert_status`, `wa_delivery_logs` untuk notifikasi stok otomatis Fonnte dengan ambang berjenjang (*tipe > produk > global*) dan jeda 15 menit.
+   - `wa_config` (termasuk `recipient_slots_json` maksimal 4 slot bersaklar ON/OFF), `wa_thresholds`, `wa_alert_status`, `wa_delivery_logs` untuk notifikasi stok otomatis & pengajuan pembelian barang (selektif `beli`) via Fonnte.
    - `audit_logs` untuk catatan jejak perubahan administratif.
-   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.6).*
+   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.7).*
 
 ---
 

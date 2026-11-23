@@ -18,7 +18,8 @@ import {
   whatsappService,
   WhatsAppConfigData,
   ThresholdMatrixItem,
-  WaLogItem
+  WaLogItem,
+  normalizeWaRecipientSlots
 } from '../services/whatsappService';
 import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
 import { WaConfigTab } from './whatsapp/WaConfigTab';
@@ -59,6 +60,7 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
     globalLowStockThreshold: 3,
     globalEarlyWarningThreshold: 5,
     recipients: ['081290008888'],
+    recipientSlots: normalizeWaRecipientSlots(null, ['081290008888']),
     apiUrl: 'https://api.fonnte.com/send',
     apiToken: '',
     activeHoursStart: '',
@@ -76,7 +78,12 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
         whatsappService.getThresholds(),
         whatsappService.getLogs(50)
       ]);
-      setConfig(cfg);
+      const normalizedSlots = normalizeWaRecipientSlots(cfg.recipientSlots, cfg.recipients);
+      setConfig({
+        ...cfg,
+        recipientSlots: normalizedSlots,
+        recipients: normalizedSlots.filter((s) => s.enabled && s.number.trim()).map((s) => s.number.trim()),
+      });
       setThresholdMatrix(thresh);
       setLogs(lg);
     } catch {
@@ -106,12 +113,21 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
       return;
     }
 
+    const slots = normalizeWaRecipientSlots(config.recipientSlots, config.recipients);
+    const activeRecipients = slots
+      .filter((s) => s.enabled && s.number.trim().length > 0)
+      .map((s) => s.number.trim());
+
     setLoading(true);
-    const res = await whatsappService.updateConfig(config);
+    const res = await whatsappService.updateConfig({
+      ...config,
+      recipientSlots: slots,
+      recipients: activeRecipients,
+    });
     setLoading(false);
 
     if (res.success) {
-      showToast('Konfigurasi WA Alert & Jeda 15 Menit berhasil disimpan!', 'success');
+      showToast('Konfigurasi WhatsApp Alert & 4 slot penerima berhasil disimpan!', 'success');
       loadData();
     } else {
       showToast(res.message, 'error');

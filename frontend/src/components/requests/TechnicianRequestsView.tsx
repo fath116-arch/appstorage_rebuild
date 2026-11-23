@@ -18,7 +18,8 @@ import {
   Wrench,
   Search,
   X,
-  Briefcase
+  Briefcase,
+  ShoppingCart
 } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
@@ -53,6 +54,7 @@ export const TechnicianRequestsView: React.FC = () => {
   const allowOnBehalf = canActOnBehalf(user?.role);
 
   const [subTab, setSubTab] = useState<'requests' | 'held'>('requests');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -62,10 +64,13 @@ export const TechnicianRequestsView: React.FC = () => {
   const [timelines, setTimelines] = useState<Record<string, RequestTimelineEntry[]>>({});
   const [loadingTimelineId, setLoadingTimelineId] = useState<string | null>(null);
 
-  // Create Request Modal (Ambil vs Kembalikan; Satuan vs Paket Tas)
+  // Create Request Modal (Ambil vs Kembalikan vs Beli; Satuan vs Paket Tas)
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [reqMode, setReqMode] = useState<'ambil' | 'kembalikan'>('ambil');
+  const [reqMode, setReqMode] = useState<'ambil' | 'kembalikan' | 'beli'>('ambil');
   const [takeScope, setTakeScope] = useState<'satuan' | 'tas'>('satuan');
+  const [purchaseSource, setPurchaseSource] = useState<'katalog' | 'baru'>('katalog');
+  const [purchaseItemName, setPurchaseItemName] = useState<string>('');
+  const [purchaseEstimatedPrice, setPurchaseEstimatedPrice] = useState<string>('');
   const [reqBagId, setReqBagId] = useState<string>('');
   const [reqProdId, setReqProdId] = useState<number | ''>('');
   const [reqTipeId, setReqTipeId] = useState<number | ''>('');
@@ -94,7 +99,7 @@ export const TechnicianRequestsView: React.FC = () => {
   const [pickupNotes, setPickupNotes] = useState<string>('');
   const [pickingUp, setPickingUp] = useState(false);
 
-  // Complete (Selesai Terpakai Pelanggan) Modal
+  // Complete Modal (Selesai Terpakai Pelanggan OR Pembelian Selesai)
   const [completeTarget, setCompleteTarget] = useState<RequestRecord | null>(null);
   const [customerName, setCustomerName] = useState<string>('');
   const [usageNotes, setUsageNotes] = useState<string>('');
@@ -154,6 +159,9 @@ export const TechnicianRequestsView: React.FC = () => {
     const firstHeld = heldItems.find((h) => (h.actor_id || h.pemohon_id) === actorId && !h.has_pending_return);
     setReqMode('ambil');
     setTakeScope('satuan');
+    setPurchaseSource(products.length > 0 ? 'katalog' : 'baru');
+    setPurchaseItemName('');
+    setPurchaseEstimatedPrice('');
     setReqBagId(bags[0]?.id || '');
     setReqProdId(firstProd?.id || '');
     setReqTipeId(firstTipe?.id || '');
@@ -231,6 +239,51 @@ export const TechnicianRequestsView: React.FC = () => {
       return;
     }
 
+    if (reqMode === 'beli') {
+      const qty = parseInt(reqJumlah, 10) || 0;
+      if (qty < 1) {
+        showToast('Jumlah barang yang diajukan minimal 1.', 'warning');
+        return;
+      }
+      if (purchaseSource === 'katalog' && !reqTipeId) {
+        showToast('Pilih produk dan tipe dari katalog, atau ubah ke Ketik Barang Baru.', 'warning');
+        return;
+      }
+      if (purchaseSource === 'baru' && purchaseItemName.trim().length < 2) {
+        showToast('Nama barang baru wajib diisi minimal 2 karakter.', 'warning');
+        return;
+      }
+      if (reqAlasan.trim().length < 3) {
+        showToast('Alasan pengajuan pembelian barang wajib diisi (minimal 3 karakter).', 'warning');
+        return;
+      }
+
+      const rawPriceDigits = purchaseEstimatedPrice.replace(/\D/g, '');
+      const parsedPrice = rawPriceDigits ? parseInt(rawPriceDigits, 10) : null;
+
+      setCreating(true);
+      try {
+        await requestApi.create({
+          request_type: 'beli',
+          tipe_id: purchaseSource === 'katalog' ? Number(reqTipeId) : undefined,
+          purchase_item_name: purchaseSource === 'baru' ? purchaseItemName.trim() : undefined,
+          jumlah: qty,
+          purchase_estimated_price: parsedPrice && parsedPrice > 0 ? parsedPrice : null,
+          alasan: reqAlasan.trim(),
+          actor_id: isOnBehalf ? reqActorId : undefined,
+          on_behalf_reason: isOnBehalf ? reqOnBehalfReason.trim() : undefined
+        });
+        showToast('Pengajuan pembelian barang berhasil dikirim & notifikasi WhatsApp diproses.', 'success');
+        setIsCreateOpen(false);
+        await refreshData();
+      } catch (err: unknown) {
+        showToast(getErrorMessage(err), 'error');
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
     if (takeScope === 'tas') {
       if (!reqBagId || !selectedBag) {
         showToast('Pilih paket Tas Kerja terlebih dahulu.', 'warning');
@@ -292,7 +345,10 @@ export const TechnicianRequestsView: React.FC = () => {
       const res = await requestApi.approve(req.id, {
         target_box_id: req.box_id || boxes[0]?.id
       });
-      showToast(res.message || 'Request disetujui dan stok direservasi.', 'success');
+      showToast(
+        res.message || (req.request_type === 'beli' ? 'Pengajuan pembelian barang disetujui.' : 'Request disetujui dan stok direservasi.'),
+        'success'
+      );
       await refreshData();
     } catch (err: unknown) {
       showToast(getErrorMessage(err), 'error');
@@ -396,22 +452,32 @@ export const TechnicianRequestsView: React.FC = () => {
   const handleConfirmComplete = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!completeTarget) return;
-    if (customerName.trim().length < 2) {
-      showToast('Nama atau ID Pelanggan wajib diisi (minimal 2 karakter).', 'warning');
-      return;
+    const isPurchaseComplete = completeTarget.request_type === 'beli';
+
+    if (!isPurchaseComplete) {
+      if (customerName.trim().length < 2) {
+        showToast('Nama atau ID Pelanggan wajib diisi (minimal 2 karakter).', 'warning');
+        return;
+      }
+      if (usageNotes.trim().length < 3) {
+        showToast('Catatan pemasangan pada pelanggan wajib diisi.', 'warning');
+        return;
+      }
     }
-    if (usageNotes.trim().length < 3) {
-      showToast('Catatan pemasangan pada pelanggan wajib diisi.', 'warning');
-      return;
-    }
+
     setCompleting(true);
     try {
       const res = await requestApi.completeRequest(completeTarget.id, {
-        customer_name: customerName.trim(),
-        usage_notes: usageNotes.trim(),
+        customer_name: isPurchaseComplete ? undefined : customerName.trim(),
+        usage_notes: isPurchaseComplete
+          ? (usageNotes.trim() || 'Pembelian barang telah selesai diproses.')
+          : usageNotes.trim(),
         occurred_at: wibLocalInputToUtcIso(completeOccurredLocal)
       });
-      showToast(res.message || 'Barang ditandai selesai terpakai untuk pelanggan.', 'success');
+      showToast(
+        res.message || (isPurchaseComplete ? 'Pengajuan pembelian ditandai selesai (Sudah Dibeli).' : 'Barang ditandai selesai terpakai untuk pelanggan.'),
+        'success'
+      );
       setCompleteTarget(null);
       await refreshData();
     } catch (err: unknown) {
@@ -424,6 +490,10 @@ export const TechnicianRequestsView: React.FC = () => {
   const filteredRequests = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return requests.filter((r) => {
+      if (typeFilter !== 'all') {
+        const effectiveType = r.request_type || 'ambil';
+        if (effectiveType !== typeFilter) return false;
+      }
       if (statusFilter !== 'all') {
         if (statusFilter === 'diajukan') {
           if (r.status !== 'diajukan' && r.status !== 'menunggu') return false;
@@ -436,6 +506,7 @@ export const TechnicianRequestsView: React.FC = () => {
         r.id.toLowerCase().includes(q) ||
         (r.nama_produk && r.nama_produk.toLowerCase().includes(q)) ||
         (r.nama_tipe && r.nama_tipe.toLowerCase().includes(q)) ||
+        (r.purchase_item_name && r.purchase_item_name.toLowerCase().includes(q)) ||
         (r.kode_id && r.kode_id.toLowerCase().includes(q)) ||
         (r.nama_pemohon && r.nama_pemohon.toLowerCase().includes(q)) ||
         (r.alasan && r.alasan.toLowerCase().includes(q)) ||
@@ -443,7 +514,7 @@ export const TechnicianRequestsView: React.FC = () => {
         (r.return_notes && r.return_notes.toLowerCase().includes(q))
       );
     });
-  }, [requests, statusFilter, searchQuery]);
+  }, [requests, typeFilter, statusFilter, searchQuery]);
 
   const filteredHeld = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -524,20 +595,33 @@ export const TechnicianRequestsView: React.FC = () => {
           </div>
 
           {subTab === 'requests' && (
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
-            >
-              <option value="all">Semua Status</option>
-              <option value="diajukan">Diajukan</option>
-              <option value="disetujui">Disetujui (Dipesan)</option>
-              <option value="diambil">Diambil</option>
-              <option value="selesai">Selesai (Terpakai Pelanggan)</option>
-              <option value="dikembalikan">Dikembalikan</option>
-              <option value="ditolak">Ditolak</option>
-              <option value="dibatalkan">Dibatalkan</option>
-            </select>
+            <>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
+              >
+                <option value="all">Semua Jenis</option>
+                <option value="ambil">Ambil Barang</option>
+                <option value="kembalikan">Pengembalian</option>
+                <option value="beli">Pengajuan Pembelian</option>
+              </select>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
+              >
+                <option value="all">Semua Status</option>
+                <option value="diajukan">Diajukan</option>
+                <option value="disetujui">Disetujui</option>
+                <option value="diambil">Diambil</option>
+                <option value="selesai">Selesai</option>
+                <option value="dikembalikan">Dikembalikan</option>
+                <option value="ditolak">Ditolak</option>
+                <option value="dibatalkan">Dibatalkan</option>
+              </select>
+            </>
           )}
         </div>
       </div>
@@ -555,9 +639,22 @@ export const TechnicianRequestsView: React.FC = () => {
               const isBusy = busyId === req.id;
               const isPending = req.status === 'diajukan' || req.status === 'menunggu';
               const isReturnReq = req.request_type === 'kembalikan';
+              const isPurchaseReq = req.request_type === 'beli';
               const isApproved = req.status === 'disetujui';
               const isPickedUp = req.status === 'diambil';
               const isOwner = user && (req.pemohon_id === user.id || req.actor_id === user.id);
+
+              const statusDisplay = isPurchaseReq
+                ? req.status === 'disetujui'
+                  ? 'Disetujui (Siap Dibeli)'
+                  : req.status === 'selesai'
+                  ? 'Selesai (Sudah Dibeli)'
+                  : STATUS_LABELS[req.status] || req.status.toUpperCase()
+                : STATUS_LABELS[req.status] || req.status.toUpperCase();
+
+              const itemHeading = isPurchaseReq && !req.tipe_id
+                ? req.purchase_item_name || 'Usulan Barang Baru'
+                : `${req.nama_produk} — ${req.nama_tipe}`;
 
               return (
                 <div key={req.id} className="p-4 space-y-3 text-xs">
@@ -566,8 +663,20 @@ export const TechnicianRequestsView: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
                         <span className="font-bold text-slate-900 dark:text-slate-100">{req.id}</span>
                         <span className="text-slate-400">·</span>
-                        <span className={`font-sans font-semibold ${isReturnReq ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300'}`}>
-                          {isReturnReq ? 'Pengajuan Pengembalian' : 'Permohonan Ambil'}
+                        <span
+                          className={`font-sans font-semibold ${
+                            isPurchaseReq
+                              ? 'text-amber-700 dark:text-amber-400'
+                              : isReturnReq
+                              ? 'text-indigo-600 dark:text-indigo-400'
+                              : 'text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {isPurchaseReq
+                            ? 'Pengajuan Pembelian'
+                            : isReturnReq
+                            ? 'Pengajuan Pengembalian'
+                            : 'Permohonan Ambil'}
                         </span>
                         <span className="text-slate-400">·</span>
                         <span
@@ -585,8 +694,16 @@ export const TechnicianRequestsView: React.FC = () => {
                               : 'text-slate-500 dark:text-slate-400'
                           }`}
                         >
-                          {STATUS_LABELS[req.status] || req.status.toUpperCase()}
+                          {statusDisplay}
                         </span>
+                        {isPurchaseReq && !req.tipe_id && (
+                          <>
+                            <span className="text-slate-400">·</span>
+                            <span className="font-sans font-semibold text-amber-700 dark:text-amber-300">
+                              Barang Baru (Non-Katalog)
+                            </span>
+                          </>
+                        )}
                         {req.bag_name && (
                           <>
                             <span className="text-slate-400">·</span>
@@ -595,7 +712,7 @@ export const TechnicianRequestsView: React.FC = () => {
                             </span>
                           </>
                         )}
-                        {req.kategori_barang === 'Alat' && (
+                        {!isPurchaseReq && req.kategori_barang === 'Alat' && (
                           <>
                             <span className="text-slate-400">·</span>
                             <span className="font-sans font-semibold text-amber-700 dark:text-amber-300">
@@ -606,13 +723,21 @@ export const TechnicianRequestsView: React.FC = () => {
                       </div>
 
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {req.nama_produk} — {req.nama_tipe}
+                        {itemHeading}
                       </div>
 
                       <div className="text-[11px] text-slate-600 dark:text-slate-300 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
                           {req.kode_id ? `SN: ${req.kode_id}` : `${req.jumlah} ${req.tipe_stok || 'unit'}`}
                         </span>
+                        {isPurchaseReq && req.purchase_estimated_price != null && Number(req.purchase_estimated_price) > 0 && (
+                          <>
+                            <span className="text-slate-400">·</span>
+                            <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                              Estimasi: Rp {Number(req.purchase_estimated_price).toLocaleString('id-ID')}
+                            </span>
+                          </>
+                        )}
                         <span className="text-slate-400">·</span>
                         <span>
                           Pemohon: <strong className="text-slate-800 dark:text-slate-200">{req.nama_pemohon || req.pemohon_id}</strong>
@@ -630,9 +755,13 @@ export const TechnicianRequestsView: React.FC = () => {
                       </div>
 
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {isReturnReq ? 'Catatan Kembali: ' : 'Alasan: '}{req.alasan}
+                        {isReturnReq ? 'Catatan Kembali: ' : isPurchaseReq ? 'Kebutuhan: ' : 'Alasan: '}{req.alasan}
                         {req.catatan_penolakan ? ` · Catatan Tolak: ${req.catatan_penolakan}` : ''}
-                        {req.status === 'selesai' && req.return_notes ? ` · Pemakaian: ${req.return_notes}` : ''}
+                        {req.status === 'selesai' && req.return_notes
+                          ? isPurchaseReq
+                            ? ` · Catatan Beli: ${req.return_notes}`
+                            : ` · Pemakaian: ${req.return_notes}`
+                          : ''}
                         {req.status !== 'selesai' && req.return_condition
                           ? ` · Kondisi: ${CONDITION_DISPLAY[req.return_condition] || req.return_condition} (Box ${req.return_box_kode || req.return_box_id})`
                           : ''}
@@ -664,7 +793,30 @@ export const TechnicianRequestsView: React.FC = () => {
                         </>
                       )}
 
-                      {isManager && isPending && !isReturnReq && (
+                      {isManager && isPending && isPurchaseReq && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleApprove(req)}
+                            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold flex items-center gap-1 disabled:opacity-50 whitespace-nowrap"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Setujui Pembelian</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleReject(req)}
+                            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-slate-200 dark:border-slate-700 font-semibold flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>Tolak</span>
+                          </button>
+                        </>
+                      )}
+
+                      {isManager && isPending && !isReturnReq && !isPurchaseReq && (
                         <>
                           <button
                             type="button"
@@ -687,7 +839,19 @@ export const TechnicianRequestsView: React.FC = () => {
                         </>
                       )}
 
-                      {isManager && isApproved && (
+                      {isManager && isApproved && isPurchaseReq && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => openCompleteDialog(req)}
+                          className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-semibold flex items-center gap-1 whitespace-nowrap"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Tandai Sudah Dibeli</span>
+                        </button>
+                      )}
+
+                      {isManager && isApproved && !isPurchaseReq && (
                         <button
                           type="button"
                           disabled={isBusy}
@@ -896,7 +1060,11 @@ export const TechnicianRequestsView: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base">
-                {reqMode === 'kembalikan' ? 'Ajukan Pengembalian Barang / Alat' : 'Ajukan Permohonan Ambil Barang / Alat'}
+                {reqMode === 'kembalikan'
+                  ? 'Ajukan Pengembalian Barang / Alat'
+                  : reqMode === 'beli'
+                  ? 'Ajukan Pembelian Barang Baru / Restock'
+                  : 'Ajukan Permohonan Ambil Barang / Alat'}
               </h3>
               <button type="button" onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -904,23 +1072,23 @@ export const TechnicianRequestsView: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateSubmit} className="space-y-3.5 text-xs">
-              {/* Pilihan Mode Request: Ambil vs Kembalikan */}
+              {/* Pilihan Mode Request: Ambil vs Kembalikan vs Beli */}
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                   Jenis Pengajuan *
                 </label>
-                <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                   <button
                     type="button"
                     onClick={() => setReqMode('ambil')}
-                    className={`py-2 px-3 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    className={`py-2 px-2.5 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
                       reqMode === 'ambil'
                         ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 shadow-xs'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                     }`}
                   >
                     <PackageCheck className="w-3.5 h-3.5" />
-                    <span>Ambil Barang / Alat</span>
+                    <span>Ambil Barang</span>
                   </button>
                   <button
                     type="button"
@@ -930,7 +1098,7 @@ export const TechnicianRequestsView: React.FC = () => {
                       setReqOriginId(firstHeld?.id || '');
                       setReqReturnBoxId(firstHeld?.box_id || boxes[0]?.id || '');
                     }}
-                    className={`py-2 px-3 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    className={`py-2 px-2.5 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
                       reqMode === 'kembalikan'
                         ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-400 shadow-xs'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -938,6 +1106,18 @@ export const TechnicianRequestsView: React.FC = () => {
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Kembalikan ({eligibleReturnItems.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReqMode('beli')}
+                    className={`py-2 px-2.5 rounded-md font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                      reqMode === 'beli'
+                        ? 'bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Ajukan Pembelian</span>
                   </button>
                 </div>
               </div>
@@ -1063,6 +1243,126 @@ export const TechnicianRequestsView: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+              ) : reqMode === 'beli' ? (
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Sumber Barang yang Diajukan *
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setPurchaseSource('katalog')}
+                        className={`py-2 px-3 rounded-md font-bold transition-colors whitespace-nowrap ${
+                          purchaseSource === 'katalog'
+                            ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        Pilih dari Katalog
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPurchaseSource('baru')}
+                        className={`py-2 px-3 rounded-md font-bold transition-colors whitespace-nowrap ${
+                          purchaseSource === 'baru'
+                            ? 'bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-400 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        Ketik Barang Baru
+                      </button>
+                    </div>
+                  </div>
+
+                  {purchaseSource === 'katalog' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Produk *</label>
+                        <select
+                          value={reqProdId}
+                          onChange={(e) => {
+                            const pId = Number(e.target.value);
+                            setReqProdId(pId);
+                            const prod = products.find((p) => p.id === pId);
+                            const firstT = prod?.tipes?.[0];
+                            setReqTipeId(firstT?.id || '');
+                          }}
+                          className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                        >
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.nama}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tipe *</label>
+                        <select
+                          value={reqTipeId}
+                          onChange={(e) => setReqTipeId(Number(e.target.value))}
+                          className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                        >
+                          {tipesForProduct.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.nama_tipe} (Sisa: {t.stok_tersedia ?? 0})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Nama &amp; Spesifikasi Barang Baru *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Misal: MikroTik RB5009UG+S+IN / Kabel Dropcore 2 Core 1000m"
+                        value={purchaseItemName}
+                        onChange={(e) => setPurchaseItemName(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Jumlah Diajukan *
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        value={reqJumlah}
+                        onChange={(e) => setReqJumlah(e.target.value.replace(/\D/g, ''))}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Estimasi Harga (Rp) · Opsional
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Kosongkan jika belum tahu"
+                        value={
+                          purchaseEstimatedPrice
+                            ? Number(purchaseEstimatedPrice).toLocaleString('id-ID')
+                            : ''
+                        }
+                        onChange={(e) => setPurchaseEstimatedPrice(e.target.value.replace(/\D/g, ''))}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1286,7 +1586,11 @@ export const TechnicianRequestsView: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  {reqMode === 'kembalikan' ? 'Catatan Kondisi / Alasan Pengembalian *' : 'Alasan / Nomor Tiket Pemakaian *'}
+                  {reqMode === 'kembalikan'
+                    ? 'Catatan Kondisi / Alasan Pengembalian *'
+                    : reqMode === 'beli'
+                    ? 'Alasan / Kebutuhan Pembelian *'
+                    : 'Alasan / Nomor Tiket Pemakaian *'}
                 </label>
                 <textarea
                   rows={2}
@@ -1294,6 +1598,8 @@ export const TechnicianRequestsView: React.FC = () => {
                   placeholder={
                     reqMode === 'kembalikan'
                       ? 'Misal: Pekerjaan selesai, barang tidak terpakai dan masih utuh / kabel bodi normal...'
+                      : reqMode === 'beli'
+                      ? 'Misal: Stok gudang habis / kebutuhan proyek perluasan ODP cluster selatan...'
                       : takeScope === 'tas'
                       ? 'Misal: Tiket #INC-4092 · Aktivasi & splicing cluster utara...'
                       : 'Misal: Pemasangan pelanggan baru Cluster Melati / Peminjaman splicer lapangan...'
@@ -1303,6 +1609,12 @@ export const TechnicianRequestsView: React.FC = () => {
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {reqMode === 'beli'
+                  ? 'Notifikasi WhatsApp ke penerima aktif akan dikirim otomatis khusus untuk pengajuan pembelian barang ini.'
+                  : 'Pengambilan dan pengembalian barang dicatat di sistem tanpa mengirim notifikasi WhatsApp.'}
+              </p>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -1322,6 +1634,8 @@ export const TechnicianRequestsView: React.FC = () => {
                   className={`px-4 py-2 font-bold text-white rounded-lg disabled:opacity-50 ${
                     reqMode === 'kembalikan'
                       ? 'bg-indigo-600 hover:bg-indigo-500'
+                      : reqMode === 'beli'
+                      ? 'bg-amber-600 hover:bg-amber-500'
                       : 'bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500'
                   }`}
                 >
@@ -1329,6 +1643,8 @@ export const TechnicianRequestsView: React.FC = () => {
                     ? 'Mengirim...'
                     : reqMode === 'kembalikan'
                     ? 'Ajukan Pengembalian'
+                    : reqMode === 'beli'
+                    ? 'Ajukan Pembelian'
                     : takeScope === 'tas'
                     ? 'Ajukan Paket Tas'
                     : 'Kirim Permohonan'}
@@ -1504,13 +1820,15 @@ export const TechnicianRequestsView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Tandai Selesai — Terpakai Pelanggan (Barang Habis Pakai) */}
+      {/* Modal: Tandai Selesai — Terpakai Pelanggan atau Pembelian Selesai */}
       {completeTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base">
-                Tandai Selesai — Terpakai Pelanggan ({completeTarget.id})
+                {completeTarget.request_type === 'beli'
+                  ? `Tandai Sudah Dibeli (${completeTarget.id})`
+                  : `Tandai Selesai — Terpakai Pelanggan (${completeTarget.id})`}
               </h3>
               <button type="button" onClick={() => setCompleteTarget(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -1519,35 +1837,50 @@ export const TechnicianRequestsView: React.FC = () => {
             <form onSubmit={handleConfirmComplete} className="space-y-3 text-xs">
               <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                 <div className="font-bold text-slate-900 dark:text-slate-100">
-                  {completeTarget.nama_produk} — {completeTarget.nama_tipe}
+                  {completeTarget.request_type === 'beli' && !completeTarget.tipe_id
+                    ? completeTarget.purchase_item_name || 'Usulan Barang Baru'
+                    : `${completeTarget.nama_produk} — ${completeTarget.nama_tipe}`}
                 </div>
                 <div className="font-mono text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
-                  Pemegang: {completeTarget.nama_pemohon} · {completeTarget.kode_id ? `SN: ${completeTarget.kode_id}` : `${completeTarget.jumlah} ${completeTarget.tipe_stok || 'unit'}`}
+                  Pemohon: {completeTarget.nama_pemohon} ·{' '}
+                  {completeTarget.kode_id
+                    ? `SN: ${completeTarget.kode_id}`
+                    : `${completeTarget.jumlah} ${completeTarget.tipe_stok || 'unit'}`}
                 </div>
               </div>
+
+              {completeTarget.request_type !== 'beli' && (
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama / ID Pelanggan *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Misal: Budi Santoso / CID-20418"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama / ID Pelanggan *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Misal: Budi Santoso / CID-20418"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Catatan Pemasangan pada Pelanggan *
+                  {completeTarget.request_type === 'beli'
+                    ? 'Catatan Pembelian / No. PO / Vendor (Opsional)'
+                    : 'Catatan Pemasangan pada Pelanggan *'}
                 </label>
                 <textarea
                   rows={2}
-                  required
+                  required={completeTarget.request_type !== 'beli'}
                   value={usageNotes}
                   onChange={(e) => setUsageNotes(e.target.value)}
-                  placeholder="Misal: Terpasang aktivasi baru Cluster Melati Blok B4, redaman -18 dBm"
+                  placeholder={
+                    completeTarget.request_type === 'beli'
+                      ? 'Misal: Dibeli via vendor ABC · No. PO-2026-114'
+                      : 'Misal: Terpasang aktivasi baru Cluster Melati Blok B4, redaman -18 dBm'
+                  }
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
@@ -1575,7 +1908,11 @@ export const TechnicianRequestsView: React.FC = () => {
                   disabled={completing}
                   className="px-4 py-2 font-bold text-white bg-teal-600 hover:bg-teal-500 rounded-lg disabled:opacity-50"
                 >
-                  {completing ? 'Menyimpan...' : 'Konfirmasi Selesai Terpakai'}
+                  {completing
+                    ? 'Menyimpan...'
+                    : completeTarget.request_type === 'beli'
+                    ? 'Konfirmasi Sudah Dibeli'
+                    : 'Konfirmasi Selesai Terpakai'}
                 </button>
               </div>
             </form>
@@ -1597,7 +1934,10 @@ export const TechnicianRequestsView: React.FC = () => {
             </div>
             <form onSubmit={handleConfirmReject} className="space-y-3 text-xs">
               <p className="text-slate-600 dark:text-slate-300">
-                {rejectTarget.nama_produk} — {rejectTarget.nama_tipe} ({rejectTarget.nama_pemohon})
+                {rejectTarget.request_type === 'beli' && !rejectTarget.tipe_id
+                  ? rejectTarget.purchase_item_name || 'Usulan Barang Baru'
+                  : `${rejectTarget.nama_produk} — ${rejectTarget.nama_tipe}`}{' '}
+                ({rejectTarget.nama_pemohon})
               </p>
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">

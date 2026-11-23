@@ -1,29 +1,29 @@
 # PELACAK PROGRES FIELDOPS IT (PROGRESS.MD)
 **Aplikasi**: FieldOps IT Inventory  
 **Database**: MariaDB 11.4 LTS (Server Lokal, UTC)  
-**Status Versi**: v1.2.6 Selesai & Terverifikasi  
+**Status Versi**: v1.2.7 Selesai & Terverifikasi  
 **Format Status**: `belum` | `dikerjakan` | `selesai` | `terverifikasi`
 
 ---
 
-## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.6)
+## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.7)
 
-> *Catatan Arsitektur*: Modul legacy awal v1 (`/api/inventory`, `/api/transactions`) telah disatukan ke dalam **Model Kanonik Tunggal v1.2.6** (`CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`).
+> *Catatan Arsitektur*: Modul legacy awal v1 (`/api/inventory`, `/api/transactions`) telah disatukan ke dalam **Model Kanonik Tunggal** (`CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`).
 
 | ID Fitur | Nama Fitur & Modul | Status | Modul / Lokasi Aktual | Dites? | Catatan / Aturan Khusus |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`[F-01]`** | Pemisahan Struktur `frontend/` & `backend/` | **terverifikasi** | Root / Docker Compose | **Ya** | Decoupled structure, build Vite & Express 5 terpadu |
-| **`[F-02]`** | Database MariaDB & Migrasi Skema (`01` s/d `12`) | **terverifikasi** | `backend/src/db/migrations/` | **Ya** | Skema akun, fondasi keamanan, katalog, stok, request, WA alert, & unifikasi |
+| **`[F-02]`** | Database MariaDB & Migrasi Skema (`01` s/d `13`) | **terverifikasi** | `backend/src/db/migrations/` | **Ya** | Skema akun, fondasi keamanan, katalog, stok, request (`beli`), 4 slot WA, & konfigurasi pengesahan |
 | **`[F-03]`** | Autentikasi Server-Authoritative & Sesi Cookie | **terverifikasi** | `backend/src/routes/auth.ts`, `authService.ts`, `sessionService.ts` | **Ya** | Cookie HttpOnly (30 hari), PBKDF2 100k, rotasi refresh anti-replay, rate limit |
 | **`[F-04]`** | Skrip Setup Master Admin Pertama | **terverifikasi** | `backend/src/scripts/setupAdmin.ts` | **Ya** | CLI interaktif `npm run setup:admin` |
 | **`[F-05]`** | Ledger Aktivitas Append-Only & Audit Koreksi | **terverifikasi** | `backend/src/routes/activities.ts`, `activityLogService.ts` | **Ya** | ID harian `AKT-YYYYMMDD-NNNN`, `actor_id` vs `recorded_by_id`, koreksi `correction_of_id` |
 | **`[F-06]`** | Katalog Bertingkat, Ubah & Hapus Terproteksi | **terverifikasi** | `backend/src/routes/catalog.ts`, `catalogService.ts` | **Ya** | Jenis, Atribut, Produk, Tipe, proteksi stok/request terbuka, & Kotak Sampah 14 hari |
 | **`[F-07]`** | Manajemen Box & Mutasi Stok Atomik | **terverifikasi** | `backend/src/routes/box.ts`, `stock.ts`, `stockService.ts` | **Ya** | Box campuran, `SCAN_SN` ketat, Keranjang Keluar, Arsip & Restore, kondisi item |
 | **`[F-08]`** | Integrasi Tiket Lapangan (Auto-Deduct API) | **terverifikasi** | `backend/src/routes/ticketIntegration.ts` | **Ya** | `POST /api/tickets/consume`, `GET/POST /api/tickets/keys` dengan `X-API-Key` / Bearer |
-| **`[F-09]`** | Konsolidasi WhatsApp Alert (Fonnte) | **terverifikasi** | `backend/src/routes/whatsapp.ts`, `whatsappAlertService.ts` | **Ya** | Ambang berjenjang (*tipe > produk > global*), watchlist, & cooldown 15 menit |
+| **`[F-09]`** | Konsolidasi WhatsApp Alert (Fonnte, 4 Slot ON/OFF, & WA Selektif) | **terverifikasi** | `backend/src/routes/whatsapp.ts`, `whatsappAlertService.ts` | **Ya** | Maks. 4 slot penerima ON/OFF, WA selektif hanya `beli` + stok alert, & cooldown 15m |
 | **`[F-10]`** | Laporan Mingguan WIB & Sanitasi Ekspor Data | **terverifikasi** | `backend/src/routes/reports.ts`, `excelExporter.ts` | **Ya** | Rentang Senin–Minggu WIB, ExcelJS wall-clock WIB, & sanitasi CWE-1236 |
 | **`[F-11]`** | Inspeksi Tas & Multi-Tas Kerja Lapangan | **terverifikasi** | `backend/src/routes/checklist.ts`, `bagService.ts` | **Ya** | `TOOLKIT_CHECK` & multi-template `BAG_TEMPLATE` terhubung ke Katalog & Request |
-| **`[F-12]`** | Cetak Laporan A4 & Label QR Batch A4 Presisi | **terverifikasi** | `PrintReportModal.tsx`, `BatchLabelPrintModal.tsx` | **Ya** | Kop surat formal A4 & label `190 × 89 mm` dengan titik potong celah presisi |
+| **`[F-12]`** | Cetak Laporan A4 Dinamis & Label QR Batch A4 | **terverifikasi** | `PrintReportModal.tsx`, `PrintDocumentModal.tsx`, `BatchLabelPrintModal.tsx` | **Ya** | Kop & Lembar Pengesahan dinamis (`REPORT_APPROVAL_CONFIG`) + label `190 × 89 mm` |
 | **`[F-13]`** | Backup & Restore Bebas Kredensial Akun | **terverifikasi** | `backend/src/services/backupService.ts` | **Ya** | Teruji via `npm run test:backup` (Zero Account Leakage) |
 | **`[F-14]`** | Docker Compose & Panduan `DEPLOY.md` | **terverifikasi** | `docker-compose.yml`, `docs/DEPLOY.md` | **Ya** | MariaDB 11.4 + Backend + Cloudflare Tunnel HTTPS + panduan native |
 
@@ -71,6 +71,16 @@
 | **Status `Selesai` Pelanggan** | Penyelesaian transaksi `Barang Habis Pakai` dengan data pelanggan | **terverifikasi** | `bagAndCompleteRequest.test.ts` (20/20 Lulus) | `POST /api/requests/:id/complete` untuk teknisi pemilik & gudang; `Alat` tetap wajib kembali |
 | **Zona Waktu UTC ↔ WIB** | Penyimpanan UTC, tampilan WIB, Laporan Mingguan & ExcelJS WIB | **terverifikasi** | `canonicalSystem.test.ts`, `v125Paket3Tools.test.ts` (24/24 Lulus) | Senin 00:00 – Minggu 23:59:59 WIB, `debug-clock`, CWE-1236 `sanitizeFormulaInput()` |
 
+## 🚀 Road Map v1.2.7 (Pembelian Barang, WA 4 Slot ON/OFF, Auto-Refresh 5m, Pengesahan Dinamis, & MariaDB Strict Auth)
+
+| Paket / Modul | Deskripsi Cakupan | Status | Pengujian Otomatis | Catatan Kunci |
+| :--- | :--- | :--- | :--- | :--- |
+| **Request Pembelian Barang (`beli`)** | Opsi `Ajukan Pembelian` (katalog / ketik barang baru), harga opsional, & WA selektif | **terverifikasi** | `purchaseWa4ReportConfig.test.ts` (20/20 Lulus) | Tanpa potong stok fisik saat disetujui; hanya `beli` yang memicu notif WA |
+| **4 Slot Penerima WA + ON/OFF** | Batas 4 slot (`Slot 1..4`) dengan saklar ON/OFF individual per nomor | **terverifikasi** | `purchaseWa4ReportConfig.test.ts`, `v125Paket6WaAlert.test.ts` | Hanya slot `enabled = true` yang dikirimi pesan; tanpa fallback `.env` bila semua OFF |
+| **Auto-Refresh Senyap 5 Menit** | Sinkronisasi latar belakang otomatis tiap `300.000 ms` tanpa spinner/toast error | **terverifikasi** | `npm run lint` & `npm run build` | Terintegrasi `visibilitychange` pada `InventoryContext.tsx` |
+| **Lembar Pengesahan Dinamis** | Kop Surat & 3 penandatangan fleksibel (`REPORT_APPROVAL_CONFIG`) untuk production | **terverifikasi** | `purchaseWa4ReportConfig.test.ts` | `GET/PUT /api/reports/approval-config`, profil login (`useCurrentUser`), cetak identik |
+| **MariaDB Strict Auth & `setup:test-login`** | Format `TIMESTAMP` UTC SQL, sanitasi IP proxy, & diagnostik login 6 tahap | **terverifikasi** | `authLoginMariaDbCompat.test.ts` (22/22 Lulus), `systemSetup.test.ts` (45/45 Lulus) | Kompatibel HTTP/HTTPS cookie, `setup:admin`, & probe tulis/cleanup `sessions`/`sesi` |
+
 ---
 
 ## 📈 Log Perubahan Status Terkini
@@ -79,4 +89,7 @@
 - **v1.2.6 (Unifikasi Tunggal, Kontrol Katalog, Multi-Tas, Request `Kembalikan` & `Selesai`, UTC/WIB)**:
   - Menghapus seluruh jalur legacy v1 sehingga aplikasi berjalan 100% di atas satu model kanonik dengan `refreshData()` otomatis, `SCAN_SN` ketat, Keranjang Keluar, akuntabilitas `actor_id` vs `recorded_by_id`, dan koreksi audit append-only.
   - Menambahkan fitur ubah/hapus terproteksi Kategori, Atribut, Produk, dan Box; perbaikan layar blank `BoxContentModal`; alur request **Kembalikan** 3 kondisi + verifikasi gudang; **Multi-Tas Kerja Kantor** (`BAG_TEMPLATE`) + pengajuan **Pilih Paket Tas** (`POST /api/requests/bag`); serta status **Selesai (Terpakai Pelanggan)** khusus `Barang Habis Pakai` (`POST /api/requests/:id/complete`).
-  - Terverifikasi melalui `canonicalSystem.test.ts` (19/19), `catalogDeleteEditAndReturnRequest.test.ts` (25/25), `bagAndCompleteRequest.test.ts` (20/20), suite Tahap 2–6, Paket 1–7, `npm run lint`, dan `npm run build`.
+- **v1.2.7 (Pengajuan Pembelian Barang, WA 4 Slot ON/OFF, Auto-Refresh 5 Menit, Lembar Pengesahan Dinamis, & MariaDB Strict Auth)**:
+  - Menambahkan opsi request ke-3 **Ajukan Pembelian** (`request_type = 'beli'`, migrasi `13`) dengan pemilihan katalog atau ketik barang baru (`tipe_id = NULL`), estimasi harga opsional, serta penguncian notifikasi WA selektif agar hanya `beli` yang mengirim WhatsApp (bukan `ambil`/`kembalikan`).
+  - Membatasi penerima WA tepat **4 slot dengan saklar ON/OFF individual**, menerapkan **auto-refresh senyap 5 menit** (`InventoryContext.tsx`), menyediakan kustomisasi dinamis Kop Surat & Lembar Pengesahan produksi (`REPORT_APPROVAL_CONFIG`), serta menuntaskan perbaikan autentikasi MariaDB strict `TIMESTAMP` + diagnostik `setup:test-login`.
+  - Terverifikasi melalui `purchaseWa4ReportConfig.test.ts` (20/20), `authLoginMariaDbCompat.test.ts` (22/22), `systemSetup.test.ts` (45/45), `canonicalSystem.test.ts` (19/19), `catalogDeleteEditAndReturnRequest.test.ts` (25/25), `bagAndCompleteRequest.test.ts` (20/20), `v125Paket6WaAlert.test.ts` (13/13), `bugfixScanFonnte.test.ts` (11/11), `npm run lint`, dan `npm run build`.

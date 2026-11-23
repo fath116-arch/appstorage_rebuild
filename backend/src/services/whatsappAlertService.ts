@@ -16,6 +16,15 @@ import { formatConsolidatedStockAlertMessage, formatTestConnectionMessage } from
 import { getErrorMessage } from '../utils/errorUtils';
 import { formatWibTimeHHmm } from '../utils/timezone';
 
+export const MAX_WA_RECIPIENT_SLOTS = 4;
+
+export interface WaRecipientSlot {
+  slot: number;
+  label: string;
+  number: string;
+  enabled: boolean;
+}
+
 export interface WaConfigData {
   id: string;
   isEnabled: boolean;
@@ -28,7 +37,8 @@ export interface WaConfigData {
   alertOnEarlyWarning: boolean;
   globalLowStockThreshold: number;
   globalEarlyWarningThreshold: number;
-  recipients: string[]; // Bebas duplikat
+  recipients: string[]; // Nomor/grup aktif (maks 4, diturunkan dari slot ON)
+  recipientSlots: WaRecipientSlot[]; // Tepat 4 slot dengan saklar ON/OFF
   apiUrl: string;
   apiToken: string;
   maskedToken?: string;
@@ -85,6 +95,7 @@ interface WaConfigRow {
   global_low_stock_threshold?: number | string;
   global_early_warning_threshold?: number | string;
   recipients_json?: string;
+  recipient_slots_json?: string | null;
   api_url?: string;
   api_token?: string;
 }
@@ -134,6 +145,12 @@ let localWaConfig: WaConfigData = {
   globalLowStockThreshold: 3,
   globalEarlyWarningThreshold: 5,
   recipients: ['081290008888'],
+  recipientSlots: [
+    { slot: 1, label: 'Penerima Utama', number: '081290008888', enabled: true },
+    { slot: 2, label: '', number: '', enabled: false },
+    { slot: 3, label: '', number: '', enabled: false },
+    { slot: 4, label: '', number: '', enabled: false }
+  ],
   apiUrl: process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send',
   apiToken: process.env.WHATSAPP_API_TOKEN || '',
 };
@@ -178,6 +195,61 @@ export class WhatsappAlertService {
   }
 
   /**
+   * Normalisasi 4 slot penerima tetap dengan saklar ON/OFF per nomor
+   */
+  static normalizeRecipientSlots(
+    rawSlots?: Array<Partial<WaRecipientSlot>> | null,
+    fallbackRecipients?: string[]
+  ): WaRecipientSlot[] {
+    const result: WaRecipientSlot[] = [];
+    const seenNumbers = new Set<string>();
+
+    if (Array.isArray(rawSlots) && rawSlots.length > 0) {
+      for (let i = 0; i < MAX_WA_RECIPIENT_SLOTS; i++) {
+        const entry = rawSlots[i];
+        const cleanNum = entry && typeof entry.number === 'string' ? entry.number.trim() : '';
+        const cleanLabel = entry && typeof entry.label === 'string' ? entry.label.trim().slice(0, 60) : '';
+        if (cleanNum && seenNumbers.has(cleanNum)) {
+          throw new Error(`Nomor WhatsApp "${cleanNum}" duplikat di lebih dari satu slot.`);
+        }
+        if (cleanNum) seenNumbers.add(cleanNum);
+        result.push({
+          slot: i + 1,
+          label: cleanLabel,
+          number: cleanNum,
+          enabled: cleanNum.length > 0 ? (entry?.enabled !== undefined ? Boolean(entry.enabled) : true) : Boolean(entry?.enabled)
+        });
+      }
+      return result;
+    }
+
+    const dedupedFallback = this.deduplicateRecipients(fallbackRecipients || []).slice(0, MAX_WA_RECIPIENT_SLOTS);
+    for (let i = 0; i < MAX_WA_RECIPIENT_SLOTS; i++) {
+      const num = dedupedFallback[i] || '';
+      result.push({
+        slot: i + 1,
+        label: num && i === 0 ? 'Penerima Utama' : '',
+        number: num,
+        enabled: num.length > 0
+      });
+    }
+    return result;
+  }
+
+  static getActiveRecipientsFromSlots(slots: WaRecipientSlot[]): string[] {
+    const active: string[] = [];
+    const seen = new Set<string>();
+    for (const s of slots.slice(0, MAX_WA_RECIPIENT_SLOTS)) {
+      const clean = (s.number || '').trim();
+      if (s.enabled && clean.length > 0 && !seen.has(clean)) {
+        seen.add(clean);
+        active.push(clean);
+      }
+    }
+    return active;
+  }
+
+  /**
    * Ambil konfigurasi internal lengkap termasuk raw apiToken (Hanya untuk internal server/provider)
    */
   private static async getInternalConfig(): Promise<WaConfigData> {
@@ -192,6 +264,20 @@ export class WhatsappAlertService {
           recs = this.deduplicateRecipients(r.recipients_json || '');
         }
 
+        let parsedSlots: WaRecipientSlot[] | null = null;
+        if (r.recipient_slots_json) {
+          try {
+            const rawParsed = JSON.parse(r.recipient_slots_json);
+            if (Array.isArray(rawParsed)) {
+              parsedSlots = this.normalizeRecipientSlots(rawParsed, recs);
+            }
+          } catch {
+            parsedSlots = null;
+          }
+        }
+        const slots = parsedSlots || this.normalizeRecipientSlots(null, recs);
+        const activeRecipients = this.getActiveRecipientsFromSlots(slots);
+
         const resolvedToken = r.api_token || process.env.WHATSAPP_API_TOKEN || '';
         localWaConfig = {
           id: r.id || 'main',
@@ -205,7 +291,8 @@ export class WhatsappAlertService {
           alertOnEarlyWarning: Boolean(r.alert_on_early_warning),
           globalLowStockThreshold: parseInt(String(r.global_low_stock_threshold || '3'), 10),
           globalEarlyWarningThreshold: parseInt(String(r.global_early_warning_threshold || '5'), 10),
-          recipients: this.deduplicateRecipients(recs),
+          recipients: activeRecipients,
+          recipientSlots: slots,
           apiUrl: r.api_url || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send',
           apiToken: resolvedToken,
           maskedToken: maskToken(resolvedToken)
@@ -217,6 +304,7 @@ export class WhatsappAlertService {
 
     return {
       ...localWaConfig,
+      recipientSlots: this.normalizeRecipientSlots(localWaConfig.recipientSlots, localWaConfig.recipients),
       maskedToken: maskToken(localWaConfig.apiToken)
     };
   }
@@ -230,7 +318,57 @@ export class WhatsappAlertService {
   }
 
   /**
-   * 3. Update Konfigurasi WA Alert (Dilarang Jeda 0 Menit!)
+   * Ambil target aktif & kredensial untuk notifikasi internal (mis. pengajuan pembelian barang)
+   */
+  static async getActiveDeliveryConfig(): Promise<{
+    isEnabled: boolean;
+    recipients: string[];
+    recipientSlots: WaRecipientSlot[];
+    apiUrl: string;
+    apiToken: string;
+  }> {
+    const internal = await this.getInternalConfig();
+    return {
+      isEnabled: internal.isEnabled,
+      recipients: this.getActiveRecipientsFromSlots(internal.recipientSlots),
+      recipientSlots: internal.recipientSlots,
+      apiUrl: internal.apiUrl,
+      apiToken: internal.apiToken
+    };
+  }
+
+  /**
+   * Catat log pengiriman dari layanan notifikasi eksternal (seperti pengajuan pembelian)
+   */
+  static async recordExternalDeliveryLog(entry: Omit<WaDeliveryLogRecord, 'id' | 'sent_at'>): Promise<void> {
+    const logRecord: WaDeliveryLogRecord = {
+      id: `walog_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      sent_at: new Date().toISOString(),
+      ...entry
+    };
+    localLogs.unshift(logRecord);
+    try {
+      await executeQuery(
+        `INSERT INTO wa_delivery_logs (id, trigger_type, recipients, message_snippet, summary_counts, fonnte_status, fonnte_response, operator_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          logRecord.id,
+          logRecord.trigger_type,
+          logRecord.recipients,
+          logRecord.message_snippet,
+          logRecord.summary_counts || null,
+          logRecord.fonnte_status,
+          logRecord.fonnte_response || null,
+          logRecord.operator_id || 'system'
+        ]
+      );
+    } catch {
+      // Non-fatal in memory mode
+    }
+  }
+
+  /**
+   * 3. Update Konfigurasi WA Alert (Dilarang Jeda 0 Menit! Maksimal 4 slot nomor penerima)
    */
   static async updateConfig(
     payload: Partial<WaConfigData>,
@@ -245,9 +383,25 @@ export class WhatsappAlertService {
     }
 
     const current = await this.getInternalConfig();
-    const updatedRecipients = payload.recipients !== undefined
-      ? this.deduplicateRecipients(payload.recipients)
-      : current.recipients;
+    let updatedSlots: WaRecipientSlot[];
+
+    if (Array.isArray(payload.recipientSlots)) {
+      const nonEmptySlots = payload.recipientSlots.filter(s => s && String(s.number || '').trim().length > 0);
+      if (payload.recipientSlots.length > MAX_WA_RECIPIENT_SLOTS || nonEmptySlots.length > MAX_WA_RECIPIENT_SLOTS) {
+        throw new Error(`Maksimal ${MAX_WA_RECIPIENT_SLOTS} nomor penerima WhatsApp yang diperbolehkan.`);
+      }
+      updatedSlots = this.normalizeRecipientSlots(payload.recipientSlots);
+    } else if (payload.recipients !== undefined) {
+      const deduped = this.deduplicateRecipients(payload.recipients);
+      if (deduped.length > MAX_WA_RECIPIENT_SLOTS) {
+        throw new Error(`Maksimal ${MAX_WA_RECIPIENT_SLOTS} nomor penerima WhatsApp yang diperbolehkan.`);
+      }
+      updatedSlots = this.normalizeRecipientSlots(null, deduped);
+    } else {
+      updatedSlots = this.normalizeRecipientSlots(current.recipientSlots, current.recipients);
+    }
+
+    const updatedRecipients = this.getActiveRecipientsFromSlots(updatedSlots);
 
     const merged: WaConfigData = {
       ...current,
@@ -261,6 +415,7 @@ export class WhatsappAlertService {
       globalLowStockThreshold: payload.globalLowStockThreshold !== undefined ? Math.max(1, Number(payload.globalLowStockThreshold)) : current.globalLowStockThreshold,
       globalEarlyWarningThreshold: payload.globalEarlyWarningThreshold !== undefined ? Math.max(1, Number(payload.globalEarlyWarningThreshold)) : current.globalEarlyWarningThreshold,
       recipients: updatedRecipients,
+      recipientSlots: updatedSlots,
       apiUrl: (payload.apiUrl && payload.apiUrl.trim()) ? payload.apiUrl.trim() : current.apiUrl,
       apiToken: (payload.apiToken && payload.apiToken.trim()) ? payload.apiToken.trim() : current.apiToken
     };
@@ -273,7 +428,7 @@ export class WhatsappAlertService {
           is_enabled = ?, cooldown_minutes = ?, active_hours_start = ?, active_hours_end = ?,
           alert_on_out_of_stock = ?, alert_on_low_stock = ?, alert_on_early_warning = ?,
           global_low_stock_threshold = ?, global_early_warning_threshold = ?,
-          recipients_json = ?, api_url = ?, api_token = ?
+          recipients_json = ?, recipient_slots_json = ?, api_url = ?, api_token = ?
         WHERE id = 'main'`,
         [
           merged.isEnabled ? 1 : 0,
@@ -286,6 +441,7 @@ export class WhatsappAlertService {
           merged.globalLowStockThreshold,
           merged.globalEarlyWarningThreshold,
           JSON.stringify(merged.recipients),
+          JSON.stringify(merged.recipientSlots),
           merged.apiUrl,
           merged.apiToken
         ]
@@ -299,7 +455,12 @@ export class WhatsappAlertService {
           'UPDATE_WA_CONFIG',
           'wa_config',
           'main',
-          JSON.stringify({ isEnabled: merged.isEnabled, cooldownMinutes: merged.cooldownMinutes, recipientsCount: merged.recipients.length })
+          JSON.stringify({
+            isEnabled: merged.isEnabled,
+            cooldownMinutes: merged.cooldownMinutes,
+            recipientsCount: merged.recipients.length,
+            slotsConfigured: merged.recipientSlots.filter(s => s.number.length > 0).length
+          })
         ]
       );
     } catch {

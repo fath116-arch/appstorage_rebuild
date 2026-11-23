@@ -2,9 +2,14 @@
  * WhatsApp Config & Cooldown Tab
  */
 
-import React, { useState } from 'react';
-import { Clock, Plus, X, Send, BellRing } from 'lucide-react';
-import { WhatsAppConfigData } from '../../services/whatsappService';
+import React from 'react';
+import { Clock, X, Send, BellRing } from 'lucide-react';
+import {
+  MAX_WA_RECIPIENT_SLOTS,
+  normalizeWaRecipientSlots,
+  WaRecipientSlot,
+  WhatsAppConfigData
+} from '../../services/whatsappService';
 import { useToast } from '../../context/ToastContext';
 
 interface WaConfigTabProps {
@@ -33,29 +38,52 @@ export const WaConfigTab: React.FC<WaConfigTabProps> = ({
   onDispatchAlert
 }) => {
   const { showToast } = useToast();
-  const [recipientInput, setRecipientInput] = useState('');
 
-  const handleAddRecipient = () => {
-    const clean = recipientInput.trim();
-    if (!clean) return;
+  const slots = normalizeWaRecipientSlots(config.recipientSlots, config.recipients);
+  const activeSlotCount = slots.filter((s) => s.enabled && s.number.trim().length > 0).length;
 
-    if (config.recipients.includes(clean)) {
-      showToast(`Penerima "${clean}" sudah ada di daftar.`, 'warning');
-      return;
-    }
-
-    setConfig(prev => ({
+  const commitSlots = (nextSlots: WaRecipientSlot[]) => {
+    const activeRecipients = nextSlots
+      .filter((s) => s.enabled && s.number.trim().length > 0)
+      .map((s) => s.number.trim());
+    setConfig((prev) => ({
       ...prev,
-      recipients: [...prev.recipients, clean]
+      recipientSlots: nextSlots,
+      recipients: activeRecipients,
     }));
-    setRecipientInput('');
   };
 
-  const handleRemoveRecipient = (target: string) => {
-    setConfig(prev => ({
-      ...prev,
-      recipients: prev.recipients.filter(r => r !== target)
-    }));
+  const handleSlotChange = (index: number, patch: Partial<WaRecipientSlot>) => {
+    const updated = slots.map((s, idx) => (idx === index ? { ...s, ...patch } : s));
+
+    // Check duplicate phone/group number if number was changed to a non-empty value
+    if (patch.number !== undefined) {
+      const candidate = patch.number.trim();
+      if (candidate) {
+        const duplicateIdx = updated.findIndex(
+          (s, idx) => idx !== index && s.number.trim() === candidate
+        );
+        if (duplicateIdx !== -1) {
+          showToast(`Nomor "${candidate}" sudah digunakan di Slot ${duplicateIdx + 1}.`, 'warning');
+          return;
+        }
+        // Automatically switch ON when typing into a previously empty slot
+        if (!slots[index].number.trim() && patch.enabled === undefined) {
+          updated[index] = { ...updated[index], enabled: true };
+        }
+      } else {
+        updated[index] = { ...updated[index], enabled: false };
+      }
+    }
+
+    commitSlots(updated);
+  };
+
+  const handleClearSlot = (index: number) => {
+    const updated = slots.map((s, idx) =>
+      idx === index ? { ...s, label: '', number: '', enabled: false } : s
+    );
+    commitSlots(updated);
   };
 
   return (
@@ -68,7 +96,7 @@ export const WaConfigTab: React.FC<WaConfigTabProps> = ({
               Status Otomasi WhatsApp Gateway
             </h3>
             <p className="text-slate-500 dark:text-slate-400 text-xs">
-              Saklar utama pengiriman alert otomatis saat ada mutasi stok atau request disetujui.
+              Saklar utama pengiriman alert stok otomatis &amp; notifikasi pengajuan pembelian barang.
             </p>
           </div>
 
@@ -230,67 +258,88 @@ export const WaConfigTab: React.FC<WaConfigTabProps> = ({
         </div>
       </div>
 
-      {/* Daftar Penerima Bebas Duplikat (Grup / Nomor) */}
+      {/* 4 Slot Penerima WhatsApp dengan Saklar ON/OFF Individual */}
       <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="font-bold text-slate-900 dark:text-white text-sm">
-              Daftar Penerima WhatsApp (Bebas Duplikat)
+              Nomor Penerima WhatsApp (Maksimal {MAX_WA_RECIPIENT_SLOTS} Nomor)
             </h3>
-            <p className="text-slate-500 text-[11px]">
-              Mendukung nomor HP individual (misal: <code>081290008888</code>) dan ID Grup WhatsApp Fonnte (misal: <code>1203630...@g.us</code>).
+            <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+              Mendukung nomor HP (<code>0812...</code>) maupun ID Grup Fonnte (<code>1203630...@g.us</code>). Hanya slot bersaklar ON yang menerima notifikasi stok &amp; pengajuan pembelian.
             </p>
           </div>
-          <span className="text-xs font-mono text-slate-500">
-            {config.recipients.length} target aktif
+          <span className="text-xs font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
+            {activeSlotCount} dari {MAX_WA_RECIPIENT_SLOTS} slot aktif
           </span>
         </div>
 
-        {canEdit && (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Masukkan nomor HP atau ID Grup WhatsApp Fonnte..."
-              value={recipientInput}
-              onChange={e => setRecipientInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddRecipient();
-                }
-              }}
-              className="flex-1 py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-white"
-            />
-            <button
-              type="button"
-              onClick={handleAddRecipient}
-              className="px-3.5 py-2 font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 rounded-lg flex items-center gap-1 shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tambah</span>
-            </button>
-          </div>
-        )}
+        <div className="space-y-2.5 pt-1">
+          {slots.map((slot, idx) => {
+            const hasNumber = slot.number.trim().length > 0;
+            const isSlotOn = slot.enabled && hasNumber;
+            return (
+              <div
+                key={slot.slot}
+                className={`p-3 rounded-lg border transition-colors bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center gap-2.5 ${
+                  isSlotOn
+                    ? 'border-emerald-200 dark:border-emerald-800/80'
+                    : 'border-slate-200 dark:border-slate-700/80 opacity-85'
+                }`}
+              >
+                <div className="flex items-center justify-between sm:w-20 shrink-0">
+                  <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    Slot {slot.slot}
+                  </span>
+                </div>
 
-        {/* Recipient Badges */}
-        <div className="flex flex-wrap gap-2 pt-1">
-          {config.recipients.map((rec, idx) => (
-            <span
-              key={idx}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-xs font-semibold text-slate-800 dark:text-slate-200"
-            >
-              <span>{rec}</span>
-              {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => handleRemoveRecipient(rec)}
-                  className="text-slate-400 hover:text-red-500 ml-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </span>
-          ))}
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    placeholder={`Label (misal: Gudang / Purchasing ${slot.slot})`}
+                    value={slot.label}
+                    onChange={(e) => handleSlotChange(idx, { label: e.target.value })}
+                    disabled={!canEdit}
+                    className="w-full py-1.5 px-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white disabled:opacity-60"
+                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      placeholder="0812xxxxxxxx atau ID Grup @g.us"
+                      value={slot.number}
+                      onChange={(e) => handleSlotChange(idx, { number: e.target.value })}
+                      disabled={!canEdit}
+                      className="w-full py-1.5 pl-2.5 pr-8 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono tabular-nums text-slate-900 dark:text-white disabled:opacity-60"
+                    />
+                    {canEdit && (hasNumber || slot.label) && (
+                      <button
+                        type="button"
+                        onClick={() => handleClearSlot(idx)}
+                        title={`Kosongkan Slot ${slot.slot}`}
+                        className="absolute right-2 text-slate-400 hover:text-rose-500"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 sm:ml-2 justify-end">
+                  <input
+                    type="checkbox"
+                    checked={slot.enabled}
+                    onChange={(e) => handleSlotChange(idx, { enabled: e.target.checked })}
+                    disabled={!canEdit || !hasNumber}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-600 peer-disabled:opacity-50"></div>
+                  <span className="ml-2 font-mono text-[11px] font-bold w-8 text-slate-700 dark:text-slate-300">
+                    {isSlotOn ? 'ON' : 'OFF'}
+                  </span>
+                </label>
+              </div>
+            );
+          })}
         </div>
       </div>
 

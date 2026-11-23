@@ -120,6 +120,46 @@ export interface DebugClockResponse {
   };
 }
 
+export interface ReportSignerConfig {
+  roleLabel: string;
+  name: string;
+  title: string;
+  useCurrentUser: boolean;
+}
+
+export interface ReportApprovalConfig {
+  companyName: string;
+  divisionName: string;
+  companyAddress: string;
+  signers: [ReportSignerConfig, ReportSignerConfig, ReportSignerConfig];
+}
+
+export const DEFAULT_REPORT_APPROVAL_CONFIG: ReportApprovalConfig = {
+  companyName: 'PT. SOLUSI INFORMATIKA LAPANGAN',
+  divisionName: 'Divisi Operasional & Manajemen Infrastruktur IT Lapangan',
+  companyAddress: 'Gedung Pusat Operasi IT · Jl. Sudirman Kav. 45, Jakarta Pusat · Telp: (021) 555-0199 · info@fieldops.id',
+  signers: [
+    {
+      roleLabel: 'Dibuat Oleh (Admin Logistik)',
+      name: 'Admin Logistik IT',
+      title: 'Admin Inventori & Logistik IT',
+      useCurrentUser: true
+    },
+    {
+      roleLabel: 'Diverifikasi (Teknisi Lapangan)',
+      name: 'Lead Field Technician',
+      title: 'Lead Field Technician',
+      useCurrentUser: false
+    },
+    {
+      roleLabel: 'Disetujui Oleh (Supervisor IT)',
+      name: 'Supervisor IT Infrastructure',
+      title: 'Supervisor IT Infrastructure',
+      useCurrentUser: false
+    }
+  ]
+};
+
 export const activityApi = {
   async getTransactions(filters?: {
     type?: 'IN' | 'OUT' | 'TRANSFER' | 'SYSTEM';
@@ -183,6 +223,27 @@ export const activityApi = {
       '/api/reports/debug-clock',
       {},
       'Gagal memuat informasi jam server.'
+    );
+  },
+
+  async getReportApprovalConfig(): Promise<ReportApprovalConfig> {
+    const data = await apiFetch<{ config?: ReportApprovalConfig }>(
+      '/api/reports/approval-config',
+      {},
+      'Gagal memuat konfigurasi lembar pengesahan laporan.'
+    );
+    return data.config || DEFAULT_REPORT_APPROVAL_CONFIG;
+  },
+
+  async updateReportApprovalConfig(payload: ReportApprovalConfig): Promise<{
+    success: boolean;
+    message: string;
+    config: ReportApprovalConfig;
+  }> {
+    return apiFetch<{ success: boolean; message: string; config: ReportApprovalConfig }>(
+      '/api/reports/approval-config',
+      { method: 'PUT', body: JSON.stringify(payload) },
+      'Gagal menyimpan konfigurasi lembar pengesahan laporan.'
     );
   },
 

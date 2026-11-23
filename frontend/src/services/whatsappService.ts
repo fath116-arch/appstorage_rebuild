@@ -7,6 +7,54 @@
 import { getErrorMessage } from '../utils/errorUtils';
 import { requestJson } from './httpClient';
 
+export const MAX_WA_RECIPIENT_SLOTS = 4;
+
+export interface WaRecipientSlot {
+  slot: number;
+  label: string;
+  number: string;
+  enabled: boolean;
+}
+
+export function normalizeWaRecipientSlots(
+  slots?: WaRecipientSlot[] | null,
+  legacyRecipients?: string[] | null
+): WaRecipientSlot[] {
+  const result: WaRecipientSlot[] = [];
+  const seenNumbers = new Set<string>();
+
+  if (Array.isArray(slots) && slots.length > 0) {
+    for (let i = 0; i < MAX_WA_RECIPIENT_SLOTS; i++) {
+      const src = slots[i];
+      const rawNum = String(src?.number || '').trim();
+      const dedupedNum = rawNum && !seenNumbers.has(rawNum) ? rawNum : '';
+      if (dedupedNum) seenNumbers.add(dedupedNum);
+      result.push({
+        slot: i + 1,
+        label: String(src?.label || '').trim(),
+        number: dedupedNum,
+        enabled: dedupedNum ? Boolean(src?.enabled ?? true) : Boolean(src?.enabled ?? false),
+      });
+    }
+    return result;
+  }
+
+  const cleanLegacy = Array.isArray(legacyRecipients)
+    ? Array.from(new Set(legacyRecipients.map((r) => String(r || '').trim()).filter(Boolean))).slice(0, MAX_WA_RECIPIENT_SLOTS)
+    : [];
+
+  for (let i = 0; i < MAX_WA_RECIPIENT_SLOTS; i++) {
+    const num = cleanLegacy[i] || '';
+    result.push({
+      slot: i + 1,
+      label: num ? (i === 0 ? 'Penerima Utama' : `Penerima ${i + 1}`) : '',
+      number: num,
+      enabled: Boolean(num),
+    });
+  }
+  return result;
+}
+
 export interface WhatsAppConfigData {
   id?: string;
   isEnabled: boolean;
@@ -20,6 +68,7 @@ export interface WhatsAppConfigData {
   globalLowStockThreshold: number;
   globalEarlyWarningThreshold: number;
   recipients: string[];
+  recipientSlots?: WaRecipientSlot[];
   apiUrl: string;
   apiToken: string;
   maskedToken?: string;
@@ -61,12 +110,18 @@ export class WhatsAppService {
     try {
       const { ok, data } = await requestJson<{ config?: WhatsAppConfigData }>('/api/whatsapp/config');
       if (ok && data.config) {
-        return data.config;
+        const slots = normalizeWaRecipientSlots(data.config.recipientSlots, data.config.recipients);
+        return {
+          ...data.config,
+          recipientSlots: slots,
+          recipients: slots.filter((s) => s.enabled && s.number.trim()).map((s) => s.number.trim()),
+        };
       }
     } catch (err) {
       console.warn('Failed to fetch WA config:', err);
     }
 
+    const fallbackSlots = normalizeWaRecipientSlots(null, ['081290008888']);
     return {
       isEnabled: true,
       cooldownMinutes: 15,
@@ -76,6 +131,7 @@ export class WhatsAppService {
       globalLowStockThreshold: 3,
       globalEarlyWarningThreshold: 5,
       recipients: ['081290008888'],
+      recipientSlots: fallbackSlots,
       apiUrl: 'https://api.fonnte.com/send',
       apiToken: '',
     };

@@ -1,6 +1,6 @@
-# Peran, Hak Akses & Keamanan Sesi - FieldOps IT (v1.2.6)
+# Peran, Hak Akses & Keamanan Sesi - FieldOps IT (v1.2.7)
 
-Dokumen ini mendefinisikan **Role-Based Access Control (RBAC)** server-authoritative, alur autentikasi PBKDF2, manajemen sesi cookie server (`sesi`), serta mekanisme konfirmasi bertingkat (*Tier 0–3*) pada **FieldOps IT (`v1.2.6`)**.
+Dokumen ini mendefinisikan **Role-Based Access Control (RBAC)** server-authoritative, alur autentikasi PBKDF2, manajemen sesi cookie server (`sesi`), serta mekanisme konfirmasi bertingkat (*Tier 0–3*) pada **FieldOps IT (`v1.2.7`)**.
 
 ---
 
@@ -10,8 +10,8 @@ Definisi hak akses dipusatkan di `backend/src/utils/permissions.ts` dan disinkro
 
 - **`developer`** *(termasuk alias legacy `superadmin`)*: Pemegang kendali teknis penuh, manajemen akun termasuk akun `developer` lain, pengaturan sistem, API key, dan audit database.
 - **`admin`**: Administrator operasional dengan akses manajemen penuh kecuali membuat/mereset/menghapus akun berlevel `developer`.
-- **`warehouse_admin`**: Pengelola gudang untuk operasional stok, katalog, box, persetujuan/verifikasi request, koreksi audit, serta akses **Tab Setting selektif** untuk **Notifikasi WhatsApp Alert** (tanpa kredensial token/URL Fonnte) dan **Pengaturan Pola Serial Number (SN)**.
-- **`technician`**: Teknisi lapangan untuk melihat katalog/stok/log WA (*read-only*), mengajukan permohonan ambil/kembalikan/paket tas, menandai selesai barang habis pakai miliknya, serta mengisi checklist/tas kerja.
+- **`warehouse_admin`**: Pengelola gudang untuk operasional stok, katalog, box, persetujuan/verifikasi request (termasuk menyetujui & menyelesaikan pengajuan pembelian barang), kustomisasi Kop Surat & Lembar Pengesahan laporan, koreksi audit, serta akses **Tab Setting selektif** untuk **Notifikasi WhatsApp Alert** (4 slot ON/OFF, tanpa kredensial token/URL Fonnte) dan **Pengaturan Pola Serial Number (SN)**.
+- **`technician`**: Teknisi lapangan untuk melihat katalog/stok/log WA (*read-only*), mengajukan permohonan ambil/kembalikan/paket tas/pengajuan pembelian barang (`beli`), menandai selesai barang habis pakai miliknya, serta mengisi checklist/tas kerja.
 
 | Fitur / Endpoint / Modul | `technician` | `warehouse_admin` | `admin` | `developer` |
 | :--- | :---: | :---: | :---: | :---: |
@@ -19,14 +19,16 @@ Definisi hak akses dipusatkan di `backend/src/utils/permissions.ts` dan disinkro
 | **Lihat Status WA Alert, Ambang, & Log Pengiriman** | ✅ *(Read-Only)* | ✅ | ✅ | ✅ |
 | **Alat Harian Menu Tools (Akses HP, Ekspor Excel, Cetak Label A4)** | ✅ | ✅ | ✅ | ✅ |
 | **Kelola & Gunakan Tas Kerja / Checklist Inspeksi** (`/api/checklists/*`) | ✅ | ✅ | ✅ | ✅ |
-| **Buat Request Ambil Satuan / Paket Tas / Pengembalian** (`POST /api/requests*`) | ✅ *(Diri Sendiri)* | ✅ *(+ Atas Nama)* | ✅ *(+ Atas Nama)* | ✅ *(+ Atas Nama)* |
+| **Buat Request Ambil Satuan / Paket Tas / Kembalikan / Pembelian (`beli`)** (`POST /api/requests*`) | ✅ *(Diri Sendiri)* | ✅ *(+ Atas Nama)* | ✅ *(+ Atas Nama)* | ✅ *(+ Atas Nama)* |
 | **Tandai Selesai Barang Habis Pakai** (`POST /api/requests/:id/complete`) | ✅ *(Milik Sendiri)* | ✅ | ✅ | ✅ |
+| **Tandai Sudah Dibeli pada Request Pembelian (`beli`)** (`POST /api/requests/:id/complete`) | ❌ *(403)* | ✅ | ✅ | ✅ |
+| **Ubah Kop Surat & Penandatangan Lembar Pengesahan** (`PUT /api/reports/approval-config`) | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Kelola Katalog & Box (Tambah, Ubah, Hapus Terproteksi)** | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Input Masuk, Output Keranjang Keluar, Restore, & Pindah Box** | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Setujui / Serahkan / Verifikasi Kembali / Tolak Request** | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Catat Koreksi Audit Append-Only** (`POST /api/activities/:id/correct`) | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Batas Tanggal Mundur (`occurred_at` Backdate)** | N/A | **Maks. 7 Hari** | **Tanpa Batas** | **Tanpa Batas** |
-| **Tab Setting — Notifikasi WA Alert** (`POST /api/whatsapp/*`) | ❌ *(403)* | ✅ *(Tanpa Token/URL)* | ✅ | ✅ |
+| **Tab Setting — Notifikasi WA Alert (4 Slot ON/OFF)** (`POST /api/whatsapp/*`) | ❌ *(403)* | ✅ *(Tanpa Token/URL)* | ✅ | ✅ |
 | **Tab Setting — Pengaturan Pola Serial Number (SN)** (`/api/sn-patterns`) | ❌ *(403)* | ✅ | ✅ | ✅ |
 | **Aturan ID Tipe (`id_dikunci`), Database, Backup & Kotak Sampah** | ❌ *(403)* | ❌ *(403)* | ✅ | ✅ |
 | **Tab Setting — Setup `.env` (DB, Cloudflare Tunnel, Fonnte), Cek Sistem, API Key Tiket & Audit** (`/api/setup/*`) | ❌ *(403)* | ❌ *(403)* | ✅ | ✅ |

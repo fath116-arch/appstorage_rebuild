@@ -3,7 +3,7 @@
  * FieldOps IT
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api, ToolBagRecord, TrashEntry } from '../services/api';
 import { catalogApi, Jenis, Produk } from '../services/catalogApi';
 import { Box, stockApi } from '../services/stockApi';
@@ -14,6 +14,8 @@ import { ToastMessage, ToastType, useToast } from './ToastContext';
 import { APP_VERSION } from '../constants/version';
 import { getErrorMessage } from '../utils/errorUtils';
 import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
+
+const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 menit
 
 export type { ToastMessage };
 export type TabType = 'dashboard' | 'catalog' | 'inout' | 'requests' | 'weekly-report' | 'settings';
@@ -44,7 +46,7 @@ interface InventoryContextType {
   bags: ToolBagRecord[];
   lowOrOutCount: number;
   isLoading: boolean;
-  refreshData: () => Promise<void>;
+  refreshData: (options?: { silent?: boolean }) => Promise<void>;
   purgeExpiredTrash: () => Promise<void>;
   toasts: ToastMessage[];
   showToast: (message: string, type?: ToastType) => void;
@@ -83,10 +85,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [bags, setBags] = useState<ToolBagRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  const isRefreshingRef = useRef(false);
+  const lastSyncedAtRef = useRef<number>(0);
+  const pendingSilentRefreshRef = useRef(false);
+
   const VERSION = APP_VERSION;
 
-  const refreshData = useCallback(async () => {
-    setIsLoading(true);
+  const refreshData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (silent && isRefreshingRef.current) return;
+
+    isRefreshingRef.current = true;
+    if (!silent) {
+      setIsLoading(true);
+    }
     try {
       const canSeeActors = isWarehouseManager(user?.role);
       const canSeeTrash = isAdminOrDev(user?.role);
@@ -122,10 +134,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setActors(actorsRes);
       setTrashItems(trashRes);
       setBags(bagsRes);
+      lastSyncedAtRef.current = Date.now();
+      pendingSilentRefreshRef.current = false;
     } catch (err: unknown) {
-      showToast(getErrorMessage(err, 'Gagal menyinkronkan data dengan server.'), 'error');
+      if (!silent) {
+        showToast(getErrorMessage(err, 'Gagal menyinkronkan data dengan server.'), 'error');
+      }
     } finally {
-      setIsLoading(false);
+      isRefreshingRef.current = false;
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }, [showToast, user?.role]);
 
@@ -142,7 +161,41 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setActors([]);
       setTrashItems([]);
       setBags([]);
+      lastSyncedAtRef.current = 0;
+      pendingSilentRefreshRef.current = false;
     }
+  }, [isAuthenticated, refreshData]);
+
+  // Auto-refresh senyap setiap 5 menit (menghormati visibilitas tab agar hemat jaringan)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const intervalId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        pendingSilentRefreshRef.current = true;
+        return;
+      }
+      refreshData({ silent: true });
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.hidden) return;
+      const elapsed = Date.now() - lastSyncedAtRef.current;
+      if (pendingSilentRefreshRef.current || elapsed >= AUTO_REFRESH_INTERVAL_MS) {
+        refreshData({ silent: true });
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      window.clearInterval(intervalId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [isAuthenticated, refreshData]);
 
   const purgeExpiredTrash = async () => {

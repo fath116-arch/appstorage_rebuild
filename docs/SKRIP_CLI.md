@@ -1,6 +1,6 @@
 # Panduan Lengkap Skrip CLI & Setup Sistem (`SKRIP_CLI.md`)
 
-**Aplikasi**: FieldOps IT Inventory (`v1.2.6`)  
+**Aplikasi**: FieldOps IT Inventory (`v1.2.7`)  
 **Cakupan**: Seluruh skrip NPM (`package.json`) dan utilitas CLI di `backend/src/scripts/`
 
 Dokumen ini menjadi referensi resmi seluruh perintah terminal yang tersedia di **FieldOps IT**, baik untuk instalasi awal server, konfigurasi integrasi (MariaDB, Cloudflare Tunnel, WhatsApp Fonnte), pemeriksaan kesehatan sistem, pemulihan Kotak Sampah 14 hari, maupun kompilasi & runtime aplikasi.

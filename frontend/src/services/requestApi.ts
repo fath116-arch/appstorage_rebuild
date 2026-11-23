@@ -21,7 +21,7 @@ export interface RequestRecord {
   actor_id?: string | null;
   recorded_by_id?: string | null;
   penyetuju_id?: string | null;
-  tipe_id: number;
+  tipe_id: number | null;
   box_id?: string | null;
   kode_id?: string | null;
   jumlah: number;
@@ -51,7 +51,9 @@ export interface RequestRecord {
   mode_stok?: 'per_id' | 'jumlah';
   kode_box?: string;
   held_duration_ms?: number | null;
-  request_type?: 'ambil' | 'kembalikan';
+  request_type?: 'ambil' | 'kembalikan' | 'beli';
+  purchase_item_name?: string | null;
+  purchase_estimated_price?: number | null;
   origin_request_id?: string | null;
   has_pending_return?: boolean;
   bag_name?: string | null;
@@ -131,7 +133,9 @@ export const requestApi = {
     alasan?: string;
     actor_id?: string;
     on_behalf_reason?: string;
-    request_type?: 'ambil' | 'kembalikan';
+    request_type?: 'ambil' | 'kembalikan' | 'beli';
+    purchase_item_name?: string;
+    purchase_estimated_price?: number | null;
     origin_request_id?: string;
     return_condition?: 'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak';
     return_box_id?: string;
@@ -174,15 +178,15 @@ export const requestApi = {
     );
   },
 
-  async completeRequest(id: string, payload: {
-    customer_name: string;
-    usage_notes: string;
+  async completeRequest(id: string, payload?: {
+    customer_name?: string;
+    usage_notes?: string;
     occurred_at?: string;
   }) {
     return apiFetch<{ success: boolean; message: string; activityId?: string }>(
       `/api/requests/${encodeURIComponent(id)}/complete`,
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Gagal menandai request selesai terpakai pelanggan.'
+      { method: 'POST', body: JSON.stringify(payload || {}) },
+      'Gagal menandai request selesai.'
     );
   },
 

@@ -1,6 +1,6 @@
 # PANDUAN DEPLOYMENT & OPERASIONAL SERVER (DEPLOY.MD)
 
-**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.6)  
+**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.7)  
 **Infrastruktur**: Docker Container (Ubuntu Server / Windows Docker Desktop) / Native Node.js  
 **Database**: MariaDB 11.4 LTS (Container Terisolasi / Standalone)  
 **Akses Jarak Jauh**: Cloudflare Tunnel (HTTPS Tanpa Buka Port Router)
@@ -260,7 +260,7 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    CREATE DATABASE fieldops_inventory CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    ```
 
-3. **Impor Skema Migration SQL (`01` s/d `12`)**:
+3. **Impor Skema Migration SQL (`01` s/d `13`)**:
    *(Catatan: `initDatabase()` saat startup backend dan `npm run setup:db -- --migrate` juga menjalankan migrasi otomatis yang idempoten.)*
    - **Linux / Ubuntu**:
      ```bash
@@ -317,21 +317,21 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
 
 ---
 
-## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.6)
+## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.7)
 
 | Prefix Route | Endpoint Terverifikasi | Keterangan |
 | :--- | :--- | :--- |
-| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.6`, & status UTC MariaDB |
-| `/api/setup` | `GET /status`, `POST /check`, `POST /database`, `POST /tunnel`, `POST /whatsapp` | Diagnostik koneksi sistem (`.env`, DB, Admin, WA, Cloudflare Tunnel), simpan konfigurasi ke `.env`, reload pool DB, & katalog CLI (`developer`/`admin`) |
+| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.7`, & status UTC MariaDB |
+| `/api/setup` | `GET /status`, `POST /check`, `POST /database`, `POST /tunnel`, `POST /whatsapp`, `POST /test-login` | Diagnostik koneksi sistem (`.env`, DB, Admin, WA, Cloudflare Tunnel), tes login 6 tahap, simpan konfigurasi ke `.env`, reload pool DB, & katalog CLI (`developer`/`admin`) |
 | `/api/auth` | `POST /login`, `/register`, `/refresh`, `/logout`, `/reset-password`, `/confirm-token`; `GET /me`, `/actors`; `GET/POST/DELETE /users`, `POST /users/:id/(approve\|reject\|status\|reset-password\|revoke-sessions)`; `GET /settings`, `PUT /settings/:key`; `GET /activity-logs`, `/activity-logs/:id/details`; `GET /trash`, `POST /trash/purge` | Autentikasi cookie HTTP-only 30 hari, RBAC, konfirmasi Tier 2/3, daftar aktor lapangan, & tempat sampah 14 hari |
 | `/api/catalog` | `GET /jenis`, `/jenis/:id`, `POST/PUT/DELETE /jenis/:id`; `GET /jenis/:id/attributes`, `POST/PUT/DELETE /attributes/:id`, `POST /attributes/:id/options`; `GET /tipe-stok-suggestions`; `GET/POST/PUT/DELETE /products/:id`; `GET /products/:id/types`, `POST /types`, `PUT /types/:id/id-rule`; `GET /labels` | Manajemen penuh Kategori, Atribut, Opsi, Produk, Varian Tipe, aturan ID (`id_dikunci`), hapus terproteksi stok aktif, & data cetak label A4 |
 | `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move`, `DELETE /:id` | Manajemen storage box campuran, relokasi antar box, & hapus box kosong terproteksi |
 | `/api/stock` | `GET /search`, `GET /check-id/:kode_id`, `GET /types/:id/items`, `POST /single`, `/bulk`, `/quantity`, `/out`, `/out/bulk`, `GET /archive`, `POST /restore`, `PUT /items/:id/condition` | Pencarian 300ms, input stok, keranjang keluar, arsip, restore, & pembaruan kondisi item fisik |
 | `/api/activities` | `GET /`, `GET /:id/details`, `POST /:id/correct` | Feed transaksi kanonik & pencatatan koreksi audit append-only (`correction_of_id`) |
-| `/api/requests` | `POST /` (`ambil` / `kembalikan`), `POST /bag`, `GET /`, `/held`, `/open-for-actor/:actorId`, `/:id`, `/:id/timeline`, `POST /:id/(approve\|pickup\|return\|complete\|reject\|cancel)` | Siklus lengkap permohonan satuan, paket tas, pengajuan pengembalian 3 kondisi, barang di tangan teknisi, & penandaan selesai pelanggan |
+| `/api/requests` | `POST /` (`ambil` / `kembalikan` / `beli`), `POST /bag`, `GET /`, `/held`, `/open-for-actor/:actorId`, `/:id`, `/:id/timeline`, `POST /:id/(approve\|pickup\|return\|complete\|reject\|cancel)` | Siklus lengkap permohonan satuan, pengajuan pembelian barang (katalog/baru + WA selektif), paket tas, pengajuan pengembalian 3 kondisi, barang di tangan teknisi, & penandaan selesai |
 | `/api/checklists` | `GET/POST/PUT/DELETE /bags`, `GET /`, `POST /` | Manajemen Multi-Tas Kerja Lapangan (`BAG_TEMPLATE`) & catatan inspeksi harian (`TOOLKIT_CHECK`) |
-| `/api/reports` | `GET /weekly`, `GET /debug-clock`, `GET /export/csv` | Rekap mingguan WIB (Senin 00:00 – Minggu 23:59:59 WIB), verifikasi jam UTC/WIB, & ekspor CSV tersanitasi CWE-1236 |
+| `/api/reports` | `GET /weekly`, `GET /debug-clock`, `GET /export/csv`, `GET/PUT /approval-config` | Rekap mingguan WIB (Senin 00:00 – Minggu 23:59:59 WIB), verifikasi jam UTC/WIB, ekspor CSV CWE-1236, & konfigurasi Kop/Lembar Pengesahan dinamis |
 | `/api/sn-patterns` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` | Manajemen pola regex `SCAN_SN` & aturan normalisasi barcode (`pengaturan.SN_PATTERNS`; edit oleh `developer`/`admin`/`warehouse_admin`) |
-| `/api/whatsapp` | `GET /config`, `POST /config`, `GET /thresholds`, `POST /thresholds`, `POST /evaluate`, `POST /send`, `POST /test`, `GET /logs` | Konfigurasi alert Fonnte, ambang berjenjang (*tipe > produk > global*), cooldown 15 menit, & log pengiriman |
+| `/api/whatsapp` | `GET /config`, `POST /config`, `GET /thresholds`, `POST /thresholds`, `POST /evaluate`, `POST /send`, `POST /test`, `GET /logs` | Konfigurasi alert Fonnte (maks 4 slot penerima dengan saklar ON/OFF individual), ambang berjenjang (*tipe > produk > global*), cooldown 15 menit, & log pengiriman |
 | `/api/tickets` | `POST /consume`, `GET /keys`, `POST /keys` | Webhook auto-deduct tiket eksternal via `X-API-Key`/Bearer & manajemen API key |
 | `/api/backup` | `GET /inventory/download` | Unduh snapshot JSON inventaris bebas kredensial akun (`developer`/`admin`) |

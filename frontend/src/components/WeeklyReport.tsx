@@ -10,6 +10,9 @@ import {
   activityApi,
   CanonicalTransactionView,
   DebugClockResponse,
+  DEFAULT_REPORT_APPROVAL_CONFIG,
+  ReportApprovalConfig,
+  ReportSignerConfig,
   WeeklyReportResponse
 } from '../services/activityApi';
 import {
@@ -19,10 +22,14 @@ import {
   TrendingUp,
   FileSpreadsheet,
   Clock,
-  RefreshCw
+  RefreshCw,
+  SlidersHorizontal,
+  Save
 } from 'lucide-react';
 import { exportWeeklyReportToExcel } from '../utils/excelExporter';
 import { sanitizeFormulaInput } from '../utils/security';
+import { isWarehouseManager } from '../utils/permissions';
+import { getErrorMessage } from '../utils/errorUtils';
 import {
   APP_TIMEZONE,
   formatWibDateTime,
@@ -57,6 +64,49 @@ export const WeeklyReport: React.FC = () => {
   const [reportData, setReportData] = useState<WeeklyReportResponse | null>(null);
   const [clockInfo, setClockInfo] = useState<DebugClockResponse | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
+
+  const canSaveApprovalConfig = isWarehouseManager(user?.role);
+  const [approvalConfig, setApprovalConfig] = useState<ReportApprovalConfig>(DEFAULT_REPORT_APPROVAL_CONFIG);
+  const [isEditingApproval, setIsEditingApproval] = useState(false);
+  const [savingApprovalConfig, setSavingApprovalConfig] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    activityApi
+      .getReportApprovalConfig()
+      .then((cfg) => {
+        if (active && cfg) setApprovalConfig(cfg);
+      })
+      .catch(() => {
+        // Fallback default config tetap aktif
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSignerChange = (idx: 0 | 1 | 2, patch: Partial<ReportSignerConfig>) => {
+    setApprovalConfig((prev) => {
+      const nextSigners = [...prev.signers] as [ReportSignerConfig, ReportSignerConfig, ReportSignerConfig];
+      nextSigners[idx] = { ...nextSigners[idx], ...patch };
+      return { ...prev, signers: nextSigners };
+    });
+  };
+
+  const handleSaveApprovalConfig = async () => {
+    if (!canSaveApprovalConfig) return;
+    setSavingApprovalConfig(true);
+    try {
+      const res = await activityApi.updateReportApprovalConfig(approvalConfig);
+      setApprovalConfig(res.config);
+      showToast(res.message || 'Konfigurasi Kop & Lembar Pengesahan berhasil disimpan.', 'success');
+      setIsEditingApproval(false);
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err, 'Gagal menyimpan konfigurasi pengesahan.'), 'error');
+    } finally {
+      setSavingApprovalConfig(false);
+    }
+  };
 
   const loadReportAndClock = async (weekMode: 'current' | 'previous' | 'all') => {
     setLoadingReport(true);
@@ -602,39 +652,172 @@ export const WeeklyReport: React.FC = () => {
         </div>
 
         {/* Printable & On-Screen Formal Approval Block */}
-        <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/50">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 mb-6 font-mono">
-            <span>Lembar Pengesahan Auditing Inventori IT</span>
-            <span>Waktu Laporan: {formatWibDateTime(new Date())}</span>
+        <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/50 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+            <div className="font-mono space-y-0.5">
+              <div className="font-bold text-slate-700 dark:text-slate-200">
+                Lembar Pengesahan Auditing Inventori IT · {approvalConfig.companyName}
+              </div>
+              <div className="text-[11px]">
+                Waktu Laporan: {formatWibDateTime(new Date())}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsEditingApproval((v) => !v)}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold flex items-center gap-1.5 self-start sm:self-center shrink-0"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>{isEditingApproval ? 'Tutup Pengaturan Pengesahan' : 'Sesuaikan Kop & Penandatangan'}</span>
+            </button>
           </div>
 
+          {isEditingApproval && (
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 space-y-4 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white">
+                    Kustomisasi Kop Surat &amp; Penandatangan (Aktif di Pratinjau &amp; Cetak Production)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Perubahan langsung terlihat pada pratinjau &amp; dokumen cetak. {canSaveApprovalConfig ? 'Klik Simpan Permanen agar tersimpan untuk seluruh sesi.' : 'Anda dapat menyesuaikan sementara sebelum mencetak laporan.'}
+                  </p>
+                </div>
+                {canSaveApprovalConfig && (
+                  <button
+                    type="button"
+                    disabled={savingApprovalConfig}
+                    onClick={handleSaveApprovalConfig}
+                    className="px-3.5 py-2 rounded-lg bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{savingApprovalConfig ? 'Menyimpan...' : 'Simpan Permanen'}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama Perusahaan (Kop Surat)
+                  </label>
+                  <input
+                    type="text"
+                    value={approvalConfig.companyName}
+                    onChange={(e) => setApprovalConfig((prev) => ({ ...prev, companyName: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Divisi / Unit Operasional
+                  </label>
+                  <input
+                    type="text"
+                    value={approvalConfig.divisionName}
+                    onChange={(e) => setApprovalConfig((prev) => ({ ...prev, divisionName: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Alamat &amp; Kontak Kop
+                  </label>
+                  <input
+                    type="text"
+                    value={approvalConfig.companyAddress}
+                    onChange={(e) => setApprovalConfig((prev) => ({ ...prev, companyAddress: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+                {approvalConfig.signers.map((signer, idx) => {
+                  const slotIdx = idx as 0 | 1 | 2;
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 space-y-2"
+                    >
+                      <div className="font-mono text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        Penandatangan {idx + 1}
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-0.5">
+                          Label Peran
+                        </label>
+                        <input
+                          type="text"
+                          value={signer.roleLabel}
+                          onChange={(e) => handleSignerChange(slotIdx, { roleLabel: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-0.5">
+                          Nama Penandatangan
+                        </label>
+                        <input
+                          type="text"
+                          value={signer.name}
+                          disabled={signer.useCurrentUser}
+                          onChange={(e) => handleSignerChange(slotIdx, { name: e.target.value })}
+                          placeholder={signer.useCurrentUser ? (user?.name || 'Mengikuti akun login') : 'Nama lengkap...'}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 disabled:opacity-60"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-0.5">
+                          Jabatan
+                        </label>
+                        <input
+                          type="text"
+                          value={signer.title}
+                          onChange={(e) => handleSignerChange(slotIdx, { title: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          checked={signer.useCurrentUser}
+                          onChange={(e) => handleSignerChange(slotIdx, { useCurrentUser: e.target.checked })}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Gunakan nama akun login ({user?.name || 'User'})</span>
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center text-xs text-slate-700 dark:text-slate-300">
-            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
-              <p className="font-semibold text-slate-800 dark:text-slate-200">1. Dibuat Oleh (Admin Logistik):</p>
-              <div className="h-16 flex items-center justify-center">
-                <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px] font-bold tracking-widest">( Tanda Tangan )</span>
-              </div>
-              <p className="font-bold text-slate-900 dark:text-slate-100 underline">{user?.name || 'Admin Logistik IT'}</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Admin Inventori &amp; Logistik IT</p>
-            </div>
-
-            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
-              <p className="font-semibold text-slate-800 dark:text-slate-200">2. Diverifikasi (Teknisi Lapangan):</p>
-              <div className="h-16 flex items-center justify-center">
-                <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px] font-bold tracking-widest">( Tanda Tangan )</span>
-              </div>
-              <p className="font-bold text-slate-900 dark:text-slate-100 underline">Budi Santoso</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Lead Field Technician</p>
-            </div>
-
-            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
-              <p className="font-semibold text-slate-800 dark:text-slate-200">3. Disetujui Oleh (Supervisor IT):</p>
-              <div className="h-16 flex items-center justify-center">
-                <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px] font-bold tracking-widest">( Tanda Tangan )</span>
-              </div>
-              <p className="font-bold text-slate-900 dark:text-slate-100 underline">Hendra Wijaya, S.Kom</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Supervisor IT Infrastructure</p>
-            </div>
+            {approvalConfig.signers.map((signer, idx) => {
+              const resolvedName = signer.useCurrentUser
+                ? (user?.name || signer.name)
+                : signer.name;
+              return (
+                <div
+                  key={idx}
+                  className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs"
+                >
+                  <p className="font-semibold text-slate-800 dark:text-slate-200">
+                    {idx + 1}. {signer.roleLabel}:
+                  </p>
+                  <div className="h-16 flex items-center justify-center">
+                    <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px] font-bold tracking-widest">
+                      ( Tanda Tangan )
+                    </span>
+                  </div>
+                  <p className="font-bold text-slate-900 dark:text-slate-100 underline">{resolvedName}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{signer.title}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -644,6 +827,7 @@ export const WeeklyReport: React.FC = () => {
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
         periodLabel={periodLabel}
+        approvalConfig={approvalConfig}
         itemsData={itemWeeklyStats.map(i => ({
           sku: i.sku,
           name: i.name,

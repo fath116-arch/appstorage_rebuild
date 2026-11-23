@@ -55,7 +55,7 @@ async function startServer() {
     res.json({
       status: 'healthy',
       app: 'FieldOps IT Inventory',
-      version: '1.2.6',
+      version: '1.2.7',
       database: 'MariaDB 11.x (Single Canonical Model, UTC)',
       tunnel: 'Cloudflare Tunnel Ready',
       timestamp: new Date().toISOString()

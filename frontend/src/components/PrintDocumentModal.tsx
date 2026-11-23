@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Printer } from 'lucide-react';
+import { activityApi, DEFAULT_REPORT_APPROVAL_CONFIG, ReportApprovalConfig } from '../services/activityApi';
+import { useAuth } from '../context/AuthContext';
 import { formatWibDateTime } from '../utils/timezone';
 
 export interface PrintDocumentData {
@@ -31,6 +33,23 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
   onClose,
   data
 }) => {
+  const { user } = useAuth();
+  const [approvalConfig, setApprovalConfig] = useState<ReportApprovalConfig>(DEFAULT_REPORT_APPROVAL_CONFIG);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    activityApi
+      .getReportApprovalConfig()
+      .then((cfg) => {
+        if (active && cfg) setApprovalConfig(cfg);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
+
   if (!isOpen || !data) return null;
 
   const handlePrint = () => {
@@ -38,6 +57,10 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
   };
 
   const isOut = data.type === 'OUT';
+  const adminSigner = approvalConfig.signers[0];
+  const supervisorSigner = approvalConfig.signers[2];
+  const adminName = adminSigner.useCurrentUser ? (user?.name || adminSigner.name) : adminSigner.name;
+  const supervisorName = supervisorSigner.useCurrentUser ? (user?.name || supervisorSigner.name) : supervisorSigner.name;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
@@ -67,19 +90,19 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
         {/* Printable Sheet */}
         <div className="p-8 text-xs text-slate-900 font-sans leading-relaxed space-y-6">
           {/* Header */}
-          <div className="border-b-2 border-slate-900 pb-4 flex justify-between items-start">
+          <div className="border-b-2 border-slate-900 pb-4 flex justify-between items-start gap-4">
             <div>
               <h1 className="text-lg font-bold uppercase tracking-tight text-slate-900">
-                PT. SOLUSI INFORMATIKA LAPANGAN
+                {approvalConfig.companyName}
               </h1>
               <p className="text-[11px] text-slate-500">
-                Divisi Field Operations & IT Infrastructure Management
+                {approvalConfig.divisionName}
               </p>
               <p className="text-[10px] text-slate-400">
-                Gedung Pusat Operasi IT · Jl. Sudirman Kav. 45, Jakarta Pusat · Telp: (021) 555-0199
+                {approvalConfig.companyAddress}
               </p>
             </div>
-            <div className="text-right">
+            <div className="text-right shrink-0">
               <span className="font-bold text-sm uppercase px-2.5 py-1 bg-slate-100 border border-slate-300 rounded inline-block font-mono">
                 {isOut ? 'SURAT PENGELUARAN BARANG' : 'SURAT PENERIMAAN BARANG'}
               </span>
@@ -107,7 +130,7 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
             </div>
             <div>
               <span className="text-slate-400 block text-[10px] uppercase font-bold">Status Verifikasi</span>
-              <span className="font-mono font-bold text-emerald-700">VERIFIED & DEDUCTED</span>
+              <span className="font-mono font-bold text-emerald-700">VERIFIED &amp; DEDUCTED</span>
             </div>
           </div>
 
@@ -145,10 +168,10 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
           {/* Signatures */}
           <div className="pt-8 grid grid-cols-3 gap-6 text-center text-xs text-slate-700">
             <div>
-              <p className="font-medium text-slate-600">Diserahkan Oleh (Gudang):</p>
+              <p className="font-medium text-slate-600">{adminSigner.roleLabel}:</p>
               <div className="h-16"></div>
-              <p className="font-bold underline text-slate-900">Siti Rahma</p>
-              <p className="text-[10px] text-slate-400">Admin Logistik IT</p>
+              <p className="font-bold underline text-slate-900">{adminName}</p>
+              <p className="text-[10px] text-slate-400">{adminSigner.title}</p>
             </div>
             <div>
               <p className="font-medium text-slate-600">Diterima Teknisi Lapangan:</p>
@@ -157,10 +180,10 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
               <p className="text-[10px] text-slate-400">Teknisi Lapangan</p>
             </div>
             <div>
-              <p className="font-medium text-slate-600">Mengetahui / Supervisor IT:</p>
+              <p className="font-medium text-slate-600">{supervisorSigner.roleLabel}:</p>
               <div className="h-16"></div>
-              <p className="font-bold underline text-slate-900">Hendra Wijaya, S.Kom</p>
-              <p className="text-[10px] text-slate-400">Supervisor IT</p>
+              <p className="font-bold underline text-slate-900">{supervisorName}</p>
+              <p className="text-[10px] text-slate-400">{supervisorSigner.title}</p>
             </div>
           </div>
         </div>

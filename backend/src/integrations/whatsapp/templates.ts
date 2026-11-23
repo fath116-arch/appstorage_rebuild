@@ -62,6 +62,38 @@ Status: MENUNGGU PERSETUJUAN
 Mohon Developer / Admin / Admin Gudang segera memproses melalui sistem.`;
 }
 
+export function formatPurchaseRequestMessage(input: {
+  requestId: string;
+  pemohonName: string;
+  itemName: string;
+  jumlah: number;
+  satuan?: string;
+  estimatedPrice?: number | null;
+  alasan: string;
+}): string {
+  const timeFormatted = new Date().toLocaleString('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
+  const formattedPrice =
+    typeof input.estimatedPrice === 'number' && input.estimatedPrice > 0
+      ? `Rp ${input.estimatedPrice.toLocaleString('id-ID')}`
+      : 'Tidak dicantumkan (Opsional)';
+
+  return `🛒 [PENGAJUAN PEMBELIAN BARANG - FIELDOPS IT]
+ID Request: ${input.requestId}
+Pemohon: ${input.pemohonName}
+Barang: ${input.itemName}
+Jumlah: ${input.jumlah} ${input.satuan || 'unit'}
+Estimasi Harga: ${formattedPrice}
+Alasan: ${input.alasan}
+Waktu: ${timeFormatted}
+
+Status: MENUNGGU PERSETUJUAN ADMIN / GUDANG
+Mohon tim Admin atau Admin Gudang meninjau pengajuan pembelian melalui sistem.`;
+}
+
 export interface ConsolidatedSummaryInput {
   outOfStock: Array<{ sku: string; name: string; unit?: string }>;
   lowStock: Array<{ sku: string; name: string; quantity: number; unit?: string; threshold: number; source?: string }>;
