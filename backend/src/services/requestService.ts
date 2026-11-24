@@ -668,7 +668,7 @@ export class RequestService {
           pelaku_id: targetActorId,
           actor_id: targetActorId,
           recorded_by_id: input.penyetujuId,
-          recorded_by_role: input.penyetujuRole || 'warehouse_admin',
+          recorded_by_role: input.penyetujuRole || 'admin',
           on_behalf_reason: targetActorId !== input.penyetujuId ? `Persetujuan pengajuan pembelian Request #${input.requestId}` : null,
           penyetuju_id: input.penyetujuId,
           request_id: input.requestId,
@@ -766,7 +766,7 @@ export class RequestService {
         pelaku_id: targetActorId,
         actor_id: targetActorId,
         recorded_by_id: input.penyetujuId,
-        recorded_by_role: input.penyetujuRole || 'warehouse_admin',
+        recorded_by_role: input.penyetujuRole || 'admin',
         on_behalf_reason: targetActorId !== input.penyetujuId ? `Persetujuan & reservasi stok untuk Request #${input.requestId}` : null,
         penyetuju_id: input.penyetujuId,
         request_id: input.requestId,
@@ -1113,7 +1113,7 @@ export class RequestService {
     // Cabang Pengajuan Pembelian Barang -> Tandai Sudah Dibeli / Selesai oleh Admin / Gudang
     if (req.request_type === 'beli') {
       if (!isManager) {
-        throw new Error('Hanya Admin atau Admin Gudang yang dapat menandai pengajuan pembelian sebagai selesai dibeli.');
+        throw new Error('Hanya Admin atau Developer yang dapat menandai pengajuan pembelian sebagai selesai dibeli.');
       }
       if (req.status !== 'disetujui') {
         throw new Error(`Pengajuan pembelian harus berstatus DISETUJUI terlebih dahulu (Status saat ini: ${req.status.toUpperCase()}).`);

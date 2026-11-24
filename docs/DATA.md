@@ -1,17 +1,17 @@
-# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.7)
+# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.8)
 
-Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `13_purchase_wa4_and_report_config.sql`, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.7`)**.
+Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `14_v128_rbac_wa2_and_features.sql`, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, **Izin Fitur Per Akun**, **Dual WA Gateway**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.8`)**.
 
 ---
 
 ## 🗄️ 1. Skema Database Relasional MariaDB 11.4 LTS
 
-Penyimpanan sistem menggunakan database relasional **MariaDB 11.4 LTS** on-premises (UTC) yang terbagi ke dalam beberapa kelompok skema migrasi (`01` s/d `13`):
+Penyimpanan sistem menggunakan database relasional **MariaDB 11.4 LTS** on-premises (UTC) yang terbagi ke dalam beberapa kelompok skema migrasi (`01` s/d `14`):
 
-### A. Skema Akun Pengguna (`01_auth_schema.sql`)
+### A. Skema Akun Pengguna (`01_auth_schema.sql` & `14_v128_rbac_wa2_and_features.sql`)
 
 #### 1. Tabel `users`
-Menyimpan akun pengguna internal kantor (`developer`, `admin`, `warehouse_admin`, `technician`, serta nilai kompatibilitas legacy `superadmin` / `supervisor`).
+Menyimpan akun pengguna internal kantor dengan **3 peran kanonis** (`developer`, `admin`, `technician`, serta normalisasi kompatibilitas legacy `warehouse_admin` / `supervisor` → `admin` dan `superadmin` → `developer`).
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
@@ -25,13 +25,14 @@ Menyimpan akun pengguna internal kantor (`developer`, `admin`, `warehouse_admin`
 | `password_hash` | `VARCHAR(256)` | Hash PBKDF2 SHA-256 (100.000 iterasi) |
 | `salt` | `VARCHAR(64)` | Salt acak 16-byte |
 | `status` | `ENUM(...)` | Status akun: `'ACTIVE'`, `'SUSPENDED'`, `'PENDING_APPROVAL'`, `'REJECTED'` |
+| `feature_permissions` | `TEXT NULL` | JSON override slider ON/OFF per fitur (`FeatureKey -> boolean`) khusus diatur `developer` *(migrasi `14`)* |
 | `created_at`, `updated_at` | `TIMESTAMP` | Waktu pembuatan & pembaruan akun (UTC) |
 
 ---
 
 ### B. Skema Checklist Inspeksi, Multi-Tas Lapangan, & API Keys (`02_inventory_schema.sql`)
 
-> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.7 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
+> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.8 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
 
 #### 1. Tabel `checklists` (Inspeksi Harian & Template Multi-Tas Kerja Lapangan)
 Tabel `checklists` menjalankan dua peran melalui kolom `inspection_type`:
@@ -89,7 +90,7 @@ Menyimpan parameter konfigurasi sistem serta daftar pola ekstraksi SN (`SN_PATTE
 - `ABSOLUTE_TIMEOUT_JAM = '720'` *(30 hari)*
 - `MAX_SESI_PER_AKUN = '50'` *(multi-perangkat diizinkan tanpa saling memutus)*
 - `REAUTH_MENIT = '15'`, `RETENSI_SAMPAH_HARI = '14'`, `CONFIRMATION_TOKEN_TTL_DETIK = '120'`
-- `CONFIRMATION_TIERS`: Pemetaan JSON Tier 0–3 (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`, `request_approve`, `change_id_rule`, dsb.)
+- `CONFIRMATION_TIERS`: Pemetaan JSON Tier 0–3 (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`, `delete_item`, `request_approve`, `change_id_rule`, dsb.) *(diperbarui di migrasi `14`)*
 - `SN_PATTERNS`: Array JSON `SNPatternRecord[]` untuk manajemen aturan regex & normalisasi `SCAN_SN` via `/api/sn-patterns`.
 - `REPORT_APPROVAL_CONFIG`: JSON konfigurasi Kop Surat (`companyName`, `divisionName`, `companyAddress`) dan 3 penandatangan **Lembar Pengesahan** (`signers` dengan `roleLabel`, `name`, `title`, dan opsi `useCurrentUser`) yang dikelola via `/api/reports/approval-config`.
 
@@ -100,7 +101,7 @@ Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04` & `12_unify
 | :--- | :--- | :--- |
 | `id` | `VARCHAR(36)` | Primary Key transaksi |
 | `id_aktivitas` | `VARCHAR(32)` | ID Aktivitas unik harian berbasis kalender WIB (`AKT-YYYYMMDD-NNNN`) |
-| `aksi` | `VARCHAR(64)` | Jenis aksi (`tambah_item`, `barang_keluar`, `ambil_request`, `ajukan_pengembalian`, `kembali_alat`, `kembalikan_request`, `selesai_request`, `buat_tas_kerja`, `ubah_tas_kerja`, `hapus_tas_kerja`, `koreksi_transaksi`, dsb.) |
+| `aksi` | `VARCHAR(64)` | Jenis aksi (`tambah_item`, `barang_keluar`, `impor_katalog`, `ambil_request`, `ajukan_pengembalian`, `kembali_alat`, `kembalikan_request`, `selesai_request`, `buat_tas_kerja`, `ubah_tas_kerja`, `hapus_tas_kerja`, `koreksi_transaksi`, dsb.) |
 | `pelaku_id` | `VARCHAR(36)` | Referensi pelaku utama |
 | `actor_id` / `actor_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Pelaku lapangan sebenarnya yang menerima/menjalankan mutasi |
 | `recorded_by_id` / `recorded_by_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Petugas yang mencatat transaksi di sistem |
@@ -180,9 +181,11 @@ Tabel `request` mengelola seluruh siklus:
 
 ---
 
-### G. Skema WA Alert Otomatis & Ambang Berjenjang (`09_v125_paket6_wa_alert.sql` & `13`)
+### G. Skema WA Alert Otomatis, Dual Gateway, & Ambang Berjenjang (`09_v125_paket6_wa_alert.sql`, `13` & `14`)
 
-1. **`wa_config`**: Pengaturan utama Fonnte (`id = 'main'`, `is_enabled`, `cooldown_minutes` default `15`, `last_sent_at`, `active_hours_start/end`, toggle alert `out_of_stock` / `low_stock` / `early_warning`, `global_low_stock_threshold`, `global_early_warning_threshold`, `recipients_json`, `recipient_slots_json`, `api_url`, `api_token`). Kolom `recipient_slots_json` *(migrasi `13`)* menyimpan maksimal **4 slot penerima** (`slot`, `label`, `number`, `enabled`) dengan saklar ON/OFF individual; hanya slot aktif yang masuk ke `recipients_json`.
+1. **`wa_config`**: Pengaturan utama WhatsApp Gateway (`id = 'main'`, `is_enabled`, `cooldown_minutes` default `15`, `last_sent_at`, `active_hours_start/end`, toggle alert `out_of_stock` / `low_stock` / `early_warning`, `global_low_stock_threshold`, `global_early_warning_threshold`, `recipients_json`, `recipient_slots_json`, `api_url`, `api_token`, `gateways_json`, `gateway_mode`).
+   - Kolom `recipient_slots_json` *(migrasi `13`)* menyimpan maksimal **4 slot penerima** (`slot`, `label`, `number`, `enabled`) dengan saklar ON/OFF individual; hanya slot aktif yang masuk ke `recipients_json`.
+   - Kolom `gateways_json` & `gateway_mode` *(migrasi `14`)* menyimpan konfigurasi **2 Gateway (`gateway1` & `gateway2`)** bersaklar ON/OFF (`failover` | `primary_only` | `broadcast_both`). Kredensial & URL gateway hanya dapat dilihat dan diubah oleh peran **`developer`**.
 2. **`wa_thresholds`**: Konfigurasi ambang berjenjang (`level`: `'produk'` | `'tipe'`, `produk_id`, `tipe_id`, `low_stock_threshold`, `early_warning_threshold`, `is_watchlist`). Resolusi prioritas: **Tipe > Produk > Global**.
 3. **`wa_alert_status`**: Status anti-duplikat per target (`target_type`: `'item'` | `'tipe'` | `'produk'`, `target_id`, `current_status`, `last_alert_status`, `last_alert_sent_at`, `pending_in_queue`).
 4. **`wa_delivery_logs`**: Riwayat pengiriman alert (`id`, `sent_at`, `trigger_type`, `recipients`, `message_snippet`, `summary_counts`, `fonnte_status`, `fonnte_response`, `operator_id`).

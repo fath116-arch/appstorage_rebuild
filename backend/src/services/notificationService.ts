@@ -6,7 +6,6 @@
  */
 
 import { executeQuery } from '../db/database';
-import { FonnteProvider } from '../integrations/whatsapp/fonnte';
 import {
   formatNewRequestMessage,
   formatPurchaseRequestMessage
@@ -87,13 +86,14 @@ export class NotificationService {
         alasan: input.alasan
       });
 
-      const apiUrl = deliveryCfg.apiUrl || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send';
-      const apiToken = deliveryCfg.apiToken || process.env.WHATSAPP_API_TOKEN || '';
-      const provider = new FonnteProvider(apiUrl, apiToken);
-
-      Promise.allSettled(targets.map(target => provider.sendMessage(target, message)))
+      Promise.allSettled(
+        targets.map(target =>
+          WhatsappAlertService.dispatchThroughGateways(target, message, deliveryCfg)
+        )
+      )
         .then(async results => {
           const allOk = results.every(r => r.status === 'fulfilled' && r.value.success);
+          const hasToken = results.some(r => r.status === 'fulfilled' && r.value.hasAnyToken);
           const details = results
             .map(r => (r.status === 'fulfilled' ? r.value.details : String(r.reason)))
             .join(' | ');
@@ -102,7 +102,7 @@ export class NotificationService {
             recipients: targets.join(', '),
             message_snippet: message.slice(0, 160),
             summary_counts: JSON.stringify({ requestId: input.requestId, jumlah: input.jumlah }),
-            fonnte_status: allOk ? 'SUCCESS' : (apiToken ? 'FAILED' : 'SIMULATED'),
+            fonnte_status: allOk ? 'SUCCESS' : (hasToken ? 'FAILED' : 'SIMULATED'),
             fonnte_response: details,
             operator_id: input.pemohonId
           });
@@ -148,11 +148,11 @@ export class NotificationService {
         alasan: input.alasan
       });
 
-      const apiUrl = deliveryCfg.apiUrl || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send';
-      const apiToken = deliveryCfg.apiToken || process.env.WHATSAPP_API_TOKEN || '';
-      const provider = new FonnteProvider(apiUrl, apiToken);
-
-      Promise.allSettled(targets.map(target => provider.sendMessage(target, message)))
+      Promise.allSettled(
+        targets.map(target =>
+          WhatsappAlertService.dispatchThroughGateways(target, message, deliveryCfg)
+        )
+      )
         .then(results => {
           console.log(`[NotificationService] Alert permohonan #${input.requestId} terkirim ke ${results.length} target.`);
         })

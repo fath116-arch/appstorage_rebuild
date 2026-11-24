@@ -427,6 +427,44 @@ export class CatalogService {
     return { success: true, message: `Kategori "${existing.nama}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).` };
   }
 
+  static async canDeleteJenisBulk(ids: number[]): Promise<{ canDelete: boolean; message?: string; items: Jenis[] }> {
+    const uniqueIds = Array.from(new Set(ids.filter(id => Number.isFinite(id) && id > 0)));
+    if (uniqueIds.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 kategori untuk dihapus.', items: [] };
+    }
+    const items: Jenis[] = [];
+    for (const id of uniqueIds) {
+      const check = await this.canDeleteJenis(id);
+      if (!check.canDelete || !check.existing) {
+        return { canDelete: false, message: check.message || `Kategori #${id} tidak dapat dihapus.`, items: [] };
+      }
+      items.push(check.existing);
+    }
+    return { canDelete: true, items };
+  }
+
+  static async deleteJenisBulk(ids: number[], userId: string): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    const check = await this.canDeleteJenisBulk(ids);
+    if (!check.canDelete) {
+      return { success: false, deletedCount: 0, message: check.message || 'Kategori terpilih tidak dapat dihapus.' };
+    }
+    for (const existing of check.items) {
+      await TrashService.moveToTrash({
+        jenis_objek: 'jenis',
+        objek_id: String(existing.id),
+        snapshot: existing,
+        dihapus_oleh: userId,
+        catatan: `Hapus Massal Kategori "${existing.nama}"`
+      });
+      await executeQuery('UPDATE jenis SET aktif = 0 WHERE id = ?', [existing.id]);
+    }
+    return {
+      success: true,
+      deletedCount: check.items.length,
+      message: `${check.items.length} kategori berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
   // ============================================================================
   // 2. ATRIBUT & OPSI
   // ============================================================================
@@ -710,6 +748,46 @@ export class CatalogService {
     });
 
     return { success: true, message: `Atribut "${existing.nama}" berhasil dihapus.` };
+  }
+
+  static async canDeleteAtributBulk(ids: number[]): Promise<{ canDelete: boolean; message?: string; items: Atribut[] }> {
+    const uniqueIds = Array.from(new Set(ids.filter(id => Number.isFinite(id) && id > 0)));
+    if (uniqueIds.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 atribut untuk dihapus.', items: [] };
+    }
+    const items: Atribut[] = [];
+    for (const id of uniqueIds) {
+      const check = await this.canDeleteAtribut(id);
+      if (!check.canDelete || !check.existing) {
+        return { canDelete: false, message: check.message || `Atribut #${id} tidak dapat dihapus.`, items: [] };
+      }
+      items.push(check.existing);
+    }
+    return { canDelete: true, items };
+  }
+
+  static async deleteAtributBulk(ids: number[], userId: string): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    const check = await this.canDeleteAtributBulk(ids);
+    if (!check.canDelete) {
+      return { success: false, deletedCount: 0, message: check.message || 'Atribut terpilih tidak dapat dihapus.' };
+    }
+    await runTransaction(async (conn) => {
+      for (const existing of check.items) {
+        await conn.query('DELETE FROM tipe_nilai WHERE atribut_id = ?', [existing.id]);
+        await conn.query('DELETE FROM atribut_opsi WHERE atribut_id = ?', [existing.id]);
+        await conn.query('DELETE FROM atribut WHERE id = ?', [existing.id]);
+      }
+      await ActivityLogService.recordActivity({
+        aksi: 'hapus_atribut',
+        pelaku_id: userId,
+        catatan: `Menghapus massal ${check.items.length} atribut (${check.items.map(i => i.nama).join(', ')})`
+      }, conn);
+    });
+    return {
+      success: true,
+      deletedCount: check.items.length,
+      message: `${check.items.length} atribut berhasil dihapus.`
+    };
   }
 
   static async addAtributOpsi(atributId: number, nilai: string): Promise<AtributOpsi> {
@@ -1066,6 +1144,45 @@ export class CatalogService {
     await executeQuery('UPDATE tipe SET aktif = 0 WHERE produk_id = ?', [id]);
     await executeQuery('UPDATE produk SET aktif = 0 WHERE id = ?', [id]);
     return { success: true, message: `Produk "${existing.nama}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).` };
+  }
+
+  static async canDeleteProdukBulk(ids: number[]): Promise<{ canDelete: boolean; message?: string; items: Produk[] }> {
+    const uniqueIds = Array.from(new Set(ids.filter(id => Number.isFinite(id) && id > 0)));
+    if (uniqueIds.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 produk untuk dihapus.', items: [] };
+    }
+    const items: Produk[] = [];
+    for (const id of uniqueIds) {
+      const check = await this.canDeleteProduk(id);
+      if (!check.canDelete || !check.existing) {
+        return { canDelete: false, message: check.message || `Produk #${id} tidak dapat dihapus.`, items: [] };
+      }
+      items.push(check.existing);
+    }
+    return { canDelete: true, items };
+  }
+
+  static async deleteProdukBulk(ids: number[], userId: string): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    const check = await this.canDeleteProdukBulk(ids);
+    if (!check.canDelete) {
+      return { success: false, deletedCount: 0, message: check.message || 'Produk terpilih tidak dapat dihapus.' };
+    }
+    for (const existing of check.items) {
+      await TrashService.moveToTrash({
+        jenis_objek: 'produk',
+        objek_id: String(existing.id),
+        snapshot: existing,
+        dihapus_oleh: userId,
+        catatan: `Hapus Massal Produk "${existing.nama}"`
+      });
+      await executeQuery('UPDATE tipe SET aktif = 0 WHERE produk_id = ?', [existing.id]);
+      await executeQuery('UPDATE produk SET aktif = 0 WHERE id = ?', [existing.id]);
+    }
+    return {
+      success: true,
+      deletedCount: check.items.length,
+      message: `${check.items.length} produk berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
   }
 
   // ============================================================================

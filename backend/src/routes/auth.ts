@@ -4,8 +4,8 @@
  */
 
 import express from 'express';
-import { AuthService, sanitizeClientIp } from '../services/authService';
-import { AuthenticatedRequest, requireAuth, requireRole, parseCookies } from '../middleware/authMiddleware';
+import { AuthService, normalizeUserRole, sanitizeClientIp } from '../services/authService';
+import { AuthenticatedRequest, requireAuth, requireFeature, requireRole, parseCookies } from '../middleware/authMiddleware';
 import { SessionService } from '../services/sessionService';
 import { ConfirmationService } from '../services/confirmationService';
 import { SettingService } from '../services/settingService';
@@ -14,7 +14,13 @@ import { TrashService } from '../services/trashService';
 import { executeQuery } from '../db/database';
 import { createRateLimiter } from '../middleware/rateLimitMiddleware';
 import { getErrorMessage } from '../utils/errorUtils';
-import { isDeveloperRole } from '../utils/permissions';
+import {
+  FEATURE_CATALOG,
+  FeaturePermissionsMap,
+  isDeveloperRole,
+  normalizeRole,
+  parseFeaturePermissions
+} from '../utils/permissions';
 
 interface AuthUserRow {
   id: string;
@@ -25,6 +31,7 @@ interface AuthUserRow {
   department: string;
   phone?: string | null;
   status: string;
+  feature_permissions?: string | FeaturePermissionsMap | null;
   created_at?: string;
 }
 
@@ -116,77 +123,14 @@ router.post('/login', loginRateLimiter, async (req: AuthenticatedRequest, res: e
 
 /**
  * POST /api/auth/register
- * Pendaftaran akun pengguna internal kantor (langsung aktif dan login otomatis)
+ * Pendaftaran mandiri dari halaman login dinonaktifkan (v1.2.8).
+ * Akun baru hanya dapat dibuat dari dalam sistem oleh Developer/Admin atau via terminal server (npm run setup:admin).
  */
-/**
- * POST /api/auth/register
- * Pendaftaran akun pengguna internal kantor (Role di bawah admin/developer, memerlukan persetujuan)
- */
-router.post('/register', async (req: express.Request, res: express.Response) => {
-  try {
-    const { username, name, email, role, department, phone, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Username dan kata sandi wajib diisi.'
-      });
-    }
-
-    const cleanUsername = String(username).trim();
-    const cleanPassword = String(password).trim();
-    const cleanName = name ? String(name).trim() : cleanUsername;
-    const cleanEmail = email ? String(email).trim() : `${cleanUsername.toLowerCase()}@fieldops.local`;
-
-    const requestedRole = String(role || '').toLowerCase();
-
-    // Invarian: Akun Admin dan Developer HANYA bisa dibuat di sisi server
-    if (['admin', 'developer', 'superadmin'].includes(requestedRole)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Akun Admin dan Developer hanya dapat dibuat di sisi server melalui terminal/setup (npm run setup:admin).'
-      });
-    }
-
-    // Role yang diizinkan untuk registrasi mandiri adalah role di bawah admin & developer
-    const validRole = ['warehouse_admin', 'technician'].includes(requestedRole) ? requestedRole : 'technician';
-
-    const existing = await executeQuery<{ id: string }>(
-      'SELECT id FROM users WHERE LOWER(TRIM(username)) = LOWER(?) OR LOWER(TRIM(email)) = LOWER(?)',
-      [cleanUsername, cleanEmail]
-    );
-
-    if (existing && existing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Username "${cleanUsername}" atau email sudah terdaftar.`
-      });
-    }
-
-    const userId = `usr-${Date.now()}`;
-    const { hash, salt } = AuthService.hashPassword(cleanPassword);
-
-    // Akun baru berstatus PENDING_APPROVAL dan memerlukan persetujuan Admin
-    await executeQuery(
-      `INSERT INTO users (id, username, name, email, role, department, phone, password_hash, salt, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, cleanUsername, cleanName, cleanEmail, validRole, department || 'IT Operations', phone || '', hash, salt, 'PENDING_APPROVAL']
-    );
-
-    // Hapus cookie sesi yang mungkin tersisa agar akun pending tidak auto-login
-    res.setHeader('Set-Cookie', 'fieldops_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax');
-
-    return res.json({
-      success: true,
-      requiresApproval: true,
-      status: 'PENDING_APPROVAL',
-      message: `Pendaftaran berhasil! Akun "${cleanUsername}" sedang menunggu persetujuan dari Admin sebelum dapat masuk.`,
-      user: { id: userId, username: cleanUsername, name: cleanName, role: validRole, status: 'PENDING_APPROVAL' }
-    });
-  } catch (err: unknown) {
-    console.error('[Register User Error]:', err);
-    return res.status(500).json({ success: false, message: 'Gagal mengajukan pendaftaran akun pengguna baru.' });
-  }
+router.post('/register', async (_req: express.Request, res: express.Response) => {
+  return res.status(403).json({
+    success: false,
+    message: 'Pendaftaran akun mandiri dari halaman login telah ditutup. Akun hanya dapat dibuat dari dalam sistem oleh Developer/Admin atau melalui terminal server (npm run setup:admin).'
+  });
 });
 
 /**
@@ -271,9 +215,9 @@ router.post('/logout', async (req: AuthenticatedRequest, res: express.Response) 
 
 /**
  * GET /api/auth/actors
- * Daftar pengguna aktif untuk pilihan "Atas Nama" pada pencatatan mutasi (Developer, Admin, Admin Gudang)
+ * Daftar pengguna aktif untuk pilihan "Atas Nama" pada pencatatan mutasi (Developer & Admin)
  */
-router.get('/actors', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (_req, res) => {
+router.get('/actors', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
   try {
     const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role' | 'department' | 'status'>>(
       'SELECT id, username, name, role, department, status FROM users ORDER BY name ASC'
@@ -282,7 +226,7 @@ router.get('/actors', requireAuth, requireRole(['developer', 'admin', 'warehouse
       .filter(u => u.status === 'ACTIVE')
       .map(u => ({
         ...u,
-        role: u.role === 'superadmin' ? 'developer' : u.role
+        role: normalizeUserRole(u.role)
       }));
     return res.json({ success: true, actors: active });
   } catch (err: unknown) {
@@ -292,17 +236,17 @@ router.get('/actors', requireAuth, requireRole(['developer', 'admin', 'warehouse
 
 /**
  * GET /api/auth/users
- * Mendapatkan daftar seluruh pengguna (Akses: Developer & Admin)
+ * Mendapatkan daftar seluruh pengguna (Akses: Developer & pengguna dengan izin users_manage)
  */
-router.get('/users', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
+router.get('/users', requireAuth, requireFeature('users_manage'), async (_req, res) => {
   try {
     const users = await executeQuery<AuthUserRow>(
-      'SELECT id, username, name, email, role, department, phone, status, created_at FROM users ORDER BY created_at DESC'
+      'SELECT id, username, name, email, role, department, phone, status, feature_permissions, created_at FROM users ORDER BY created_at DESC'
     );
-    // Normalisasi role superadmin ke developer jika ada
     const normalized = (users || []).map((u) => ({
       ...u,
-      role: u.role === 'superadmin' ? 'developer' : u.role
+      role: normalizeUserRole(u.role),
+      feature_permissions: parseFeaturePermissions(u.feature_permissions)
     }));
     return res.json({ success: true, users: normalized });
   } catch (err: unknown) {
@@ -312,11 +256,11 @@ router.get('/users', requireAuth, requireRole(['developer', 'admin']), async (_r
 
 /**
  * POST /api/auth/users/:id/approve
- * Menyetujui akun baru yang menunggu persetujuan (Akses: Developer & Admin)
+ * Menyetujui akun baru (Admin terbatas hanya untuk akun role admin & technician)
  */
-router.post('/users/:id/approve', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/users/:id/approve', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const userId = req.params.id;
+    const userId = String(req.params.id);
     const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role' | 'status'>>(
       'SELECT id, username, name, role, status FROM users WHERE id = ?',
       [userId]
@@ -327,7 +271,27 @@ router.post('/users/:id/approve', requireAuth, requireRole(['developer', 'admin'
       return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
     }
 
-    await executeQuery('UPDATE users SET status = ? WHERE id = ?', ['ACTIVE', userId]);
+    const targetRole = normalizeUserRole(targetUser.role);
+    if (isDeveloperRole(targetRole) && !isDeveloperRole(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses Ditolak: Admin hanya dapat menyetujui akun Admin dan Teknisi.'
+      });
+    }
+
+    const requestedRoleRaw = req.body?.role ? String(req.body.role).trim().toLowerCase() : null;
+    if (requestedRoleRaw) {
+      if ((requestedRoleRaw === 'developer' || requestedRoleRaw === 'superadmin') && !isDeveloperRole(req.user?.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Akses Ditolak: Admin tidak dapat menaikkan peran akun menjadi Developer.'
+        });
+      }
+      const nextRole = normalizeRole(requestedRoleRaw);
+      await executeQuery('UPDATE users SET status = ?, role = ? WHERE id = ?', ['ACTIVE', nextRole, userId]);
+    } else {
+      await executeQuery('UPDATE users SET status = ? WHERE id = ?', ['ACTIVE', userId]);
+    }
 
     return res.json({
       success: true,
@@ -340,19 +304,26 @@ router.post('/users/:id/approve', requireAuth, requireRole(['developer', 'admin'
 
 /**
  * POST /api/auth/users/:id/reject
- * Menolak pendaftaran akun (Akses: Developer & Admin)
+ * Menolak pendaftaran akun (Admin terbatas hanya untuk role admin & technician)
  */
-router.post('/users/:id/reject', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/users/:id/reject', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const userId = req.params.id;
-    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name'>>(
-      'SELECT id, username, name FROM users WHERE id = ?',
+    const userId = String(req.params.id);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role'>>(
+      'SELECT id, username, name, role FROM users WHERE id = ?',
       [userId]
     );
     const targetUser = users && users[0];
 
     if (!targetUser) {
       return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
+    }
+
+    if (isDeveloperRole(targetUser.role) && !isDeveloperRole(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses Ditolak: Hanya peran Developer yang dapat mengelola akun Developer.'
+      });
     }
 
     await executeQuery('UPDATE users SET status = ? WHERE id = ?', ['REJECTED', userId]);
@@ -370,9 +341,9 @@ router.post('/users/:id/reject', requireAuth, requireRole(['developer', 'admin']
  * POST /api/auth/users/:id/status
  * Memperbarui status akun (ACTIVE, SUSPENDED, PENDING_APPROVAL, REJECTED)
  */
-router.post('/users/:id/status', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/users/:id/status', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const userId = req.params.id;
+    const userId = String(req.params.id);
     const { status } = req.body;
 
     if (!['ACTIVE', 'SUSPENDED', 'PENDING_APPROVAL', 'REJECTED'].includes(status)) {
@@ -381,6 +352,22 @@ router.post('/users/:id/status', requireAuth, requireRole(['developer', 'admin']
 
     if (req.user?.id === userId && status !== 'ACTIVE') {
       return res.status(400).json({ success: false, message: 'Dilarang menonaktifkan status akun Anda sendiri.' });
+    }
+
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'role'>>(
+      'SELECT id, username, role FROM users WHERE id = ?',
+      [userId]
+    );
+    const target = users && users[0];
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
+    }
+
+    if (isDeveloperRole(target.role) && !isDeveloperRole(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses Ditolak: Hanya peran Developer yang dapat mengubah status akun Developer.'
+      });
     }
 
     await executeQuery('UPDATE users SET status = ? WHERE id = ?', [status, userId]);
@@ -395,12 +382,76 @@ router.post('/users/:id/status', requireAuth, requireRole(['developer', 'admin']
 });
 
 /**
- * DELETE /api/auth/users/:id
- * Menghapus akun pengguna (Akses: Developer & Admin)
+ * PUT /api/auth/users/:id/features
+ * Mengatur akses fitur per akun menggunakan saklar ON/OFF (KHUSUS PERAN DEVELOPER!)
  */
-router.delete('/users/:id', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.put('/users/:id/features', requireAuth, requireRole(['developer']), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const userId = req.params.id;
+    if (!isDeveloperRole(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses Ditolak: Fitur pengaturan akses per akun hanya dapat diakses oleh peran Developer.'
+      });
+    }
+
+    const userId = String(req.params.id);
+    const { featurePermissions, resetToDefault } = req.body || {};
+
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role'>>(
+      'SELECT id, username, name, role FROM users WHERE id = ?',
+      [userId]
+    );
+    const target = users && users[0];
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
+    }
+
+    if (isDeveloperRole(target.role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Akun dengan peran Developer selalu memiliki akses penuh sistem dan tidak dibatasi per fitur.'
+      });
+    }
+
+    let nextMap: FeaturePermissionsMap = {};
+    if (!resetToDefault && featurePermissions && typeof featurePermissions === 'object') {
+      for (const def of FEATURE_CATALOG) {
+        if (typeof (featurePermissions as Record<string, unknown>)[def.key] === 'boolean') {
+          nextMap[def.key] = Boolean((featurePermissions as Record<string, boolean>)[def.key]);
+        }
+      }
+    }
+
+    const serialized = Object.keys(nextMap).length > 0 ? JSON.stringify(nextMap) : null;
+    await executeQuery('UPDATE users SET feature_permissions = ? WHERE id = ?', [serialized, userId]);
+
+    await ActivityLogService.recordActivity({
+      aksi: 'ubah_akses_fitur',
+      pelaku_id: req.user!.id,
+      catatan: resetToDefault
+        ? `Reset akses fitur akun "@${target.username}" ke bawaan peran (${normalizeUserRole(target.role)})`
+        : `Memperbarui saklar akses fitur akun "@${target.username}" (${Object.keys(nextMap).length} penyesuaian)`
+    });
+
+    return res.json({
+      success: true,
+      message: resetToDefault
+        ? `Akses fitur akun "@${target.username}" berhasil direset ke bawaan peran.`
+        : `Akses fitur akun "@${target.username}" berhasil disimpan.`,
+      feature_permissions: nextMap
+    });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
+  }
+});
+
+/**
+ * DELETE /api/auth/users/:id
+ * Menghapus akun pengguna (Developer: semua non-self; Admin: hanya admin & technician)
+ */
+router.delete('/users/:id', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const userId = String(req.params.id);
 
     if (req.user?.id === userId) {
       return res.status(400).json({ success: false, message: 'Dilarang menghapus akun Anda sendiri saat sedang login.' });
@@ -415,7 +466,6 @@ router.delete('/users/:id', requireAuth, requireRole(['developer', 'admin']), as
       return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
     }
 
-    // Admin tidak boleh menghapus akun Developer
     if (isDeveloperRole(target.role) && !isDeveloperRole(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Hanya peran Developer yang dapat mengelola akun Developer.' });
     }
@@ -433,11 +483,11 @@ router.delete('/users/:id', requireAuth, requireRole(['developer', 'admin']), as
 
 /**
  * POST /api/auth/users
- * Membuat akun pengguna baru langsung dari dasbor internal (Akses: Developer & Admin)
+ * Membuat akun pengguna baru dari dalam sistem (Admin terbatas membuat role admin & technician)
  */
-router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/users', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const { username, name, email, role, department, phone, password, status } = req.body;
+    const { username, name, email, role, department, phone, password, status, feature_permissions } = req.body;
 
     if (!username || !name || !email || !password) {
       return res.status(400).json({
@@ -448,20 +498,16 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
 
     const cleanUsername = String(username).trim();
     const cleanEmail = String(email).trim();
-    let targetRole = role || 'technician';
+    const rawRequestedRole = String(role || 'technician').trim().toLowerCase();
 
-    // Pembatasan: Hanya Developer yang bisa membuat akun Developer lain dari UI
-    if (targetRole === 'developer' && !isDeveloperRole(req.user?.role)) {
+    if ((rawRequestedRole === 'developer' || rawRequestedRole === 'superadmin') && !isDeveloperRole(req.user?.role)) {
       return res.status(403).json({
         success: false,
-        message: 'Hanya Developer yang dapat membuat akun dengan peran Developer.'
+        message: 'Akses Ditolak: Admin hanya dapat membuat akun dengan peran Admin atau Teknisi.'
       });
     }
 
-    const validRoles = ['technician', 'warehouse_admin', 'admin', 'developer'];
-    if (!validRoles.includes(targetRole)) {
-      targetRole = 'technician';
-    }
+    const targetRole = normalizeRole(rawRequestedRole);
 
     const existing = await executeQuery<{ id: string }>('SELECT id FROM users WHERE username = ? OR email = ?', [cleanUsername, cleanEmail]);
     if (existing && existing.length > 0) {
@@ -473,7 +519,10 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
 
     const userId = `usr-${Date.now()}`;
     const { hash, salt } = AuthService.hashPassword(password);
-    const initialStatus = status || 'ACTIVE';
+    const initialStatus = ['ACTIVE', 'PENDING_APPROVAL'].includes(status) ? status : 'ACTIVE';
+    const parsedFeatures = isDeveloperRole(req.user?.role) && targetRole !== 'developer'
+      ? parseFeaturePermissions(feature_permissions)
+      : {};
 
     await executeQuery(
       `INSERT INTO users (id, username, name, email, role, department, phone, password_hash, salt, status) 
@@ -481,10 +530,24 @@ router.post('/users', requireAuth, requireRole(['developer', 'admin']), async (r
       [userId, cleanUsername, name.trim(), cleanEmail, targetRole, department || 'IT Operations', phone || '', hash, salt, initialStatus]
     );
 
+    if (Object.keys(parsedFeatures).length > 0) {
+      await executeQuery('UPDATE users SET feature_permissions = ? WHERE id = ?', [JSON.stringify(parsedFeatures), userId]);
+    }
+
     return res.json({
       success: true,
       message: `Akun "${cleanUsername}" (${targetRole}) berhasil dibuat.`,
-      user: { id: userId, username: cleanUsername, name: name.trim(), email: cleanEmail, role: targetRole, department, phone, status: initialStatus }
+      user: {
+        id: userId,
+        username: cleanUsername,
+        name: name.trim(),
+        email: cleanEmail,
+        role: targetRole,
+        department,
+        phone,
+        status: initialStatus,
+        feature_permissions: parsedFeatures
+      }
     });
   } catch (err: unknown) {
     console.error('[Create User Error]:', err);
@@ -563,9 +626,9 @@ router.post('/reset-password', resetPasswordRateLimiter, async (req: express.Req
  * POST /api/auth/users/:id/reset-password
  * Reset kata sandi pengguna oleh Admin atau Developer dari Panel Manajemen Akun
  */
-router.post('/users/:id/reset-password', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/users/:id/reset-password', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const userId = req.params.id;
+    const userId = String(req.params.id);
     const { newPassword } = req.body;
 
     if (!newPassword || String(newPassword).trim().length === 0) {
@@ -582,7 +645,7 @@ router.post('/users/:id/reset-password', requireAuth, requireRole(['developer', 
       return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
     }
 
-    // Admin biasa tidak boleh mereset password akun Developer
+    // Admin tidak boleh mereset password akun Developer
     if (isDeveloperRole(target.role) && !isDeveloperRole(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Hanya peran Developer yang dapat mereset kata sandi akun Developer.' });
     }
@@ -634,11 +697,20 @@ router.post('/confirm-token', requireAuth, async (req: AuthenticatedRequest, res
 
 /**
  * POST /api/auth/users/:id/revoke-sessions
- * Memaksa cabut seluruh sesi akun pengguna lain (Akses: Developer & Admin)
+ * Memaksa cabut seluruh sesi akun pengguna lain (Akses: Developer & Admin dengan users_manage)
  */
-router.post('/users/:id/revoke-sessions', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/users/:id/revoke-sessions', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const targetUserId = String(req.params.id);
+    const users = await executeQuery<Pick<AuthUserRow, 'id' | 'role'>>(
+      'SELECT id, role FROM users WHERE id = ?',
+      [targetUserId]
+    );
+    const target = users && users[0];
+    if (target && isDeveloperRole(target.role) && !isDeveloperRole(req.user?.role)) {
+      return res.status(403).json({ success: false, message: 'Hanya peran Developer yang dapat mencabut sesi akun Developer.' });
+    }
+
     const revokedCount = await SessionService.revokeAllUserSessions(targetUserId, req.user!.id);
     return res.json({
       success: true,
@@ -651,9 +723,9 @@ router.post('/users/:id/revoke-sessions', requireAuth, requireRole(['developer',
 
 /**
  * GET /api/auth/settings
- * Mengambil parameter konfigurasi sistem (pengaturan)
+ * Mengambil parameter konfigurasi sistem (pengaturan) - Akses Developer / Audit Keamanan
  */
-router.get('/settings', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
+router.get('/settings', requireAuth, requireFeature('security_audit'), async (_req, res) => {
   try {
     const settings = await SettingService.getAll();
     return res.json({ success: true, settings });
@@ -666,7 +738,7 @@ router.get('/settings', requireAuth, requireRole(['developer', 'admin']), async 
  * PUT /api/auth/settings/:key
  * Memperbarui nilai parameter konfigurasi sistem
  */
-router.put('/settings/:key', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+router.put('/settings/:key', requireAuth, requireFeature('security_audit'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const key = String(req.params.key);
     const { value, keterangan } = req.body;
@@ -729,7 +801,7 @@ router.get('/activity-logs/:id/details', requireAuth, async (req: AuthenticatedR
  * GET /api/auth/trash
  * Mengambil daftar data di tempat sampah (retensi 14 hari)
  */
-router.get('/trash', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
+router.get('/trash', requireAuth, requireFeature('security_audit'), async (_req, res) => {
   try {
     const list = await TrashService.listTrash();
     return res.json({ success: true, trash: list });
@@ -742,7 +814,7 @@ router.get('/trash', requireAuth, requireRole(['developer', 'admin']), async (_r
  * POST /api/auth/trash/purge
  * Menjalankan pembersihan sampah yang telah melewati masa retensi 14 hari
  */
-router.post('/trash/purge', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
+router.post('/trash/purge', requireAuth, requireFeature('security_audit'), async (_req, res) => {
   try {
     const result = await TrashService.purgeExpiredTrash();
     return res.json({ success: true, purgedCount: result.purgedCount });

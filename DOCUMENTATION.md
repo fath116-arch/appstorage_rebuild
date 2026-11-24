@@ -1,6 +1,6 @@
 # DOCUMENTATION.md - Dokumentasi Teknis & Panduan Operasional FieldOps IT
 
-![System Version](https://img.shields.io/badge/System_Version-v1.2.7-emerald.svg)
+![System Version](https://img.shields.io/badge/System_Version-v1.2.8-emerald.svg)
 ![React](https://img.shields.io/badge/React-19.3.0-61DAFB?logo=react)
 ![Express](https://img.shields.io/badge/Express-5.0.0-000000?logo=express)
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.4_LTS-003545?logo=mariadb)
@@ -9,7 +9,7 @@
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.3.3-38BDF8?logo=tailwindcss)
 ![Node](https://img.shields.io/badge/Node.js-22+_LTS-339933?logo=node.js)
 
-Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.7`)**.
+Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.8`)**.
 
 ---
 
@@ -155,19 +155,20 @@ CLOUDFLARE_PUBLIC_URL=
 ### B. Modul Utama Frontend (`frontend/src/`)
 1. **`AuthContext.tsx` & `utils/permissions.ts`**:
    - Memverifikasi sesi aktif langsung dari server (`GET /api/auth/me`) tanpa menyimpan token sesi maupun peran di `localStorage`.
-   - Mendukung 4 peran kanonis: `developer` (alias legacy `superadmin`), `admin`, `warehouse_admin`, dan `technician`.
+   - Mendukung **3 peran kanonis** (`developer`, `admin`, `technician`) hasil peleburan `admin` + `warehouse_admin` beserta kustomisasi 21 izin fitur per akun via slider ON/OFF (`isFeatureEnabled(user, key)`).
+   - `LoginScreen.tsx` hanya melayani **Login** dan **Lupa Kata Sandi** (pendaftaran publik ditutup total).
 2. **`InventoryContext.tsx`**:
    - Mengelola sinkronisasi satu sumber data kanonik dari endpoint `/api/catalog/*`, `/api/boxes`, `/api/stock/*`, `/api/activities`, dan `/api/requests/*`.
    - Setiap mutasi otomatis memanggil `refreshData()`, ditambah **auto-refresh senyap setiap 5 menit** yang sadar visibilitas tab (`visibilitychange`).
 3. **`ToastContext.tsx` & `ThemeContext.tsx`**:
-   - `ToastContext` menggantikan dialog `alert()`/`confirm()` bawaan browser dengan toast dan modal in-app (`ConfirmDeleteModal.tsx`).
+   - `ToastContext` menggantikan dialog `alert()`/`confirm()` bawaan browser dengan toast dan modal in-app (`ConfirmDeleteModal.tsx` dengan konfirmasi ketik **`delete`** untuk aksi penghapusan).
    - `ThemeContext` mengelola preferensi `light`, `dark`, dan `system` melalui kelas `.dark` dan token CSS di `frontend/src/index.css`.
 4. **Komponen Operasional Utama**:
-   - **Katalog & Box**: `CatalogV2Manager.tsx` (subtab `Produk`, `Kategori`, `Storage Box`, `Kelola`), `BoxContentModal.tsx`, `BatchLabelPrintModal.tsx`.
+   - **Katalog, Box, Hapus Massal, & Impor**: `CatalogV2Manager.tsx` (subtab `Produk`, `Kategori`, `Storage Box`, `Kelola`, hapus massal multi-pilih untuk Produk/Kategori/Atribut/Box), `BoxContentModal.tsx` (termasuk hapus massal Item Fisik Ber-ID), `CatalogImportModal.tsx` (Template Excel & Impor `.xlsx`/`.csv`/Google Spreadsheet publik), dan `BatchLabelPrintModal.tsx`.
    - **Mutasi & Scanner**: `StockInputModal.tsx` (`SCAN_SN` ketat + Uji Regex + `useBarcodeScanner.ts`), `StockInOutModal.tsx` (Keranjang Keluar multi-item + Hubungkan ke Request).
    - **Request & Tas Kerja**: `TechnicianRequestsView.tsx` (Ambil Satuan, Pilih Paket Tas, Kembalikan dengan 3 kondisi, Pengajuan Pembelian Barang `beli` + WA selektif, Selesai Terpakai/Sudah Dibeli), `FieldTripChecklistModal.tsx` (Inspeksi Harian + Manajemen Multi-Tas Kerja Kantor).
    - **Laporan & Audit**: `TransactionHistory.tsx` (Ledger append-only + Catat Koreksi Audit), `WeeklyReport.tsx` (Senin–Minggu WIB, ekspor `.xlsx` ExcelJS tersanitasi CWE-1236, `PrintReportModal.tsx`, `PrintDocumentModal.tsx`, serta editor Kop Surat & Lembar Pengesahan `REPORT_APPROVAL_CONFIG`).
-   - **Notifikasi WhatsApp**: `WhatsAppConfigModal.tsx` & `WaConfigTab.tsx` (4 slot nomor penerima dengan saklar ON/OFF individual).
+   - **Notifikasi WhatsApp**: `WhatsAppConfigModal.tsx` & `WaConfigTab.tsx` (4 slot nomor penerima dengan saklar ON/OFF individual + **Dual Gateway ON/OFF** khusus `developer`).
 
 ### C. Modul Layanan Backend (`backend/src/`)
 1. **Keamanan, Sesi, & Kriptografi**:
@@ -182,13 +183,13 @@ CLOUDFLARE_PUBLIC_URL=
 
 ## 🔌 3. RINGKASAN ENDPOINT API UTAMA
 
-Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie sesi server (`requireAuth`), kecuali `/api/health`, `/api/auth/login`, `/api/auth/register`, `/api/auth/reset-password`, dan webhook `/api/tickets/consume` (menggunakan `X-API-Key` atau `Bearer <api_key>`):
+Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie sesi server (`requireAuth` & `requireFeature`), kecuali `/api/health`, `/api/auth/login`, `/api/auth/reset-password`, dan webhook `/api/tickets/consume` (menggunakan `X-API-Key` atau `Bearer <api_key>`). Endpoint `POST /api/auth/register` mengembalikan `HTTP 403 Forbidden`:
 
-- **Autentikasi & Administrasi (`/api/auth`)**: Login/refresh/logout, profil `/me`, daftar `/actors`, manajemen `/users`, `/confirm-token`, `/settings`, dan `/trash`.
-- **Katalog & Storage Box (`/api/catalog`, `/api/boxes`)**: CRUD Kategori (`jenis`), Atribut & Opsi, Produk, Varian Tipe, aturan ID (`/types/:id/id-rule`), label cetak A4 (`/labels`), serta manajemen Storage Box dan pemindahan antar box (`/boxes/move`).
-- **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, serta feed aktivitas & koreksi append-only (`/activities/:id/correct`).
+- **Autentikasi & Administrasi (`/api/auth`)**: Login/refresh/logout, profil `/me`, daftar `/actors`, manajemen `/users` (`admin` terbatas `admin`/`technician`), `/users/:id/features` (izin fitur slider khusus `developer`), `/confirm-token` (ketik `"delete"` untuk penghapusan), `/settings`, dan `/trash`.
+- **Katalog, Impor, & Storage Box (`/api/catalog`, `/api/import`, `/api/boxes`)**: CRUD & hapus massal (`/bulk`) Kategori (`jenis`), Atribut & Opsi, Produk, Varian Tipe, aturan ID (`/types/:id/id-rule`), label cetak A4 (`/labels`), impor Excel/Google Sheet (`/api/import/{template,preview,commit}`), serta manajemen Storage Box (`/boxes/bulk` & `/boxes/move`).
+- **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, hapus tunggal/massal item fisik ber-ID (`/items/:id`, `/items/bulk`), serta feed aktivitas & koreksi append-only (`/activities/:id/correct`).
 - **Request & Multi-Tas (`/api/requests`, `/api/checklists`)**: Permohonan ambil satuan, paket tas (`/requests/bag`), pengembalian (`request_type: 'kembalikan'`), pengajuan pembelian barang (`request_type: 'beli'` dengan WA selektif), persetujuan, serah terima (`/pickup`), verifikasi kembali (`/return`), selesai pemakaian/pembelian (`/complete`), barang di tangan teknisi (`/held`), dan CRUD Multi-Tas (`/checklists/bags`).
-- **Laporan, Pola SN, WA Alert, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly`, `/debug-clock`, & `/approval-config`, `/api/sn-patterns`, `/api/whatsapp/*` (4 slot ON/OFF), `/api/setup/*` (`SystemSetupService` + `test-login`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
+- **Laporan, Pola SN, Dual WA Gateway, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly`, `/debug-clock`, & `/approval-config`, `/api/sn-patterns`, `/api/whatsapp/*` (4 slot ON/OFF + **Dual Gateway** & `/test-gateway` khusus `developer`), `/api/setup/*` (`SystemSetupService` + `test-login`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
 
 *(Daftar lengkap seluruh rute, metode HTTP, dan otorisasi peran tersedia pada [`docs/DEPLOY.md`](./docs/DEPLOY.md), [`docs/PERAN_DAN_AKSES.md`](./docs/PERAN_DAN_AKSES.md), dan [`docs/SKRIP_CLI.md`](./docs/SKRIP_CLI.md).)*
 

@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
+import { isAdminOrDev, isFeatureEnabled } from '../utils/permissions';
 import { 
   RotateCcw, 
   X, 
@@ -36,7 +37,7 @@ export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onCl
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const downloadUrl = '/api/backup/inventory/download';
 
-  const isAuthorized = user?.role === 'admin' || user?.role === 'developer' || (user?.role as any) === 'superadmin' || user?.is_master_admin;
+  const isAuthorized = isFeatureEnabled(user, 'setup_database') || isAdminOrDev(user?.role) || Boolean(user?.is_master_admin);
 
   if (!embedded && !isOpen) return null;
 
@@ -116,7 +117,7 @@ export const DataRestoreModal: React.FC<DataRestoreModalProps> = ({ isOpen, onCl
               <div>
                 <h3 className="font-bold text-base">Hak Akses Terbatas</h3>
                 <p className="text-xs mt-1 text-amber-700 dark:text-amber-400/90 leading-relaxed">
-                  Operasi backup dan pemulihan data hanya dapat diakses oleh peran <strong>Admin Gudang</strong> atau <strong>Supervisor</strong>.
+                  Operasi backup dan pemulihan data hanya dapat diakses oleh peran <strong>Developer</strong> atau <strong>Admin</strong> yang berwenang.
                 </p>
               </div>
             </div>

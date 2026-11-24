@@ -250,6 +250,44 @@ export class StockService {
     };
   }
 
+  static async canDeleteBoxBulk(ids: string[]): Promise<{ canDelete: boolean; message?: string; items: Box[] }> {
+    const uniqueIds = Array.from(new Set(ids.map(s => String(s).trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 Storage Box untuk dihapus.', items: [] };
+    }
+    const items: Box[] = [];
+    for (const id of uniqueIds) {
+      const check = await this.canDeleteBox(id);
+      if (!check.canDelete || !check.existing) {
+        return { canDelete: false, message: check.message || `Storage Box "${id}" tidak dapat dihapus.`, items: [] };
+      }
+      items.push(check.existing);
+    }
+    return { canDelete: true, items };
+  }
+
+  static async deleteBoxBulk(ids: string[], userId: string): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    const check = await this.canDeleteBoxBulk(ids);
+    if (!check.canDelete) {
+      return { success: false, deletedCount: 0, message: check.message || 'Storage Box terpilih tidak dapat dihapus.' };
+    }
+    for (const existing of check.items) {
+      await TrashService.moveToTrash({
+        jenis_objek: 'box',
+        objek_id: existing.id,
+        snapshot: existing,
+        dihapus_oleh: userId,
+        catatan: `Hapus Massal Storage Box "${existing.kode}"`
+      });
+      await executeQuery('UPDATE box SET aktif = 0 WHERE id = ?', [existing.id]);
+    }
+    return {
+      success: true,
+      deletedCount: check.items.length,
+      message: `${check.items.length} Storage Box berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
   /**
    * Mengambil seluruh isi box (dikelompokkan per produk dan tipe)
    */
@@ -1344,6 +1382,121 @@ export class StockService {
       success: true,
       message: `Kondisi item "${item.kode_id}" berhasil diperbarui dari ${kondisiLama} ke ${kondisiBaru}.`,
       item: { ...item, kondisi: kondisiBaru, catatan_kondisi: catatan }
+    };
+  }
+
+  // ============================================================================
+  // 5. HAPUS ITEM FISIK BER-ID (TUNGGAL & MASSAL, RETENSI SAMPAH 14 HARI)
+  // ============================================================================
+
+  static async canDeleteItem(idOrKode: string): Promise<{ canDelete: boolean; message?: string; existing?: DuplicateItemRow }> {
+    const clean = String(idOrKode || '').trim();
+    if (!clean) {
+      return { canDelete: false, message: 'ID item tidak valid.' };
+    }
+
+    const byIdRows = await executeQuery<DuplicateItemRow>(
+      `SELECT i.*, b.kode as kode_box, t.nama_tipe, p.nama as nama_produk
+       FROM item i
+       JOIN box b ON i.box_id = b.id
+       JOIN tipe t ON i.tipe_id = t.id
+       JOIN produk p ON t.produk_id = p.id
+       WHERE i.id = ?`,
+      [clean]
+    );
+    let existing: DuplicateItemRow | undefined = byIdRows[0];
+    if (!existing) {
+      const byKode = await this.checkDuplicateKodeId(clean);
+      existing = byKode.item;
+    }
+
+    if (!existing) {
+      return { canDelete: false, message: `Item "${clean}" tidak ditemukan.` };
+    }
+
+    if (existing.status === 'dipesan') {
+      return {
+        canDelete: false,
+        existing,
+        message: `Item "${existing.kode_id}" sedang dipesan untuk Request #${existing.reserved_for_request_id || '-'} dan tidak dapat dihapus.`
+      };
+    }
+
+    if (existing.status === 'keluar') {
+      return {
+        canDelete: false,
+        existing,
+        message: `Item "${existing.kode_id}" sudah berstatus KELUAR / di arsip. Hanya item aktif di gudang yang dapat dihapus.`
+      };
+    }
+
+    return { canDelete: true, existing };
+  }
+
+  static async deleteItem(idOrKode: string, userId: string): Promise<{ success: boolean; message: string }> {
+    const check = await this.canDeleteItem(idOrKode);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Item tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
+
+    await TrashService.moveToTrash({
+      jenis_objek: 'item',
+      objek_id: existing.id,
+      snapshot: {
+        ...existing,
+        name: `${existing.nama_produk || ''} - ${existing.nama_tipe || ''} (${existing.kode_id})`
+      },
+      dihapus_oleh: userId,
+      catatan: `Hapus Item Fisik "${existing.kode_id}" (${existing.nama_produk} - ${existing.nama_tipe})`
+    });
+
+    await executeQuery('DELETE FROM item WHERE id = ?', [existing.id]);
+
+    return {
+      success: true,
+      message: `Item "${existing.kode_id}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
+  static async canDeleteItemsBulk(ids: string[]): Promise<{ canDelete: boolean; message?: string; items: DuplicateItemRow[] }> {
+    const uniqueIds = Array.from(new Set(ids.map(s => String(s).trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 item fisik untuk dihapus.', items: [] };
+    }
+    const items: DuplicateItemRow[] = [];
+    for (const id of uniqueIds) {
+      const check = await this.canDeleteItem(id);
+      if (!check.canDelete || !check.existing) {
+        return { canDelete: false, message: check.message || `Item "${id}" tidak dapat dihapus.`, items: [] };
+      }
+      items.push(check.existing);
+    }
+    return { canDelete: true, items };
+  }
+
+  static async deleteItemsBulk(ids: string[], userId: string): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    const check = await this.canDeleteItemsBulk(ids);
+    if (!check.canDelete) {
+      return { success: false, deletedCount: 0, message: check.message || 'Item terpilih tidak dapat dihapus.' };
+    }
+    for (const existing of check.items) {
+      await TrashService.moveToTrash({
+        jenis_objek: 'item',
+        objek_id: existing.id,
+        snapshot: {
+          ...existing,
+          name: `${existing.nama_produk || ''} - ${existing.nama_tipe || ''} (${existing.kode_id})`
+        },
+        dihapus_oleh: userId,
+        catatan: `Hapus Massal Item Fisik "${existing.kode_id}"`
+      });
+      await executeQuery('DELETE FROM item WHERE id = ?', [existing.id]);
+    }
+    return {
+      success: true,
+      deletedCount: check.items.length,
+      message: `${check.items.length} item fisik berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
     };
   }
 }

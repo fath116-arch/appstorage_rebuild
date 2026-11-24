@@ -10,12 +10,13 @@ export interface UserProfile {
   username: string;
   name: string;
   email: string;
-  role: 'developer' | 'admin' | 'warehouse_admin' | 'technician' | 'supervisor' | 'superadmin';
+  role: 'developer' | 'admin' | 'technician' | 'warehouse_admin' | 'supervisor' | 'superadmin';
   department: string;
   phone?: string;
   status: string;
   created_at?: string;
   is_master_admin?: boolean;
+  feature_permissions?: Record<string, boolean> | null;
 }
 
 export interface TrashEntry {
@@ -98,16 +99,6 @@ export const api = {
         // Ignore storage error
       }
     }
-    return data;
-  },
-
-  async register(userData: { username: string; name?: string; email?: string; role?: string; department?: string; password: string }): Promise<{ success: boolean; user?: UserProfile; message?: string }> {
-    clearAuthToken();
-    const { data } = await requestJson<AuthResponse>('/api/auth/register', {
-      method: 'POST',
-      skipAuth: true,
-      body: JSON.stringify(userData)
-    });
     return data;
   },
 
@@ -217,6 +208,17 @@ export const api = {
     const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}/reset-password`, {
       method: 'POST',
       body: JSON.stringify({ newPassword })
+    });
+    return data;
+  },
+
+  async updateUserFeatures(
+    userId: string,
+    featurePermissions: Record<string, boolean> | null
+  ): Promise<{ success: boolean; message: string; user?: UserProfile }> {
+    const { data } = await requestJson<BasicResponse>(`/api/auth/users/${userId}/features`, {
+      method: 'PUT',
+      body: JSON.stringify({ feature_permissions: featurePermissions })
     });
     return data;
   },

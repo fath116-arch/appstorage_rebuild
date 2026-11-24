@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
 import { CatalogService } from '../services/catalogService';
 import { ActivityLogService } from '../services/activityLogService';
 import { RequestService } from '../services/requestService';
@@ -106,7 +106,7 @@ router.get('/approval-config', requireAuth, async (_req, res) => {
 router.put(
   '/approval-config',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('reports_config'),
   async (req: AuthenticatedRequest, res) => {
     try {
       const sanitized = sanitizeApprovalConfig(req.body);
@@ -155,7 +155,7 @@ router.get('/debug-clock', requireAuth, (_req, res) => {
  * Rekap mingguan (Senin 00:00 WIB - Minggu 23:59:59.999 WIB) + stok katalog tunggal + tren 30 hari WIB
  * Query params: ?week=current|previous|all
  */
-router.get('/weekly', requireAuth, async (req, res) => {
+router.get('/weekly', requireAuth, requireFeature('reports_view'), async (req, res) => {
   try {
     const weekMode = String(req.query.week || 'current');
     const now = new Date();
@@ -293,7 +293,7 @@ router.get('/weekly', requireAuth, async (req, res) => {
  * GET /api/reports/export/csv
  * Ekspor CSV Katalog Tunggal Tersanitasi Penuh (CWE-1236 Prevention)
  */
-router.get('/export/csv', requireAuth, async (_req, res) => {
+router.get('/export/csv', requireAuth, requireFeature('reports_export'), async (_req, res) => {
   try {
     const products = await CatalogService.listProdukWithFullDetails();
 

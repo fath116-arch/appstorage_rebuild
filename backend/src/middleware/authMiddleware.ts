@@ -7,7 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { UserProfile } from '../services/authService';
 import { SessionService } from '../services/sessionService';
 import { ConfirmationService } from '../services/confirmationService';
-import { isRoleAllowed, UserRole } from '../utils/permissions';
+import { FeatureKey, isFeatureEnabled, isRoleAllowed, UserRole } from '../utils/permissions';
 
 export interface AuthenticatedRequest extends Request {
   user?: UserProfile;
@@ -92,6 +92,29 @@ export function requireRole(allowedRoles: UserRole[]) {
       return res.status(403).json({
         success: false,
         message: `Hak akses tidak memadai: Diperlukan peran [${allowedRoles.join('/')}], peran Anda adalah ${req.user.role}.`
+      });
+    }
+
+    next();
+  };
+}
+
+/**
+ * Middleware penegakan izin fitur per akun (slider ON/OFF yang dikelola Developer)
+ */
+export function requireFeature(featureKey: FeatureKey) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Akses ditolak: Sesi tidak terautentikasi.'
+      });
+    }
+
+    if (!isFeatureEnabled(req.user, featureKey)) {
+      return res.status(403).json({
+        success: false,
+        message: `Akses ditolak: Fitur "${featureKey}" tidak diaktifkan untuk akun Anda.`
       });
     }
 

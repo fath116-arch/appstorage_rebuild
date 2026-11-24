@@ -79,7 +79,7 @@ export const TrendAreaChart: React.FC<TrendAreaChartProps> = ({
               Tren Arus Barang Masuk vs Keluar ({timeRangeDays} Hari)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Visualisasi volume penerimaan suku cadang baru vs konsumsi pekerjaan tiket.
+              Visualisasi volume penerimaan data barang baru vs konsumsi pekerjaan tiket.
             </p>
           </div>
 

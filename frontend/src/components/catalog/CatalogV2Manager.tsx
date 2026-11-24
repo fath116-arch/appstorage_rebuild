@@ -30,12 +30,16 @@ import {
   Folder,
   Briefcase,
   Trash2,
-  Pencil
+  Pencil,
+  FileSpreadsheet,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { catalogApi, Jenis, Atribut, Produk, Tipe } from '../../services/catalogApi';
 import { stockApi } from '../../services/stockApi';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
+import { isFeatureEnabled } from '../../utils/permissions';
 import { StockInputModal } from '../stock/StockInputModal';
 import { BoxManagerModal } from '../stock/BoxManagerModal';
 import { BoxContentModal } from '../stock/BoxContentModal';
@@ -43,6 +47,7 @@ import { CatalogSummaryCards } from './CatalogSummaryCards';
 import { CatalogBrowseCategoriesTab } from './CatalogBrowseCategoriesTab';
 import { CatalogBoxesTab } from './CatalogBoxesTab';
 import { CatalogManageTab } from './CatalogManageTab';
+import { CatalogImportModal } from './CatalogImportModal';
 import { TrashModal } from '../TrashModal';
 import { ConfirmDeleteModal, DeleteConfirmTarget } from '../common/ConfirmDeleteModal';
 
@@ -62,16 +67,18 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
   const { user } = useAuth();
   const { showToast, trashItems, refreshData } = useInventory();
 
-  // Role check
-  const isTechnician = user?.role === 'technician';
-  const canManageCatalog = user?.role === 'developer' || user?.role === 'admin' || user?.role === 'warehouse_admin';
+  // Feature-based permission checks (Mendukung slider fitur per-akun)
+  const canManageCatalog = isFeatureEnabled(user, 'catalog_manage');
+  const canImportCatalog = isFeatureEnabled(user, 'catalog_import');
+  const canManageStock = isFeatureEnabled(user, 'stock_in_out');
 
-  // Sub-tab bawaan: teknisi -> 'kategori', admin/gudang/dev -> 'produk'
+  // Sub-tab bawaan: kelola -> 'produk', baca-saja -> 'kategori'
   const [activeSubTab, setActiveSubTab] = useState<'produk' | 'kategori' | 'boxes' | 'kelola'>(
-    isTechnician ? 'kategori' : 'produk'
+    canManageCatalog ? 'produk' : 'kategori'
   );
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'aman' | 'menipis' | 'habis'>('ALL');
   const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const [jenisList, setJenisList] = useState<Jenis[]>([]);
   const [products, setProducts] = useState<Produk[]>([]);
@@ -84,6 +91,13 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
   const [selectedKategori, setSelectedKategori] = useState<string>('ALL');
   const [selectedKategoriBarang, setSelectedKategoriBarang] = useState<string>('ALL');
   const [expandedProductIds, setExpandedProductIds] = useState<{ [id: number]: boolean }>({});
+
+  // Multi-select state untuk 5 target hapus massal
+  const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
+  const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
+  const [selectedAttributeIds, setSelectedAttributeIds] = useState<number[]>([]);
+  const [selectedTypeItemIds, setSelectedTypeItemIds] = useState<string[]>([]);
 
   // Filter Atribut Dinamis
   const [attrOptionFilters, setAttrOptionFilters] = useState<{ [attrId: number]: string }>({});
@@ -111,10 +125,15 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
   const [typeItemsData, setTypeItemsData] = useState<{ items: any[]; stokJumlah: any[] }>({ items: [], stokJumlah: [] });
   const [loadingTypeItems, setLoadingTypeItems] = useState<boolean>(false);
   const [itemConditionFilter, setItemConditionFilter] = useState<string>('ALL');
+  const [editingTypeItem, setEditingTypeItem] = useState<any | null>(null);
+  const [editTypeItemKondisi, setEditTypeItemKondisi] = useState<'Baru' | 'Baik' | 'Perlu Perbaikan' | 'Rusak'>('Baik');
+  const [editTypeItemCatatan, setEditTypeItemCatatan] = useState<string>('');
 
   const handleOpenTypeItems = async (tipe: Tipe) => {
     setSelectedTypeForItems(tipe);
     setItemConditionFilter('ALL');
+    setSelectedTypeItemIds([]);
+    setEditingTypeItem(null);
     setLoadingTypeItems(true);
     try {
       const res = await catalogApi.getItemsByTipe(tipe.id);
@@ -623,7 +642,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
     }
   };
 
-  // Permintaan Hapus Produk, Box, Kategori, Atribut (Diblokir bila masih ada stok/isi/produk aktif)
+  // Permintaan Hapus Produk, Box, Kategori, Atribut, Item Fisik (Tunggal & Massal)
   const handleRequestDeleteProduct = (prod: Produk) => {
     const activeStock = Number(prod.total_stok || 0);
     const reservedStock = Number(prod.total_dipesan || 0);
@@ -640,6 +659,32 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       onConfirm: async (token) => {
         const res = await catalogApi.deleteProduk(prod.id, token);
         showToast(res.message, 'success');
+        setSelectedProductIds((prev) => prev.filter((id) => id !== prod.id));
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteProductsBulk = (chosenProducts: Produk[]) => {
+    if (chosenProducts.length === 0) return;
+    const blocked = chosenProducts.filter(
+      (p) => Number(p.total_stok || 0) > 0 || Number(p.total_dipesan || 0) > 0 || Number(p.stok_rusak || 0) > 0
+    );
+    const sortedIds = chosenProducts.map((p) => String(p.id)).sort();
+    setDeleteTarget({
+      actionType: 'delete_product',
+      targetId: `bulk:${sortedIds.join(',')}`,
+      targetName: `${chosenProducts.length} Produk`,
+      entityLabel: 'Produk',
+      itemCount: chosenProducts.length,
+      itemLabels: chosenProducts.map((p) => p.nama),
+      blockerMessage: blocked.length > 0
+        ? `Produk berikut masih memiliki stok aktif/dipesan/rusak: ${blocked.map((b) => b.nama).join(', ')}.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await catalogApi.deleteProdukBulk(chosenProducts.map((p) => p.id), token);
+        showToast(res.message, 'success');
+        setSelectedProductIds([]);
         await Promise.all([loadData(), refreshData()]);
       }
     });
@@ -658,6 +703,30 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       onConfirm: async (token) => {
         const res = await stockApi.deleteBox(box.id, token);
         showToast(res.message, 'success');
+        setSelectedBoxIds((prev) => prev.filter((id) => id !== box.id));
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteBoxesBulk = (chosenBoxes: any[]) => {
+    if (chosenBoxes.length === 0) return;
+    const blocked = chosenBoxes.filter((b) => Number(b.total_item || 0) > 0);
+    const sortedIds = chosenBoxes.map((b) => String(b.id)).sort();
+    setDeleteTarget({
+      actionType: 'delete_box',
+      targetId: `bulk:${sortedIds.join(',')}`,
+      targetName: `${chosenBoxes.length} Storage Box`,
+      entityLabel: 'Storage Box',
+      itemCount: chosenBoxes.length,
+      itemLabels: chosenBoxes.map((b) => `${b.kode}${b.keterangan ? ` (${b.keterangan})` : ''}`),
+      blockerMessage: blocked.length > 0
+        ? `Storage Box berikut masih menampung barang aktif: ${blocked.map((b) => `${b.kode} (${b.total_item} item)`).join(', ')}.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await stockApi.deleteBoxBulk(chosenBoxes.map((b) => b.id), token);
+        showToast(res.message, 'success');
+        setSelectedBoxIds([]);
         await Promise.all([loadData(), refreshData()]);
       }
     });
@@ -676,6 +745,30 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       onConfirm: async (token) => {
         const res = await catalogApi.deleteJenis(cat.id, token);
         showToast(res.message, 'success');
+        setSelectedCategoryIds((prev) => prev.filter((id) => id !== cat.id));
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteCategoriesBulk = (chosenCats: Jenis[]) => {
+    if (chosenCats.length === 0) return;
+    const blocked = chosenCats.filter((c) => Number(c.total_produk || 0) > 0);
+    const sortedIds = chosenCats.map((c) => String(c.id)).sort();
+    setDeleteTarget({
+      actionType: 'delete_kind',
+      targetId: `bulk:${sortedIds.join(',')}`,
+      targetName: `${chosenCats.length} Kategori`,
+      entityLabel: 'Kategori',
+      itemCount: chosenCats.length,
+      itemLabels: chosenCats.map((c) => c.nama),
+      blockerMessage: blocked.length > 0
+        ? `Kategori berikut masih memiliki produk aktif: ${blocked.map((c) => `${c.nama} (${c.total_produk} produk)`).join(', ')}.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await catalogApi.deleteJenisBulk(chosenCats.map((c) => c.id), token);
+        showToast(res.message, 'success');
+        setSelectedCategoryIds([]);
         await Promise.all([loadData(), refreshData()]);
       }
     });
@@ -691,6 +784,76 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       onConfirm: async (token) => {
         const res = await catalogApi.deleteAtribut(attr.id, token);
         showToast(res.message, 'success');
+        setSelectedAttributeIds((prev) => prev.filter((id) => id !== attr.id));
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteAttributesBulk = (cat: Jenis, chosenAttrs: Atribut[]) => {
+    if (chosenAttrs.length === 0) return;
+    const sortedIds = chosenAttrs.map((a) => String(a.id)).sort();
+    setDeleteTarget({
+      actionType: 'delete_attribute',
+      targetId: `bulk:${sortedIds.join(',')}`,
+      targetName: `${chosenAttrs.length} Atribut (${cat.nama})`,
+      entityLabel: 'Atribut',
+      itemCount: chosenAttrs.length,
+      itemLabels: chosenAttrs.map((a) => `${a.nama} (${cat.nama})`),
+      blockerMessage: null,
+      onConfirm: async (token) => {
+        const res = await catalogApi.deleteAtributBulk(chosenAttrs.map((a) => a.id), token);
+        showToast(res.message, 'success');
+        setSelectedAttributeIds((prev) => prev.filter((id) => !chosenAttrs.some((a) => a.id === id)));
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteTypeItem = (it: any) => {
+    setDeleteTarget({
+      actionType: 'delete_item',
+      targetId: String(it.id),
+      targetName: it.kode_id,
+      entityLabel: 'Item Fisik',
+      blockerMessage: it.status !== 'aktif'
+        ? `Item "${it.kode_id}" berstatus "${it.status}" sehingga tidak dapat dihapus.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await stockApi.deleteItem(it.id, token);
+        showToast(res.message, 'success');
+        setSelectedTypeItemIds((prev) => prev.filter((id) => id !== it.id));
+        if (selectedTypeForItems) {
+          const updated = await catalogApi.getItemsByTipe(selectedTypeForItems.id);
+          setTypeItemsData(updated);
+        }
+        await Promise.all([loadData(), refreshData()]);
+      }
+    });
+  };
+
+  const handleRequestDeleteTypeItemsBulk = (chosenItems: any[]) => {
+    if (chosenItems.length === 0) return;
+    const blocked = chosenItems.filter((it) => it.status !== 'aktif');
+    const sortedIds = chosenItems.map((it) => String(it.id)).sort();
+    setDeleteTarget({
+      actionType: 'delete_item',
+      targetId: `bulk:${sortedIds.join(',')}`,
+      targetName: `${chosenItems.length} Item Fisik`,
+      entityLabel: 'Item Fisik',
+      itemCount: chosenItems.length,
+      itemLabels: chosenItems.map((it) => `${it.kode_id} (${it.box_kode})`),
+      blockerMessage: blocked.length > 0
+        ? `Item berikut tidak berstatus aktif: ${blocked.map((it) => `${it.kode_id} (${it.status})`).join(', ')}.`
+        : null,
+      onConfirm: async (token) => {
+        const res = await stockApi.deleteItemsBulk(chosenItems.map((it) => it.id), token);
+        showToast(res.message, 'success');
+        setSelectedTypeItemIds([]);
+        if (selectedTypeForItems) {
+          const updated = await catalogApi.getItemsByTipe(selectedTypeForItems.id);
+          setTypeItemsData(updated);
+        }
         await Promise.all([loadData(), refreshData()]);
       }
     });
@@ -710,7 +873,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
               <span className="font-mono text-emerald-600 dark:text-emerald-400">Kategori → Atribut → Produk → Tipe</span>
             </div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight mt-1">
-              Katalog Suku Cadang & Aturan ID Varian
+              Katalog Data Barang &amp; Aturan ID Varian
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 max-w-2xl">
               Struktur katalog terpadu multi-tier dengan agregasi status stok WhatsApp Alert, penelusuran kategori visual, dan pengelolaan storage box.
@@ -728,10 +891,21 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
               </button>
             )}
 
-            {canManageCatalog && (
+            {canImportCatalog && (
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs whitespace-nowrap"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Impor Excel / Spreadsheet</span>
+              </button>
+            )}
+
+            {(canManageStock || canManageCatalog) && (
               <button
                 onClick={() => setIsStockInputOpen(true)}
-                className="px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 shadow-xs"
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 shadow-xs whitespace-nowrap"
               >
                 <Camera className="w-4 h-4" />
                 <span>Input Stok Kamera / Massal</span>
@@ -747,7 +921,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
               }`}
             >
               <Tag className="w-4 h-4" />
-              <span>Produk & Varian</span>
+              <span>Produk &amp; Varian</span>
             </button>
 
             <button
@@ -774,7 +948,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
               <span>Storage Box ({boxesList.length})</span>
             </button>
 
-            {!isTechnician && (
+            {canManageCatalog && (
               <button
                 onClick={() => setActiveSubTab('kelola')}
                 className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 ${
@@ -784,7 +958,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 }`}
               >
                 <Sliders className="w-4 h-4" />
-                <span>Kelola & Pengaturan</span>
+                <span>Kelola &amp; Pengaturan</span>
               </button>
             )}
           </div>
@@ -938,6 +1112,45 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 )}
               </div>
             )}
+
+            {/* Multi-Select Produk Toolbar */}
+            {canManageCatalog && filteredProducts.length > 0 && (() => {
+              const filteredIds = filteredProducts.map((p) => p.id);
+              const selectedFiltered = filteredProducts.filter((p) => selectedProductIds.includes(p.id));
+              const allFilteredSelected = filteredIds.length > 0 && selectedFiltered.length === filteredIds.length;
+              return (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (allFilteredSelected) {
+                        setSelectedProductIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+                      } else {
+                        setSelectedProductIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+                      }
+                    }}
+                    className="px-3 py-1.5 font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-emerald-500" /> : <Square className="w-4 h-4 text-slate-400" />}
+                    <span>{allFilteredSelected ? 'Batal Pilih Semua Produk' : `Pilih Semua Produk (${filteredProducts.length})`}</span>
+                  </button>
+
+                  {selectedProductIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const chosen = products.filter((p) => selectedProductIds.includes(p.id));
+                        handleRequestDeleteProductsBulk(chosen);
+                      }}
+                      className="px-3.5 py-1.5 font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Hapus Produk Terpilih ({selectedProductIds.length})</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* List Produk */}
@@ -958,14 +1171,32 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
             <div className="space-y-3">
               {filteredProducts.map(prod => {
                 const isExpanded = !!expandedProductIds[prod.id];
+                const isProdSelected = selectedProductIds.includes(prod.id);
                 return (
                   <div
                     key={prod.id}
-                    className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden transition-colors"
+                    className={`bg-white dark:bg-slate-900 rounded-xl border shadow-xs overflow-hidden transition-colors ${
+                      isProdSelected
+                        ? 'border-emerald-500 ring-1 ring-emerald-500/40'
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
                   >
                     {/* Header Produk Card */}
                     <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="flex items-start gap-3">
+                        {canManageCatalog && (
+                          <input
+                            type="checkbox"
+                            checked={isProdSelected}
+                            onChange={() => {
+                              setSelectedProductIds((prev) =>
+                                prev.includes(prod.id) ? prev.filter((id) => id !== prod.id) : [...prev, prod.id]
+                              );
+                            }}
+                            aria-label={`Pilih produk ${prod.nama}`}
+                            className="mt-2 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                          />
+                        )}
                         <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
                           <Tag className="w-5 h-5" />
                         </div>
@@ -1240,19 +1471,47 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
           onOpenCreateBox={() => setIsBoxManagerOpen(true)}
           onSelectBox={(boxId) => setSelectedBoxForContent(boxId)}
           onDeleteBox={handleRequestDeleteBox}
+          selectedBoxIds={selectedBoxIds}
+          onToggleBoxSelect={(boxId) => {
+            setSelectedBoxIds((prev) =>
+              prev.includes(boxId) ? prev.filter((id) => id !== boxId) : [...prev, boxId]
+            );
+          }}
+          onToggleSelectAllBoxes={() => {
+            if (selectedBoxIds.length === boxesList.length) {
+              setSelectedBoxIds([]);
+            } else {
+              setSelectedBoxIds(boxesList.map((b: any) => b.id));
+            }
+          }}
+          onDeleteBoxesBulk={handleRequestDeleteBoxesBulk}
         />
       )}
 
       {/* ========================================================================= */}
-      {/* SUBTAB 4: KELOLA & PENGATURAN (Khusus Admin/Gudang/Dev, Tersembunyi untuk Teknisi) */}
+      {/* SUBTAB 4: KELOLA & PENGATURAN */}
       {/* ========================================================================= */}
-      {activeSubTab === 'kelola' && !isTechnician && (
+      {activeSubTab === 'kelola' && canManageCatalog && (
         <CatalogManageTab
           categories={jenisList}
           canManageCatalog={canManageCatalog}
           onOpenAddCategory={() => setIsAddJenisOpen(true)}
           onEditCategory={openEditCategory}
           onDeleteCategory={handleRequestDeleteCategory}
+          selectedCategoryIds={selectedCategoryIds}
+          onToggleCategorySelect={(catId) => {
+            setSelectedCategoryIds((prev) =>
+              prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+            );
+          }}
+          onToggleSelectAllCategories={() => {
+            if (selectedCategoryIds.length === jenisList.length) {
+              setSelectedCategoryIds([]);
+            } else {
+              setSelectedCategoryIds(jenisList.map((c) => c.id));
+            }
+          }}
+          onDeleteCategoriesBulk={handleRequestDeleteCategoriesBulk}
           onOpenAddAttribute={(cat) => {
             setSelectedJenisForAttr(cat);
             setNewAttrKode('');
@@ -1263,6 +1522,13 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
           }}
           onEditAttribute={openEditAttribute}
           onDeleteAttribute={handleRequestDeleteAttribute}
+          selectedAttributeIds={selectedAttributeIds}
+          onToggleAttributeSelect={(attrId) => {
+            setSelectedAttributeIds((prev) =>
+              prev.includes(attrId) ? prev.filter((id) => id !== attrId) : [...prev, attrId]
+            );
+          }}
+          onDeleteAttributesBulk={handleRequestDeleteAttributesBulk}
           onOpenRestore={onOpenRestore}
           onOpenTrash={() => setIsTrashOpen(true)}
           trashCount={trashItems?.length || 0}
@@ -1456,7 +1722,7 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Keterangan suku cadang atau peruntukan..."
+                  placeholder="Keterangan data barang atau peruntukan..."
                   value={newProdCatatan}
                   onChange={e => setNewProdCatatan(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
@@ -2243,45 +2509,149 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                 )}
 
                 {/* Item Fisik Ber-ID */}
-                {typeItemsData.items && typeItemsData.items.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <h4 className="font-bold text-slate-700 dark:text-slate-300">
-                        Rincian Item Fisik Ber-ID ({typeItemsData.items.length} Unit Aktif):
-                      </h4>
-                      {/* Filter Kondisi */}
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <span className="text-slate-500">Filter Kondisi:</span>
-                        <select
-                          value={itemConditionFilter}
-                          onChange={e => setItemConditionFilter(e.target.value)}
-                          className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 text-xs font-medium"
-                        >
-                          <option value="ALL">Semua Kondisi</option>
-                          <option value="Baru">Baru</option>
-                          <option value="Baik">Baik</option>
-                          <option value="Perlu Perbaikan">Perlu Perbaikan</option>
-                          <option value="Rusak">Rusak</option>
-                        </select>
-                      </div>
-                    </div>
+                {typeItemsData.items && typeItemsData.items.length > 0 ? (() => {
+                  const visibleItems = typeItemsData.items.filter(
+                    (it) => itemConditionFilter === 'ALL' || (it.kondisi || 'Baik') === itemConditionFilter
+                  );
+                  const visibleIds = visibleItems.map((it: any) => String(it.id));
+                  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTypeItemIds.includes(id));
 
-                    <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
-                      <table className="w-full text-left">
-                        <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                          <tr>
-                            <th className="p-2.5">KODE ID (SN / MANUAL)</th>
-                            <th className="p-2.5">LOKASI BOX</th>
-                            <th className="p-2.5">KONDISI</th>
-                            <th className="p-2.5">STATUS</th>
-                            <th className="p-2.5">AKSI</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-                          {typeItemsData.items
-                            .filter(it => itemConditionFilter === 'ALL' || (it.kondisi || 'Baik') === itemConditionFilter)
-                            .map((it: any) => {
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <h4 className="font-bold text-slate-700 dark:text-slate-300">
+                          Rincian Item Fisik Ber-ID ({typeItemsData.items.length} Unit Aktif):
+                        </h4>
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                          {canManageCatalog && selectedTypeItemIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const chosen = typeItemsData.items.filter((it) => selectedTypeItemIds.includes(String(it.id)));
+                                handleRequestDeleteTypeItemsBulk(chosen);
+                              }}
+                              className="px-2.5 py-1 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded flex items-center gap-1 shadow-xs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Hapus Item Terpilih ({selectedTypeItemIds.length})</span>
+                            </button>
+                          )}
+                          <span className="text-slate-500">Filter Kondisi:</span>
+                          <select
+                            value={itemConditionFilter}
+                            onChange={e => setItemConditionFilter(e.target.value)}
+                            className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 text-xs font-medium"
+                          >
+                            <option value="ALL">Semua Kondisi</option>
+                            <option value="Baru">Baru</option>
+                            <option value="Baik">Baik</option>
+                            <option value="Perlu Perbaikan">Perlu Perbaikan</option>
+                            <option value="Rusak">Rusak</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Inline Condition Edit Sub-Form */}
+                      {editingTypeItem && (
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            try {
+                              await catalogApi.updateItemCondition(
+                                editingTypeItem.id,
+                                editTypeItemKondisi,
+                                editTypeItemCatatan.trim() || undefined
+                              );
+                              showToast(`Kondisi item "${editingTypeItem.kode_id}" berhasil diubah ke ${editTypeItemKondisi}.`, 'success');
+                              setEditingTypeItem(null);
+                              if (selectedTypeForItems) {
+                                const updated = await catalogApi.getItemsByTipe(selectedTypeForItems.id);
+                                setTypeItemsData(updated);
+                              }
+                              await Promise.all([loadData(), refreshData()]);
+                            } catch (err: any) {
+                              showToast(err.message, 'error');
+                            }
+                          }}
+                          className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-end gap-2"
+                        >
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Kondisi untuk {editingTypeItem.kode_id}
+                            </label>
+                            <select
+                              value={editTypeItemKondisi}
+                              onChange={(e) => setEditTypeItemKondisi(e.target.value as any)}
+                              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-semibold text-slate-900 dark:text-slate-100"
+                            >
+                              <option value="Baru">Baru</option>
+                              <option value="Baik">Baik</option>
+                              <option value="Perlu Perbaikan">Perlu Perbaikan</option>
+                              <option value="Rusak">Rusak</option>
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Catatan Kondisi (Opsional)
+                            </label>
+                            <input
+                              type="text"
+                              value={editTypeItemCatatan}
+                              onChange={(e) => setEditTypeItemCatatan(e.target.value)}
+                              placeholder="Catatan kondisi..."
+                              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs text-slate-900 dark:text-slate-100"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTypeItem(null)}
+                              className="px-3 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded"
+                            >
+                              Batal
+                            </button>
+                            <button
+                              type="submit"
+                              className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded"
+                            >
+                              Simpan
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
+                      <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                            <tr>
+                              {canManageCatalog && (
+                                <th className="p-2.5 w-8">
+                                  <input
+                                    type="checkbox"
+                                    checked={allVisibleSelected}
+                                    onChange={() => {
+                                      if (allVisibleSelected) {
+                                        setSelectedTypeItemIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+                                      } else {
+                                        setSelectedTypeItemIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+                                      }
+                                    }}
+                                    aria-label="Pilih semua item fisik"
+                                    className="h-3.5 w-3.5 rounded border-slate-300 dark:border-slate-600 text-emerald-600 cursor-pointer"
+                                  />
+                                </th>
+                              )}
+                              <th className="p-2.5">KODE ID (SN / MANUAL)</th>
+                              <th className="p-2.5">LOKASI BOX</th>
+                              <th className="p-2.5">KONDISI</th>
+                              <th className="p-2.5">STATUS</th>
+                              <th className="p-2.5">AKSI</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+                            {visibleItems.map((it: any) => {
                               const kondisi = it.kondisi || 'Baik';
+                              const isItemSelected = selectedTypeItemIds.includes(String(it.id));
                               const badgeClass =
                                 kondisi === 'Baru'
                                   ? 'bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-800'
@@ -2292,7 +2662,23 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                                   : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
 
                               return (
-                                <tr key={it.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                <tr key={it.id} className={isItemSelected ? 'bg-emerald-50/50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}>
+                                  {canManageCatalog && (
+                                    <td className="p-2.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={isItemSelected}
+                                        onChange={() => {
+                                          const strId = String(it.id);
+                                          setSelectedTypeItemIds((prev) =>
+                                            prev.includes(strId) ? prev.filter((id) => id !== strId) : [...prev, strId]
+                                          );
+                                        }}
+                                        aria-label={`Pilih item ${it.kode_id}`}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 dark:border-slate-600 text-emerald-600 cursor-pointer"
+                                      />
+                                    </td>
+                                  )}
                                   <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100">
                                     {it.kode_id}
                                     {it.catatan_kondisi && (
@@ -2317,41 +2703,40 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
                                     </span>
                                   </td>
                                   <td className="p-2.5">
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        const promptKondisi = window.prompt(
-                                          `Ubah kondisi untuk item "${it.kode_id}"\nPilihan: Baru, Baik, Perlu Perbaikan, Rusak`,
-                                          kondisi
-                                        );
-                                        if (promptKondisi && ['Baru', 'Baik', 'Perlu Perbaikan', 'Rusak'].includes(promptKondisi)) {
-                                          const catatan = window.prompt('Catatan kondisi (opsional):', it.catatan_kondisi || '') || undefined;
-                                          try {
-                                            await catalogApi.updateItemCondition(it.id, promptKondisi as any, catatan);
-                                            showToast(`Kondisi item "${it.kode_id}" berhasil diubah ke ${promptKondisi}.`, 'success');
-                                            if (selectedTypeForItems) {
-                                              const updated = await catalogApi.getItemsByTipe(selectedTypeForItems.id);
-                                              setTypeItemsData(updated);
-                                            }
-                                            await Promise.all([loadData(), refreshData()]);
-                                          } catch (err: any) {
-                                            showToast(err.message, 'error');
-                                          }
-                                        }
-                                      }}
-                                      className="font-sans text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-semibold"
-                                    >
-                                      Ubah Kondisi
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingTypeItem(it);
+                                          setEditTypeItemKondisi(kondisi);
+                                          setEditTypeItemCatatan(it.catatan_kondisi || '');
+                                        }}
+                                        className="font-sans text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-semibold whitespace-nowrap"
+                                      >
+                                        Ubah Kondisi
+                                      </button>
+                                      {canManageCatalog && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRequestDeleteTypeItem(it)}
+                                          className="p-1 text-rose-500 hover:text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded transition-colors"
+                                          title={`Hapus Item ${it.kode_id}`}
+                                          aria-label={`Hapus Item ${it.kode_id}`}
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               );
                             })}
-                        </tbody>
-                      </table>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   (!typeItemsData.stokJumlah || typeItemsData.stokJumlah.length === 0) && (
                     <div className="py-8 text-center text-slate-500">
                       <span>Belum ada barang fisik ber-ID yang aktif untuk tipe ini.</span>
@@ -2641,6 +3026,15 @@ export const CatalogV2Manager: React.FC<CatalogV2ManagerProps> = ({
       <ConfirmDeleteModal
         target={deleteTarget}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      {/* Modal Impor Katalog, Box & Stok Awal (Excel / Google Spreadsheet) */}
+      <CatalogImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImported={async () => {
+          await Promise.all([loadData(), refreshData()]);
+        }}
       />
     </div>
   );

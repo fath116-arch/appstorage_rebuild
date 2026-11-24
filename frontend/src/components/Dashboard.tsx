@@ -209,10 +209,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="text-slate-600 dark:text-slate-300">SUMBER DATA TUNGGAL</span>
             </div>
             <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight mt-1.5 font-display">
-              Dashboard Tren Inventori & Suku Cadang Lapangan
+              Dashboard Tren Inventori &amp; Data Barang Lapangan
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              Pantau arus barang masuk vs keluar (WIB), request teknisi aktif, dan varian suku cadang yang paling cepat terpakai.
+              Pantau arus barang masuk vs keluar (WIB), request teknisi aktif, dan varian data barang yang paling cepat terpakai.
             </p>
           </div>
 
@@ -281,7 +281,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   Aktivitas Barang Keluar Terbaru
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Pemakaian suku cadang dan peminjaman alat terkini di lapangan.
+                  Pemakaian data barang dan peminjaman alat terkini di lapangan.
                 </p>
               </div>
               <div className="flex items-center gap-2">

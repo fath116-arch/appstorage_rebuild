@@ -5,20 +5,21 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Package,
-  QrCode,
   X,
   RefreshCw,
   ArrowRightLeft,
-  ChevronDown,
-  ChevronUp,
   Tag,
-  CheckCircle2,
-  Box as BoxIcon
+  Box as BoxIcon,
+  Trash2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
-import { stockApi, Box, BoxContentsResponse } from '../../services/stockApi';
+import { stockApi, Box, BoxContentsResponse, BoxContentItem } from '../../services/stockApi';
 import { catalogApi } from '../../services/catalogApi';
+import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
+import { isFeatureEnabled } from '../../utils/permissions';
+import { ConfirmDeleteModal, DeleteConfirmTarget } from '../common/ConfirmDeleteModal';
 
 interface BoxContentModalProps {
   isOpen: boolean;
@@ -33,11 +34,16 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
   onClose,
   onRefreshParent
 }) => {
-  const { showToast } = useInventory();
+  const { user } = useAuth();
+  const { showToast, refreshData } = useInventory();
+  const canManageCatalog = isFeatureEnabled(user, 'catalog_manage');
+
   const [data, setData] = useState<BoxContentsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [allBoxes, setAllBoxes] = useState<Box[]>([]);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteConfirmTarget | null>(null);
 
   // State Pindah Box
   const [movingItem, setMovingItem] = useState<{
@@ -83,12 +89,16 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
     if (isOpen && boxIdOrKode) {
       setMovingItem(null);
       setEditingConditionItem(null);
+      setSelectedItemIds([]);
+      setDeleteTarget(null);
       loadContents();
     } else if (!isOpen) {
       setData(null);
       setLoadError(null);
       setMovingItem(null);
       setEditingConditionItem(null);
+      setSelectedItemIds([]);
+      setDeleteTarget(null);
     }
   }, [isOpen, boxIdOrKode, loadContents]);
 
@@ -176,7 +186,7 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
         {loading ? (
           <div className="p-12 text-center text-slate-500">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
-            <span>Membaca isi box &amp; memetakan suku cadang...</span>
+            <span>Membaca isi box &amp; memetakan data barang...</span>
           </div>
         ) : loadError ? (
           <div className="p-8 text-center space-y-3 text-xs">
@@ -208,6 +218,68 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
               </div>
             </div>
 
+            {/* Bulk Selection Toolbar for Physical Items */}
+            {canManageCatalog && data.raw_items.length > 0 && (
+              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedItemIds.length === data.raw_items.length) {
+                      setSelectedItemIds([]);
+                    } else {
+                      setSelectedItemIds(data.raw_items.map((it) => it.id));
+                    }
+                  }}
+                  className="px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md flex items-center gap-1.5"
+                >
+                  {selectedItemIds.length === data.raw_items.length ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-emerald-500" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  <span>
+                    {selectedItemIds.length === data.raw_items.length
+                      ? 'Batal Pilih Semua Item'
+                      : `Pilih Semua Item (${data.raw_items.length})`}
+                  </span>
+                </button>
+
+                {selectedItemIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const chosen = data.raw_items.filter((it) => selectedItemIds.includes(it.id));
+                      const nonActive = chosen.filter((it) => it.status !== 'aktif');
+                      const sortedIds = [...selectedItemIds].map(String).sort();
+                      setDeleteTarget({
+                        actionType: 'delete_item',
+                        targetId: `bulk:${sortedIds.join(',')}`,
+                        targetName: `${chosen.length} Item Fisik`,
+                        entityLabel: 'Item Fisik',
+                        itemCount: chosen.length,
+                        itemLabels: chosen.map((it) => `${it.kode_id} (${it.nama_produk} - ${it.nama_tipe})`),
+                        blockerMessage: nonActive.length > 0
+                          ? `Item berikut tidak berstatus aktif dan tidak dapat dihapus: ${nonActive.map((x) => `${x.kode_id} (${x.status})`).join(', ')}.`
+                          : null,
+                        onConfirm: async (token) => {
+                          const res = await stockApi.deleteItemsBulk(selectedItemIds, token);
+                          showToast(res.message, 'success');
+                          setSelectedItemIds([]);
+                          await loadContents();
+                          await refreshData();
+                          onRefreshParent?.();
+                        }
+                      });
+                    }}
+                    className="px-3 py-1 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-md flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus Terpilih ({selectedItemIds.length})</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* List Grouped Contents */}
             {Object.keys(data.contents).length === 0 ? (
               <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-slate-400">
@@ -238,8 +310,9 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                           {/* Items List */}
                           {contentObj.items.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 pt-1">
-                              {contentObj.items.map(it => {
+                              {contentObj.items.map((it: BoxContentItem) => {
                                 const kondisi = it.kondisi || 'Baik';
+                                const isChecked = selectedItemIds.includes(it.id);
                                 const badgeColor =
                                   kondisi === 'Baru'
                                     ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-300 border-sky-300 dark:border-sky-700'
@@ -252,8 +325,25 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                                 return (
                                   <div
                                     key={it.id}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-mono"
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] font-mono ${
+                                      isChecked
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500'
+                                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                                    }`}
                                   >
+                                    {canManageCatalog && (
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          setSelectedItemIds((prev) =>
+                                            prev.includes(it.id) ? prev.filter((id) => id !== it.id) : [...prev, it.id]
+                                          );
+                                        }}
+                                        aria-label={`Pilih item ${it.kode_id}`}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 dark:border-slate-600 text-emerald-600 cursor-pointer"
+                                      />
+                                    )}
                                     <span className="font-bold text-slate-900 dark:text-white">{it.kode_id}</span>
                                     <button
                                       type="button"
@@ -275,6 +365,35 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
                                     >
                                       <ArrowRightLeft className="w-3 h-3" />
                                     </button>
+                                    {canManageCatalog && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDeleteTarget({
+                                            actionType: 'delete_item',
+                                            targetId: it.id,
+                                            targetName: it.kode_id,
+                                            entityLabel: 'Item Fisik',
+                                            blockerMessage: it.status !== 'aktif'
+                                              ? `Item "${it.kode_id}" berstatus "${it.status}" sehingga tidak dapat dihapus.`
+                                              : null,
+                                            onConfirm: async (token) => {
+                                              const res = await stockApi.deleteItem(it.id, token);
+                                              showToast(res.message, 'success');
+                                              setSelectedItemIds((prev) => prev.filter((id) => id !== it.id));
+                                              await loadContents();
+                                              await refreshData();
+                                              onRefreshParent?.();
+                                            }
+                                          });
+                                        }}
+                                        className="p-0.5 text-rose-500 hover:text-rose-700 dark:text-rose-400 transition-colors"
+                                        title={`Hapus item ${it.kode_id}`}
+                                        aria-label={`Hapus item ${it.kode_id}`}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -455,6 +574,10 @@ export const BoxContentModal: React.FC<BoxContentModalProps> = ({
           </div>
         )}
       </div>
+      <ConfirmDeleteModal
+        target={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+      />
     </div>
   );
 };

@@ -128,7 +128,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
           {/* 2. JUDUL LAPORAN & METADATA CETAK */}
           <div className="text-center my-4">
             <h2 className="text-sm sm:text-base font-bold uppercase tracking-wide text-slate-900 underline underline-offset-4">
-              LAPORAN AUDIT & MUTASI STOK SUKU CADANG IT
+              LAPORAN AUDIT &amp; MUTASI STOK DATA BARANG IT
             </h2>
             <p className="text-xs text-slate-600 mt-1 font-medium">
               Periode Laporan: <span className="font-bold text-slate-900 font-mono">{periodLabel}</span>
@@ -227,7 +227,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
           {/* 4. LEMBAR PENGESAHAN RESMI (Formal Signatures) */}
           <div className="pt-8 print:pt-12 print:break-inside-avoid">
             <div className="text-[10px] text-slate-500 font-mono mb-4 text-center">
-              Lembar Validasi &amp; Pengesahan Audit Inventori Fisik Suku Cadang
+              Lembar Validasi &amp; Pengesahan Audit Inventori Fisik Data Barang
             </div>
 
             <div className="grid grid-cols-3 gap-6 text-center text-xs text-slate-800">

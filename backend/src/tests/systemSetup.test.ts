@@ -123,10 +123,13 @@ async function runTests() {
   }
   assert(crlfRejected, 'upsertEnvVars rejects CRLF newline injection');
 
-  // 6. RBAC alignment for Setting tab split
-  assert(isAdminOrDev('developer') && isAdminOrDev('admin'), 'Developer & Admin pass isAdminOrDev');
-  assert(!isAdminOrDev('warehouse_admin') && !isAdminOrDev('technician'), 'Warehouse Admin & Technician do not pass isAdminOrDev');
-  assert(isWarehouseManager('warehouse_admin'), 'Warehouse Admin passes isWarehouseManager (Setting selective + SN Patterns)');
+  // 6. RBAC alignment for merged Admin + Developer roles (v1.2.8)
+  assert(
+    isAdminOrDev('developer') && isAdminOrDev('admin') && isAdminOrDev('warehouse_admin'),
+    'Developer, Admin & legacy alias warehouse_admin pass isAdminOrDev'
+  );
+  assert(!isAdminOrDev('technician'), 'Technician does not pass isAdminOrDev');
+  assert(isWarehouseManager('admin') && isWarehouseManager('warehouse_admin'), 'Admin & legacy warehouse_admin pass isWarehouseManager');
   assert(!isWarehouseManager('technician'), 'Technician is blocked from isWarehouseManager');
 
   // 7. Documentation existence check (resolved via PROJECT_ROOT_DIR so works from root & backend/)

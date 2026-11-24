@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
 import { ActivityLogService } from '../services/activityLogService';
 import { isWarehouseManager } from '../utils/permissions';
 
@@ -57,7 +57,7 @@ router.get('/:id/details', requireAuth, async (req: express.Request, res: expres
 router.post(
   '/:id/correct',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('history_correct'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const targetTransactionId = String(req.params.id);

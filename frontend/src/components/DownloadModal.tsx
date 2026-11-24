@@ -136,7 +136,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose })
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                    Backup Data Suku Cadang & Mutasi (.JSON)
+                    Backup Data Barang & Mutasi (.JSON)
                   </h3>
                   <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-[11px] leading-relaxed">
                     Data terkini: {products.length} produk katalog, {transactions.length} riwayat mutasi masuk/keluar, dan log integrasi tiket saat ini.

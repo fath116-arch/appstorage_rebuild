@@ -68,7 +68,7 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
         {/* Modal bar */}
         <div className="no-print px-5 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <span className="font-bold text-xs text-slate-700">
-            Preview Dokumen Serah Terima Suku Cadang IT Lapangan
+            Preview Dokumen Serah Terima Data Barang IT Lapangan
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -141,7 +141,7 @@ export const PrintDocumentModal: React.FC<PrintDocumentModalProps> = ({
                 <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
                   <th className="py-2.5 px-3 border-r border-slate-300 w-12 text-center">No</th>
                   <th className="py-2.5 px-3 border-r border-slate-300">Kode SKU</th>
-                  <th className="py-2.5 px-3 border-r border-slate-300">Deskripsi Suku Cadang</th>
+                  <th className="py-2.5 px-3 border-r border-slate-300">Deskripsi Data Barang</th>
                   <th className="py-2.5 px-3 text-right">Kuantitas</th>
                 </tr>
               </thead>

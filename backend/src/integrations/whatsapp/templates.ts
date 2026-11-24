@@ -59,7 +59,7 @@ Alasan: ${input.alasan}
 Waktu: ${timeFormatted}
 
 Status: MENUNGGU PERSETUJUAN
-Mohon Developer / Admin / Admin Gudang segera memproses melalui sistem.`;
+Mohon Developer / Admin segera memproses melalui sistem.`;
 }
 
 export function formatPurchaseRequestMessage(input: {
@@ -90,8 +90,8 @@ Estimasi Harga: ${formattedPrice}
 Alasan: ${input.alasan}
 Waktu: ${timeFormatted}
 
-Status: MENUNGGU PERSETUJUAN ADMIN / GUDANG
-Mohon tim Admin atau Admin Gudang meninjau pengajuan pembelian melalui sistem.`;
+Status: MENUNGGU PERSETUJUAN ADMIN
+Mohon tim Admin meninjau pengajuan pembelian melalui sistem.`;
 }
 
 export interface ConsolidatedSummaryInput {

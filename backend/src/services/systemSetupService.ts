@@ -758,40 +758,44 @@ export class SystemSetupService {
       });
     }
 
-    // 4. WhatsApp Notification Gateway
-    const waToken = getEffectiveEnvValue('WHATSAPP_API_TOKEN', maps, '');
-    const hasWaToken = Boolean(waToken || (waConfig.maskedToken && waConfig.maskedToken !== 'Belum diisi'));
+    // 4. WhatsApp Notification Gateway (Dual Gateway)
+    const waToken1 = getEffectiveEnvValue('WHATSAPP_API_TOKEN', maps, '');
+    const waToken2 = getEffectiveEnvValue('WHATSAPP_GATEWAY2_TOKEN', maps, '');
+    const gw1Ready = Boolean(waConfig.gateways?.gateway1?.enabled && (waToken1 || (waConfig.gateways?.gateway1?.maskedToken && waConfig.gateways.gateway1.maskedToken !== 'Belum diisi')));
+    const gw2Ready = Boolean(waConfig.gateways?.gateway2?.enabled && (waToken2 || (waConfig.gateways?.gateway2?.maskedToken && waConfig.gateways.gateway2.maskedToken !== 'Belum diisi')));
+    const activeGwCount = (gw1Ready ? 1 : 0) + (gw2Ready ? 1 : 0);
+    const hasWaToken = Boolean(waToken1 || waToken2 || (waConfig.maskedToken && waConfig.maskedToken !== 'Belum diisi'));
     const hasRecipients = waConfig.recipients && waConfig.recipients.length > 0;
 
-    if (hasWaToken && hasRecipients && waConfig.isEnabled) {
+    if (activeGwCount > 0 && hasRecipients && waConfig.isEnabled) {
       checks.push({
         key: 'whatsapp',
-        label: 'Notifikasi WhatsApp (Fonnte)',
+        label: 'Notifikasi WhatsApp (Dual Gateway)',
         status: 'connected',
-        summary: `Siap (${waConfig.recipients.length} penerima, cooldown ${waConfig.cooldownMinutes} menit)`,
-        details: `Gateway: ${waConfig.apiUrl}. Status notifikasi otomatis aktif.`,
+        summary: `Siap (${activeGwCount} gateway aktif · ${waConfig.recipients.length} penerima, cooldown ${waConfig.cooldownMinutes} menit)`,
+        details: `Mode: ${waConfig.gatewayMode === 'parallel' ? 'Kirim Paralel' : 'Failover Otomatis'}. Notifikasi otomatis aktif.`,
         cliCommand: 'npm run setup:wa'
       });
     } else if (hasWaToken || hasRecipients) {
       checks.push({
         key: 'whatsapp',
-        label: 'Notifikasi WhatsApp (Fonnte)',
+        label: 'Notifikasi WhatsApp (Dual Gateway)',
         status: 'warning',
         summary: !waConfig.isEnabled
           ? 'Konfigurasi tersimpan, namun notifikasi otomatis nonaktif'
-          : !hasWaToken
-          ? 'Token API Fonnte belum diisi'
-          : 'Daftar nomor/grup penerima masih kosong',
-        details: 'Lengkapi token Fonnte dan minimal satu nomor penerima di tab Setting > Notifikasi WA atau via CLI.',
+          : activeGwCount === 0
+          ? 'Token / Saklar ON Gateway WhatsApp belum aktif'
+          : 'Daftar nomor penerima aktif masih kosong',
+        details: 'Lengkapi Gateway WhatsApp (Developer) dan aktifkan minimal satu nomor penerima di Setting > Notifikasi WA.',
         cliCommand: 'npm run setup:wa'
       });
     } else {
       checks.push({
         key: 'whatsapp',
-        label: 'Notifikasi WhatsApp (Fonnte)',
+        label: 'Notifikasi WhatsApp (Dual Gateway)',
         status: 'unconfigured',
-        summary: 'Token API & penerima WhatsApp belum dikonfigurasi',
-        details: 'Pengiriman alert stok menipis berjalan dalam mode simulasi log lokal sampai token Fonnte diisi.',
+        summary: 'Gateway & penerima WhatsApp belum dikonfigurasi',
+        details: 'Pengiriman alert stok menipis berjalan dalam mode simulasi log lokal sampai minimal satu Gateway WA diisi oleh Developer.',
         cliCommand: 'npm run setup:wa'
       });
     }
@@ -1098,7 +1102,7 @@ export class SystemSetupService {
       {
         command: 'npm run setup:admin',
         category: 'setup',
-        summary: 'Membuat atau mereset akun Master Admin / Developer / Admin Gudang / Teknisi dengan hash PBKDF2 100.000 iterasi.',
+        summary: 'Membuat atau mereset akun Developer / Admin / Teknisi dengan hash PBKDF2 100.000 iterasi.',
         flags: '-- --username developer --password <sandi> --role developer --email dev@fieldops.local'
       },
       {

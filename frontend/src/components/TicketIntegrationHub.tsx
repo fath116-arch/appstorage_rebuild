@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { isAdminOrDev } from '../utils/permissions';
+import { isFeatureEnabled } from '../utils/permissions';
 import { apiFetch } from '../services/httpClient';
 import { stockApi } from '../services/stockApi';
 import { getErrorMessage } from '../utils/errorUtils';
@@ -87,7 +87,7 @@ export const TicketIntegrationHub: React.FC = () => {
   const { user } = useAuth();
   const { products, refreshData } = useInventory();
   const { showToast } = useToast();
-  const canManageKeys = isAdminOrDev(user?.role);
+  const canManageKeys = isFeatureEnabled(user, 'integration_tickets');
   const currentYear = getCurrentWibYear();
 
   const [apiKeys, setApiKeys] = useState<TicketApiKey[]>([]);
@@ -251,7 +251,7 @@ export const TicketIntegrationHub: React.FC = () => {
         technicianName: data.technicianName,
         itemsRequested: affected.map(m => ({ name: m.name, quantity: m.quantity })),
         httpStatus: 200,
-        message: `Stok berhasil dikurangi untuk ${affected.length} varian suku cadang.`,
+        message: `Stok berhasil dikurangi untuk ${affected.length} varian data barang.`,
       };
       setIntegrationLogs(prev => [newLog, ...prev]);
 
@@ -306,7 +306,7 @@ export const TicketIntegrationHub: React.FC = () => {
   const handleRunSimulation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (simSelectedItems.length === 0) {
-      showToast('Pilih minimal 1 varian suku cadang yang digunakan untuk tiket ini.', 'warning');
+      showToast('Pilih minimal 1 varian data barang yang digunakan untuk tiket ini.', 'warning');
       return;
     }
 
@@ -472,7 +472,7 @@ export const TicketIntegrationHub: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="font-semibold text-slate-800 dark:text-slate-200">
-                    Varian Suku Cadang yang Digunakan
+                    Varian Data Barang yang Digunakan
                   </label>
                   <button
                     type="button"
@@ -813,7 +813,7 @@ response = requests.post(
                   <th className="py-3 px-4">No. Tiket</th>
                   <th className="py-3 px-4">Sistem Pengirim</th>
                   <th className="py-3 px-4">Teknisi</th>
-                  <th className="py-3 px-4">Suku Cadang</th>
+                  <th className="py-3 px-4">Data Barang</th>
                   <th className="py-3 px-4 text-center">Status HTTP</th>
                   <th className="py-3 px-4">Keterangan</th>
                 </tr>

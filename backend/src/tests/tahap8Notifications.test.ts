@@ -61,7 +61,7 @@ async function runTahap8Tests() {
       alasan: 'Pemasangan mendesak pelanggan VIP'
     });
 
-    assert(req.status === 'menunggu', 'Request berhasil dibuat dalam transaksi database');
+    assert(req.status === 'diajukan' || req.status === 'menunggu', 'Request berhasil dibuat dalam transaksi database');
 
     // 4. Uji Pemanggilan Langsung NotificationService
     const notifyRes = await NotificationService.notifyNewRequest({

@@ -49,11 +49,13 @@ async function main() {
 
   const rawRole = typeof flags.role === 'string'
     ? flags.role
-    : await promptText('Masukkan Peran Akun [developer / admin / warehouse_admin / technician]', 'developer');
+    : await promptText('Masukkan Peran Akun [developer / admin / technician]', 'developer');
   const roleNormalized = rawRole.trim().toLowerCase();
-  const role = ['developer', 'admin', 'warehouse_admin', 'technician', 'superadmin', 'supervisor'].includes(roleNormalized)
-    ? (roleNormalized === 'superadmin' ? 'developer' : roleNormalized === 'supervisor' ? 'admin' : roleNormalized)
-    : 'developer';
+  const role = roleNormalized === 'developer' || roleNormalized === 'superadmin'
+    ? 'developer'
+    : ['admin', 'warehouse_admin', 'supervisor'].includes(roleNormalized)
+    ? 'admin'
+    : 'technician';
 
   let password = typeof flags.password === 'string' ? flags.password.trim() : '';
   while (!password) {

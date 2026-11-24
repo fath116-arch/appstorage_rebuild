@@ -4,7 +4,8 @@
  */
 
 import express from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
+import { ConfirmationService } from '../services/confirmationService';
 import { StockService } from '../services/stockService';
 
 const router = express.Router();
@@ -43,7 +44,7 @@ router.get('/types/:id/items', requireAuth, async (req, res) => {
 router.post(
   '/single',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const {
@@ -93,7 +94,7 @@ router.post(
 router.post(
   '/bulk',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const {
@@ -143,7 +144,7 @@ router.post(
 router.post(
   '/quantity',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const {
@@ -189,7 +190,7 @@ router.post(
 router.post(
   '/out',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const {
@@ -236,7 +237,7 @@ router.post(
 router.post(
   '/out/bulk',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const {
@@ -293,7 +294,7 @@ router.get(
 router.post(
   '/restore',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const {
@@ -353,6 +354,88 @@ router.put(
       return res.json(result);
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/items/bulk',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const ids = Array.from(new Set(rawIds.map((x: unknown) => String(x).trim()).filter(Boolean))) as string[];
+      const preCheck = await StockService.canDeleteItemsBulk(ids);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Item terpilih tidak dapat dihapus.' });
+      }
+
+      const targetId = `bulk:${[...ids].sort().join(',')}`;
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_item',
+        targetId
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_item',
+          targetId
+        });
+      }
+
+      const result = await StockService.deleteItemsBulk(ids, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/items/:id',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const itemId = String(req.params.id);
+      const preCheck = await StockService.canDeleteItem(itemId);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Item tidak dapat dihapus.' });
+      }
+
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_item',
+        itemId
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_item',
+          targetId: itemId
+        });
+      }
+
+      const result = await StockService.deleteItem(itemId, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
     }
   }
 );

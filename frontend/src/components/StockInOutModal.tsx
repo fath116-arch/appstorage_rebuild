@@ -426,7 +426,7 @@ export const StockInOutModal: React.FC<StockInOutModalProps> = ({
         const actorName = actorId && actorId !== user?.id ? recipientDestination || actorId : user?.name || 'Petugas IT';
         onSuccessPrint({
           type: 'OUT',
-          itemName: cart.length === 1 ? `${first.namaProduk} - ${first.namaTipe}` : `${cart.length} Item Suku Cadang`,
+          itemName: cart.length === 1 ? `${first.namaProduk} - ${first.namaTipe}` : `${cart.length} Item Data Barang`,
           itemSku: cart.length === 1 ? (first.kodeId || `TIPE-${first.tipeId}`) : `BULK-${cart.length}`,
           quantity: totalQty,
           unit: first.unit,

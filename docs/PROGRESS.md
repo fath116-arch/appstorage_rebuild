@@ -1,19 +1,19 @@
 # PELACAK PROGRES FIELDOPS IT (PROGRESS.MD)
 **Aplikasi**: FieldOps IT Inventory  
 **Database**: MariaDB 11.4 LTS (Server Lokal, UTC)  
-**Status Versi**: v1.2.7 Selesai & Terverifikasi  
+**Status Versi**: v1.2.8 Selesai & Terverifikasi  
 **Format Status**: `belum` | `dikerjakan` | `selesai` | `terverifikasi`
 
 ---
 
-## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.7)
+## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.8)
 
 > *Catatan Arsitektur*: Modul legacy awal v1 (`/api/inventory`, `/api/transactions`) telah disatukan ke dalam **Model Kanonik Tunggal** (`CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`).
 
 | ID Fitur | Nama Fitur & Modul | Status | Modul / Lokasi Aktual | Dites? | Catatan / Aturan Khusus |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`[F-01]`** | Pemisahan Struktur `frontend/` & `backend/` | **terverifikasi** | Root / Docker Compose | **Ya** | Decoupled structure, build Vite & Express 5 terpadu |
-| **`[F-02]`** | Database MariaDB & Migrasi Skema (`01` s/d `13`) | **terverifikasi** | `backend/src/db/migrations/` | **Ya** | Skema akun, fondasi keamanan, katalog, stok, request (`beli`), 4 slot WA, & konfigurasi pengesahan |
+| **`[F-02]`** | Database MariaDB & Migrasi Skema (`01` s/d `14`) | **terverifikasi** | `backend/src/db/migrations/` | **Ya** | Termasuk `feature_permissions`, peleburan role `admin`, & Dual WA Gateway |
 | **`[F-03]`** | Autentikasi Server-Authoritative & Sesi Cookie | **terverifikasi** | `backend/src/routes/auth.ts`, `authService.ts`, `sessionService.ts` | **Ya** | Cookie HttpOnly (30 hari), PBKDF2 100k, rotasi refresh anti-replay, rate limit |
 | **`[F-04]`** | Skrip Setup Master Admin Pertama | **terverifikasi** | `backend/src/scripts/setupAdmin.ts` | **Ya** | CLI interaktif `npm run setup:admin` |
 | **`[F-05]`** | Ledger Aktivitas Append-Only & Audit Koreksi | **terverifikasi** | `backend/src/routes/activities.ts`, `activityLogService.ts` | **Ya** | ID harian `AKT-YYYYMMDD-NNNN`, `actor_id` vs `recorded_by_id`, koreksi `correction_of_id` |
@@ -81,6 +81,18 @@
 | **Lembar Pengesahan Dinamis** | Kop Surat & 3 penandatangan fleksibel (`REPORT_APPROVAL_CONFIG`) untuk production | **terverifikasi** | `purchaseWa4ReportConfig.test.ts` | `GET/PUT /api/reports/approval-config`, profil login (`useCurrentUser`), cetak identik |
 | **MariaDB Strict Auth & `setup:test-login`** | Format `TIMESTAMP` UTC SQL, sanitasi IP proxy, & diagnostik login 6 tahap | **terverifikasi** | `authLoginMariaDbCompat.test.ts` (22/22 Lulus), `systemSetup.test.ts` (45/45 Lulus) | Kompatibel HTTP/HTTPS cookie, `setup:admin`, & probe tulis/cleanup `sessions`/`sesi` |
 
+## 🚀 Road Map v1.2.8 (Login-Only, Peleburan Admin, Izin Fitur Slider, Dual WA Gateway, Hapus Massal + "delete", Impor Excel/Sheet, & "Data Barang")
+
+| Paket / Modul | Deskripsi Cakupan | Status | Pengujian Otomatis | Catatan Kunci |
+| :--- | :--- | :--- | :--- | :--- |
+| **Login-Only & Tutup Registrasi Publik** | Hapus form daftar dari `LoginScreen.tsx`, kunci `POST /api/auth/register` (`403`) | **terverifikasi** | `v128Updates.test.ts` | Akun dibuat hanya via panel web (`admin`/`developer`) atau CLI `setup:admin` |
+| **Peleburan Role `admin` & Batas Akun** | Gabung `admin` + `warehouse_admin` → `admin`; batasi `admin` kelola hanya `admin`/`technician` | **terverifikasi** | `v128Updates.test.ts`, `v125Paket1AccessControl.test.ts` | Migrasi `14`, normalisasi alias legacy otomatis, & isolasi akun `developer` |
+| **Izin Fitur Per Akun (Slider ON/OFF)** | Panel **Atur Fitur** khusus `developer` + `PUT /api/auth/users/:id/features` + `requireFeature()` | **terverifikasi** | `v128Updates.test.ts` | 21 fitur `FEATURE_CATALOG` bersaklar slider murni ON/OFF + **Reset ke Bawaan Peran** |
+| **Dual WA Gateway (Khusus `developer`)** | 2 Gateway (`gateway1`/`gateway2`) bersaklar ON/OFF + `gatewayMode` + `POST /api/whatsapp/test-gateway` | **terverifikasi** | `v128Updates.test.ts`, `v125Paket6WaAlert.test.ts` | `admin` tetap mengelola 4 slot penerima ON/OFF & ambang tanpa akses gateway |
+| **Hapus Massal Multi-Pilih + Ketik `"delete"`** | Multi-pilih & hapus massal Produk, Kategori, Atribut, Box, & Item Fisik; ketik `"delete"` | **terverifikasi** | `v128Updates.test.ts`, `catalogDeleteEditAndReturnRequest.test.ts` | Proteksi atomik stok/request terbuka di semua endpoint `/bulk` & `ConfirmDeleteModal` |
+| **Impor Excel & Google Spreadsheet Publik** | Template `.xlsx`, pratinjau file/link Google Sheet, & impor atomik Katalog + Box + Stok Awal | **terverifikasi** | `v128Updates.test.ts` | `ImportService`, `/api/import/{template,preview,commit}`, & `CatalogImportModal` |
+| **Istilah `"Suku Cadang"` → `"Data Barang"`** | Pembaruan label antarmuka, kolom ExcelJS, Dashboard, Tiket, & dokumen cetak | **terverifikasi** | `npm run lint` & `npm run build` | Konsisten di seluruh komponen frontend & layanan backend |
+
 ---
 
 ## 📈 Log Perubahan Status Terkini
@@ -92,4 +104,6 @@
 - **v1.2.7 (Pengajuan Pembelian Barang, WA 4 Slot ON/OFF, Auto-Refresh 5 Menit, Lembar Pengesahan Dinamis, & MariaDB Strict Auth)**:
   - Menambahkan opsi request ke-3 **Ajukan Pembelian** (`request_type = 'beli'`, migrasi `13`) dengan pemilihan katalog atau ketik barang baru (`tipe_id = NULL`), estimasi harga opsional, serta penguncian notifikasi WA selektif agar hanya `beli` yang mengirim WhatsApp (bukan `ambil`/`kembalikan`).
   - Membatasi penerima WA tepat **4 slot dengan saklar ON/OFF individual**, menerapkan **auto-refresh senyap 5 menit** (`InventoryContext.tsx`), menyediakan kustomisasi dinamis Kop Surat & Lembar Pengesahan produksi (`REPORT_APPROVAL_CONFIG`), serta menuntaskan perbaikan autentikasi MariaDB strict `TIMESTAMP` + diagnostik `setup:test-login`.
-  - Terverifikasi melalui `purchaseWa4ReportConfig.test.ts` (20/20), `authLoginMariaDbCompat.test.ts` (22/22), `systemSetup.test.ts` (45/45), `canonicalSystem.test.ts` (19/19), `catalogDeleteEditAndReturnRequest.test.ts` (25/25), `bagAndCompleteRequest.test.ts` (20/20), `v125Paket6WaAlert.test.ts` (13/13), `bugfixScanFonnte.test.ts` (11/11), `npm run lint`, dan `npm run build`.
+- **v1.2.8 (Login-Only & Tutup Registrasi Publik, Peleburan Role `admin`, Izin Fitur Slider ON/OFF, Dual WA Gateway, Hapus Massal + `"delete"`, Impor Excel/Spreadsheet, & `"Data Barang"`)**:
+  - Menutup pendaftaran mandiri di halaman login dan `/api/auth/register` (`403`), melebur `admin` + `warehouse_admin` menjadi peran tunggal `admin` yang terbatas mengelola akun `admin` & `technician`, menambahkan panel **Atur Fitur** slider ON/OFF khusus `developer` (`feature_permissions`), menyediakan **Dual WhatsApp Gateway** ON/OFF khusus `developer`, melengkapi hapus massal multi-pilih dengan konfirmasi ketik **`delete`** di ke-5 target katalog/stok, menghadirkan fitur **Impor Excel/Google Spreadsheet Publik**, serta menyelaraskan istilah *"Suku Cadang"* → **"Data Barang"**.
+  - Terverifikasi melalui `v128Updates.test.ts` bersama seluruh suite regresi, `npm run lint`, dan `npm run build`.

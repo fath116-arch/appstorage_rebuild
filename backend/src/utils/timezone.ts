@@ -294,7 +294,7 @@ export function validateOccurredAt(options: {
       utcIso: nowDate.toISOString(),
       mysqlDatetimeUtc: toMysqlUtcDatetime(nowDate),
       isBackdated: true,
-      message: `Admin Gudang hanya dapat mencatat waktu kejadian maksimal ${MAX_BACKDATE_DAYS_STANDARD} hari ke belakang. Hubungi Admin/Developer untuk tanggal lebih lama.`
+      message: `Maksimal mencatat waktu kejadian adalah ${MAX_BACKDATE_DAYS_STANDARD} hari ke belakang. Hubungi Admin/Developer untuk tanggal lebih lama.`
     };
   }
 

@@ -1,8 +1,26 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.2.7-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.8-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+---
+
+## 🚀 [v1.2.8] - Login-Only & Tutup Registrasi Publik, Peleburan Role Admin, Izin Fitur Slider ON/OFF (Developer), Dual WA Gateway, Hapus Massal + Konfirmasi "delete", Impor Excel/Google Sheet, & Istilah "Data Barang" - 2026-11-24
+- **1. Layar Login Khusus Masuk (Tutup Pendaftaran Publik)**:
+  - Menghapus fitur pendaftaran mandiri dari `LoginScreen.tsx` (hanya Login & Lupa Kata Sandi) dan menutup `POST /api/auth/register` (`HTTP 403 Forbidden`); pembuatan akun hanya melalui dalam aplikasi oleh Admin/Developer atau CLI server `npm run setup:admin`.
+- **2. Peleburan Role `admin` & `warehouse_admin` Menjadi 1 Role `admin` (`14_v128_rbac_wa2_and_features.sql`, `permissions.ts`)**:
+  - Konsolidasi peran menjadi 3 peran kanonis (`developer`, `admin`, `technician`) dengan normalisasi otomatis alias legacy (`warehouse_admin`/`supervisor`/`superadmin`).
+  - Role `admin` memiliki wewenang operasional harian bawaan dan pengelolaan akun terbatas hanya untuk `admin` dan `technician` (`HTTP 403` untuk akun `developer`).
+- **3. Izin Fitur Per Akun dengan Slider ON/OFF (Khusus `developer`)**:
+  - Menambahkan `users.feature_permissions`, `PUT /api/auth/users/:id/features`, penegakan middleware `requireFeature()`, dan UI **Atur Fitur** dengan saklar slider ON/OFF murni per akun serta tombol **Reset ke Bawaan Peran**.
+- **4. Dual WhatsApp Gateway Bersaklar ON/OFF (Khusus `developer`)**:
+  - Menambahkan `wa_config.gateways_json` (`gateway1`, `gateway2`) & `wa_config.gateway_mode` (`failover`/`primary_only`/`broadcast_both`) serta `POST /api/whatsapp/test-gateway` yang hanya bisa diakses `developer`, sementara `admin` tetap mengelola 4 slot penerima ON/OFF & ambang.
+- **5. Hapus Massal Multi-Pilih & Konfirmasi Ketik `"delete"`**:
+  - Konfirmasi Tier 3 pada `ConfirmDeleteModal.tsx` & `ConfirmationService` disederhanakan menjadi mengetik kata **`delete`**, disertai multi-pilih hapus massal pada **Produk**, **Kategori**, **Atribut**, **Storage Box**, dan **Item Fisik Ber-ID**.
+- **6. Impor Excel (`.xlsx`/`.csv`) & Google Spreadsheet Publik (`/api/import/*`)**:
+  - Menyediakan unduhan Template Excel resmi, pratinjau validasi, dan impor atomik Katalog + Box + Stok Awal (`ImportService`, `CatalogImportModal.tsx`).
+- **7. Perubahan Istilah `"Suku Cadang"` → `"Data Barang"`** di seluruh antarmuka, laporan, dan ekspor.
 
 ---
 

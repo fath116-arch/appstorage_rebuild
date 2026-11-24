@@ -12,6 +12,7 @@ import { UserProfile, normalizeUserRole, sanitizeClientIp } from './authService'
 import { ActivityLogService } from './activityLogService';
 import { getErrorMessage } from '../utils/errorUtils';
 import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
+import { FeaturePermissionsMap, parseFeaturePermissions } from '../utils/permissions';
 
 export interface SessionRecord {
   id: string;
@@ -30,10 +31,11 @@ interface SessionWithUserRow extends SessionRecord {
   username: string;
   name: string;
   email: string;
-  role: UserProfile['role'];
+  role: string;
   department: string;
   phone: string;
   status: string;
+  feature_permissions?: string | FeaturePermissionsMap | null;
 }
 
 interface DbUpdateResult {
@@ -148,7 +150,7 @@ export class SessionService {
     const sessionId = tokenOrSessionId.split('.')[0].trim();
 
     const sessions = await executeQuery<SessionWithUserRow>(
-      `SELECT s.*, u.username, u.name, u.email, u.role, u.department, u.phone, u.status
+      `SELECT s.*, u.username, u.name, u.email, u.role, u.department, u.phone, u.status, u.feature_permissions
        FROM sesi s
        JOIN users u ON s.user_id = u.id
        WHERE s.id = ?`,
@@ -210,7 +212,8 @@ export class SessionService {
       role: normalizeUserRole(session.role),
       department: session.department,
       phone: session.phone,
-      status: session.status
+      status: session.status,
+      feature_permissions: parseFeaturePermissions(session.feature_permissions)
     };
 
     return {
@@ -245,7 +248,7 @@ export class SessionService {
     return await runTransaction(async (conn) => {
       // Cari sesi berdasarkan refresh_hash aktif
       const rows = await conn.query<SessionWithUserRow[] | { rows?: SessionWithUserRow[] }>(
-        `SELECT s.*, u.username, u.name, u.email, u.role, u.department, u.phone, u.status
+        `SELECT s.*, u.username, u.name, u.email, u.role, u.department, u.phone, u.status, u.feature_permissions
          FROM sesi s
          JOIN users u ON s.user_id = u.id
          WHERE s.refresh_hash = ?`,
@@ -308,7 +311,8 @@ export class SessionService {
         role: normalizeUserRole(session.role),
         department: session.department,
         phone: session.phone,
-        status: session.status
+        status: session.status,
+        feature_permissions: parseFeaturePermissions(session.feature_permissions)
       };
 
       return {

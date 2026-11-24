@@ -3,7 +3,7 @@
  * Client-side communication for Jenis, Atribut, Produk, and Tipe
  */
 
-import { apiFetch, requestJson } from './httpClient';
+import { apiFetch, getAuthToken, requestJson } from './httpClient';
 
 export interface AtributOpsi {
   id: number;
@@ -176,7 +176,19 @@ export const catalogApi = {
         method: 'DELETE',
         headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
       },
-      'Gagal menghapus jenis.'
+      'Gagal menghapus kategori.'
+    );
+  },
+
+  async deleteJenisBulk(ids: number[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/catalog/jenis/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ ids, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus kategori terpilih.'
     );
   },
 
@@ -238,6 +250,18 @@ export const catalogApi = {
         headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
       },
       'Gagal menghapus atribut.'
+    );
+  },
+
+  async deleteAtributBulk(ids: number[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/catalog/attributes/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ ids, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus atribut terpilih.'
     );
   },
 
@@ -315,6 +339,18 @@ export const catalogApi = {
     );
   },
 
+  async deleteProdukBulk(ids: number[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/catalog/products/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ ids, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus produk terpilih.'
+    );
+  },
+
   // TIPE
   async listTipeByProduk(produkId: number): Promise<Tipe[]> {
     const data = await apiFetch<{ types?: Tipe[] }>(
@@ -369,5 +405,88 @@ export const catalogApi = {
       'Gagal memuat item fisik tipe.'
     );
     return { items: data.items || [], stokJumlah: data.stokJumlah || [] };
+  },
+
+  // IMPOR EXCEL / GOOGLE SPREADSHEET
+  async downloadImportTemplate(): Promise<void> {
+    const token = getAuthToken();
+    const res = await fetch('/api/import/template', {
+      method: 'GET',
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData?.message || 'Gagal mengunduh template impor.');
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Template_Impor_Katalog_FieldOps.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  async previewImport(payload: {
+    sourceType: 'file' | 'google_sheet';
+    fileBase64?: string;
+    fileName?: string;
+    googleSheetUrl?: string;
+    conflictMode?: 'add_stock_only' | 'skip_existing';
+  }): Promise<{
+    sourceLabel: string;
+    totalRows: number;
+    validRows: number;
+    errorRows: number;
+    newCatalogItems: number;
+    existingCatalogItems: number;
+    totalStockToAdd: number;
+    rows: Array<{
+      rowNumber: number;
+      kategori: string;
+      produk: string;
+      kategoriBarang: 'Alat' | 'Barang Habis Pakai';
+      perputaran: 'fast_moving' | 'recycle';
+      satuan: string;
+      tipeVarian: string;
+      sumberId: 'tanpa_id' | 'manual' | 'otomatis' | 'scan_sn';
+      prefixId: string | null;
+      kodeBox: string | null;
+      stokAwal: number;
+      serialNumbers: string[];
+      rowState: 'new' | 'existing_add_stock' | 'skip' | 'error';
+      messages: string[];
+    }>;
+  }> {
+    const data = await apiFetch<{ preview: any }>(
+      '/api/import/preview',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal memvalidasi berkas impor.'
+    );
+    return data.preview;
+  },
+
+  async commitImport(payload: {
+    rows: Array<Record<string, unknown>>;
+    conflictMode?: 'add_stock_only' | 'skip_existing';
+    sourceLabel?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    createdJenis: number;
+    createdProduk: number;
+    createdTipe: number;
+    createdBoxes: number;
+    addedStockUnits: number;
+    skippedRows: number;
+  }> {
+    return apiFetch(
+      '/api/import/commit',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal mengeksekusi impor data.'
+    );
   }
 };

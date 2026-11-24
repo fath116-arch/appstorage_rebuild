@@ -8,7 +8,7 @@ process.env.TZ = 'UTC';
 import express from 'express';
 import path from 'path';
 import { PROJECT_ROOT_DIR, initDatabase, loadLayeredEnv } from './db/database';
-import { authenticate, requireAuth, requireRole } from './middleware/authMiddleware';
+import { authenticate, requireAuth, requireFeature } from './middleware/authMiddleware';
 import authRoutes from './routes/auth';
 import activitiesRoutes from './routes/activities';
 import ticketRoutes from './routes/ticketIntegration';
@@ -21,6 +21,7 @@ import stockRoutes from './routes/stock';
 import requestRoutes from './routes/request';
 import snPatternsRoutes from './routes/snPatterns';
 import setupRoutes from './routes/setup';
+import importRoutes from './routes/import';
 import { BackupService } from './services/backupService';
 
 loadLayeredEnv();
@@ -38,7 +39,7 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
   // Inisialisasi Database MariaDB (UTC +00:00) & Konsolidasi Data Kanonis
@@ -55,7 +56,7 @@ async function startServer() {
     res.json({
       status: 'healthy',
       app: 'FieldOps IT Inventory',
-      version: '1.2.7',
+      version: '1.2.8',
       database: 'MariaDB 11.x (Single Canonical Model, UTC)',
       tunnel: 'Cloudflare Tunnel Ready',
       timestamp: new Date().toISOString()
@@ -75,9 +76,10 @@ async function startServer() {
   app.use('/api/requests', requestRoutes);
   app.use('/api/sn-patterns', snPatternsRoutes);
   app.use('/api/setup', setupRoutes);
+  app.use('/api/import', importRoutes);
 
-  // Endpoint Backup Khusus Data Barang (Bebas Akun) - Khusus Developer & Admin
-  app.get('/api/backup/inventory/download', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
+  // Endpoint Backup Khusus Data Barang (Bebas Akun) - Khusus yang memiliki fitur setup_database
+  app.get('/api/backup/inventory/download', requireAuth, requireFeature('setup_database'), async (_req, res) => {
     try {
       const result = await BackupService.createInventoryBackup('user-download');
       res.download(result.filePath, result.filename);

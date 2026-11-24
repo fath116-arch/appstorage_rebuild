@@ -107,7 +107,7 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari kategori, nama alat, atau varian suku cadang..."
+              placeholder="Cari kategori, nama alat, atau varian data barang..."
               className="w-full pl-9 pr-8 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-emerald-500 transition-all placeholder:text-slate-400"
             />
             {searchQuery && (

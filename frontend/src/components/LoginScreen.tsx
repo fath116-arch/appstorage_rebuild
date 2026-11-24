@@ -1,29 +1,27 @@
 /**
- * Login, User Registration & Password Reset Screen (Server-Authoritative Authentication)
- * FieldOps IT - Akses Mandiri & Pendaftaran Akun Internal
+ * Login & Password Reset Screen (Server-Authoritative Authentication)
+ * FieldOps IT - Login Terpusat (Pembuatan Akun dari Dalam Web / CLI Server)
  */
 
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { ShieldCheck, Lock, User, AlertCircle, ArrowRight, UserPlus, CheckCircle2, KeyRound, Mail, ArrowLeft } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, CheckCircle2, KeyRound, Mail, ArrowLeft } from 'lucide-react';
 
 interface LoginScreenProps {
   onLoginSuccess?: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
-  const { login, register } = useAuth();
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  
+  const { login } = useAuth();
+  const [mode, setMode] = useState<'login' | 'forgot'>('login');
+
   // Form states
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<'warehouse_admin' | 'technician'>('warehouse_admin');
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -32,7 +30,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
-
     setIsLoading(true);
 
     try {
@@ -48,33 +45,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         } else {
           setErrorMsg(result.message || 'Username atau kata sandi tidak cocok.');
         }
-      } else if (mode === 'register') {
-        if (!username.trim() || !password.trim()) {
-          setErrorMsg('Username dan kata sandi wajib diisi.');
-          setIsLoading(false);
-          return;
-        }
-        const result = await register({
-          username: username.trim(),
-          name: name.trim() || username.trim(),
-          role,
-          password
-        });
-        if (result.success) {
-          setSuccessMsg(
-            result.message || 'Pendaftaran berhasil diajukan! Akun Anda sedang menunggu persetujuan dari Admin sebelum dapat masuk.'
-          );
-          setUsername('');
-          setName('');
-          setPassword('');
-          setTimeout(() => {
-            setMode('login');
-          }, 2500);
-        } else {
-          setErrorMsg(result.message || 'Gagal mendaftarkan akun baru.');
-        }
-      } else if (mode === 'forgot') {
-        // Mode Forgot / Reset Password
+      } else {
         if (!username.trim() || !password.trim()) {
           setErrorMsg('Username dan kata sandi baru wajib diisi.');
           setIsLoading(false);
@@ -113,59 +84,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-8 space-y-6">
-        
         {/* Header Branding */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white dark:bg-slate-100 border border-slate-200 dark:border-slate-300/60 shadow-md p-2 mb-1 overflow-hidden">
-            <img 
-              src="/logo.webp" 
-              alt="FieldOps IT Icon" 
-              className="w-full h-full object-contain" 
+            <img
+              src="/logo.webp"
+              alt="FieldOps IT Icon"
+              className="w-full h-full object-contain"
             />
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 font-display">
             FieldOps IT
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-            Sistem Inventarisasi Suku Cadang &amp; Manajemen IT Lapangan
+            Sistem Inventarisasi Data Barang &amp; Manajemen IT Lapangan
           </p>
         </div>
 
-        {/* Tab Switcher (Masuk vs Daftar Akun Baru) */}
-        {mode !== 'forgot' ? (
-          <div className="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => {
-                setMode('login');
-                setErrorMsg('');
-                setSuccessMsg('');
-              }}
-              className={`py-2 rounded-lg transition-all text-center cursor-pointer ${
-                mode === 'login'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              Masuk ke Sistem
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('register');
-                setErrorMsg('');
-                setSuccessMsg('');
-              }}
-              className={`py-2 rounded-lg transition-all text-center cursor-pointer ${
-                mode === 'register'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              Buat Akun Baru
-            </button>
-          </div>
-        ) : (
+        {/* Forgot mode banner */}
+        {mode === 'forgot' && (
           <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs flex items-center justify-between">
             <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-semibold">
               <KeyRound className="w-4 h-4 text-amber-500" />
@@ -204,47 +141,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Field Tambahan Khusus Mode Register */}
-          {mode === 'register' && (
-            <>
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Nama Lengkap
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Contoh: Budi Santoso"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Peran Pengguna (Di Bawah Admin)
-                </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as any)}
-                  className="w-full px-3 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all text-slate-900 dark:text-slate-100"
-                >
-                  <option value="warehouse_admin">Admin Gudang IT (Pencatatan Barang Masuk &amp; Kelola Master)</option>
-                  <option value="technician">Teknisi Lapangan (Pengambilan Suku Cadang &amp; Checklist Tas)</option>
-                </select>
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2.5 rounded-md border border-amber-500/20 leading-relaxed">
-                  <strong>Pemberitahuan:</strong> Akun baru memerlukan persetujuan oleh <strong>Admin</strong> sebelum dapat digunakan. Akun Admin dan Developer hanya dapat dibuat di sisi server melalui terminal (CLI).
-                </p>
-              </div>
-            </>
-          )}
-
-          {/* Username (Digunakan di semua mode) */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
               Username
@@ -256,13 +152,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder={mode === 'register' ? 'Pilih username baru (misal: budi)...' : 'Masukkan username...'}
+                placeholder="Masukkan username..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all text-slate-900 dark:text-slate-100"
               />
             </div>
           </div>
 
-          {/* Field Email Terdaftar (Khusus mode Forgot) */}
           {mode === 'forgot' && (
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -281,7 +176,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </div>
           )}
 
-          {/* Kata Sandi */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -314,7 +208,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
 
-          {/* Konfirmasi Kata Sandi Baru (Khusus Mode Forgot) */}
           {mode === 'forgot' && (
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -346,11 +239,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <span>Masuk ke Sistem</span>
                 <ArrowRight className="w-4 h-4" />
               </>
-            ) : mode === 'register' ? (
-              <>
-                <UserPlus className="w-4 h-4" />
-                <span>Daftar &amp; Ajukan Akun</span>
-              </>
             ) : (
               <>
                 <KeyRound className="w-4 h-4" />
@@ -361,12 +249,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         </form>
 
         {/* Footer Security Notice */}
-        <div className="border-t border-slate-200 dark:border-slate-800/80 pt-4 text-center space-y-1">
+        <div className="border-t border-slate-200 dark:border-slate-800/80 pt-4 text-center space-y-1.5">
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Sistem Inventarisasi Suku Cadang Internal Kantor ISP
+            Pembuatan akun hanya tersedia dari dalam aplikasi oleh Admin/Developer atau melalui terminal server (<code className="font-mono text-[10px]">npm run setup:admin</code>).
           </p>
           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-            FieldOps IT · Akses Terpusat Server Lokal
+            Sistem Inventarisasi Data Barang · FieldOps IT
           </p>
         </div>
       </div>

@@ -73,7 +73,7 @@ export const TopMovingBarChart: React.FC<TopMovingBarChartProps> = ({
         <div className="flex items-center justify-between mb-2">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white font-display">
-              Suku Cadang Paling Banyak Terpakai (*Top-Moving*)
+              Data Barang Paling Banyak Terpakai (*Top-Moving*)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Peringkat barang dengan volume penggunaan tertinggi {timeRangeDays} hari terakhir.

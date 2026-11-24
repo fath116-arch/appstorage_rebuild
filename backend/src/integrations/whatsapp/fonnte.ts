@@ -5,45 +5,64 @@
 
 import { WhatsAppProvider, SendResult } from './provider';
 
+export type WaGatewayProviderType = 'fonnte' | 'wablas' | 'webhook';
+
 export class FonnteProvider implements WhatsAppProvider {
   private apiUrl: string;
   private apiToken: string;
+  private providerType: WaGatewayProviderType;
 
-  constructor(apiUrl?: string, apiToken?: string) {
+  constructor(apiUrl?: string, apiToken?: string, providerType: WaGatewayProviderType = 'fonnte') {
     this.apiUrl = apiUrl || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send';
     this.apiToken = apiToken || process.env.WHATSAPP_API_TOKEN || '';
+    this.providerType = providerType;
   }
 
   async sendMessage(to: string, text: string): Promise<SendResult> {
-    if (!this.apiToken) {
+    if (!this.apiToken && this.providerType !== 'webhook') {
       return {
         success: false,
-        details: 'Simulasi pengiriman backend (Token API Fonnte belum dikonfigurasi di env/database).'
+        details: `Simulasi pengiriman backend (${this.providerType}: Token API belum dikonfigurasi di env/database).`
+      };
+    }
+
+    if (!this.apiUrl) {
+      return {
+        success: false,
+        details: `URL endpoint gateway (${this.providerType}) belum diisi.`
       };
     }
 
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (this.apiToken) {
+        headers['Authorization'] = this.apiToken;
+      }
+
+      const payload =
+        this.providerType === 'wablas'
+          ? { phone: to, message: text }
+          : this.providerType === 'webhook'
+            ? { to, target: to, message: text, source: 'fieldops-it' }
+            : { target: to, message: text };
+
       const response = await fetch(this.apiUrl, {
         method: 'POST',
-        headers: {
-          'Authorization': this.apiToken,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          target: to,
-          message: text
-        })
+        headers,
+        body: JSON.stringify(payload)
       });
 
       const data = await response.text();
       return {
         success: response.ok,
-        details: `Fonnte Response (${response.status}): ${data}`
+        details: `${this.providerType.toUpperCase()} Response (${response.status}): ${data}`
       };
     } catch (err: any) {
       return {
         success: false,
-        details: `HTTP Connection Error ke Fonnte API: ${err.message || String(err)}`
+        details: `HTTP Connection Error ke ${this.providerType.toUpperCase()} API: ${err.message || String(err)}`
       };
     }
   }

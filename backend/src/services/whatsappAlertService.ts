@@ -10,13 +10,26 @@
  */
 
 import { executeQuery, memoryStore } from '../db/database';
-import { FonnteProvider } from '../integrations/whatsapp/fonnte';
+import { FonnteProvider, WaGatewayProviderType } from '../integrations/whatsapp/fonnte';
 import { WhatsAppProvider } from '../integrations/whatsapp/provider';
 import { formatConsolidatedStockAlertMessage, formatTestConnectionMessage } from '../integrations/whatsapp/templates';
 import { getErrorMessage } from '../utils/errorUtils';
 import { formatWibTimeHHmm } from '../utils/timezone';
 
 export const MAX_WA_RECIPIENT_SLOTS = 4;
+
+export type WaGatewayId = 'gateway1' | 'gateway2';
+export type WaGatewayMode = 'failover' | 'parallel';
+
+export interface WaGatewayConfig {
+  id: WaGatewayId;
+  label: string;
+  enabled: boolean;
+  provider: WaGatewayProviderType;
+  apiUrl: string;
+  apiToken: string;
+  maskedToken?: string;
+}
 
 export interface WaRecipientSlot {
   slot: number;
@@ -42,6 +55,12 @@ export interface WaConfigData {
   apiUrl: string;
   apiToken: string;
   maskedToken?: string;
+  gatewayMode: WaGatewayMode;
+  gateways: {
+    gateway1: WaGatewayConfig;
+    gateway2: WaGatewayConfig;
+  };
+  hasGatewayAccess?: boolean;
 }
 
 export interface ThresholdResolution {
@@ -98,6 +117,8 @@ interface WaConfigRow {
   recipient_slots_json?: string | null;
   api_url?: string;
   api_token?: string;
+  gateways_json?: string | null;
+  gateway_mode?: string | null;
 }
 
 interface WaThresholdRow {
@@ -131,6 +152,34 @@ interface CountRow {
   rusak?: number | string;
 }
 
+function buildDefaultGateways(primaryUrl?: string, primaryToken?: string): {
+  gateway1: WaGatewayConfig;
+  gateway2: WaGatewayConfig;
+} {
+  const gw1Url = (primaryUrl || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send').trim();
+  const gw1Token = (primaryToken !== undefined ? primaryToken : process.env.WHATSAPP_API_TOKEN || '').trim();
+  const gw2Url = (process.env.WHATSAPP_GATEWAY2_URL || 'https://api.fonnte.com/send').trim();
+  const gw2Token = (process.env.WHATSAPP_GATEWAY2_TOKEN || '').trim();
+  return {
+    gateway1: {
+      id: 'gateway1',
+      label: 'Gateway 1 (Utama)',
+      enabled: true,
+      provider: 'fonnte',
+      apiUrl: gw1Url,
+      apiToken: gw1Token
+    },
+    gateway2: {
+      id: 'gateway2',
+      label: 'Gateway 2 (Cadangan)',
+      enabled: Boolean(gw2Token),
+      provider: 'fonnte',
+      apiUrl: gw2Url,
+      apiToken: gw2Token
+    }
+  };
+}
+
 // Memory fallback store for standalone testing
 let localWaConfig: WaConfigData = {
   id: 'main',
@@ -153,6 +202,8 @@ let localWaConfig: WaConfigData = {
   ],
   apiUrl: process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send',
   apiToken: process.env.WHATSAPP_API_TOKEN || '',
+  gatewayMode: 'failover',
+  gateways: buildDefaultGateways()
 };
 
 const localThresholds = new Map<string, WaThresholdRow>();
@@ -163,11 +214,96 @@ function maskToken(token?: string): string {
   return token ? `${token.slice(0, 4)}••••••••` : 'Belum diisi';
 }
 
-function sanitizeConfigForClient(config: WaConfigData): WaConfigData {
+function normalizeProviderType(val?: string | null): WaGatewayProviderType {
+  if (val === 'wablas' || val === 'webhook') return val;
+  return 'fonnte';
+}
+
+function normalizeGatewayMode(val?: string | null): WaGatewayMode {
+  return val === 'parallel' ? 'parallel' : 'failover';
+}
+
+function normalizeGateways(
+  rawGateways?: Partial<Record<WaGatewayId, Partial<WaGatewayConfig>>> | null,
+  legacyUrl?: string,
+  legacyToken?: string
+): { gateway1: WaGatewayConfig; gateway2: WaGatewayConfig } {
+  const defaults = buildDefaultGateways(legacyUrl, legacyToken);
+  const raw1 = rawGateways?.gateway1 || {};
+  const raw2 = rawGateways?.gateway2 || {};
+
+  const gw1: WaGatewayConfig = {
+    id: 'gateway1',
+    label: typeof raw1.label === 'string' && raw1.label.trim() ? raw1.label.trim().slice(0, 60) : defaults.gateway1.label,
+    enabled: raw1.enabled !== undefined ? Boolean(raw1.enabled) : defaults.gateway1.enabled,
+    provider: normalizeProviderType(raw1.provider),
+    apiUrl: typeof raw1.apiUrl === 'string' && raw1.apiUrl.trim() ? raw1.apiUrl.trim() : defaults.gateway1.apiUrl,
+    apiToken: typeof raw1.apiToken === 'string' ? raw1.apiToken.trim() : defaults.gateway1.apiToken
+  };
+
+  const gw2: WaGatewayConfig = {
+    id: 'gateway2',
+    label: typeof raw2.label === 'string' && raw2.label.trim() ? raw2.label.trim().slice(0, 60) : defaults.gateway2.label,
+    enabled: raw2.enabled !== undefined ? Boolean(raw2.enabled) : defaults.gateway2.enabled,
+    provider: normalizeProviderType(raw2.provider),
+    apiUrl: typeof raw2.apiUrl === 'string' && raw2.apiUrl.trim() ? raw2.apiUrl.trim() : defaults.gateway2.apiUrl,
+    apiToken: typeof raw2.apiToken === 'string' ? raw2.apiToken.trim() : defaults.gateway2.apiToken
+  };
+
+  return { gateway1: gw1, gateway2: gw2 };
+}
+
+function sanitizeConfigForClient(config: WaConfigData, isDeveloper: boolean = true): WaConfigData {
+  const gw1 = config.gateways?.gateway1 || buildDefaultGateways(config.apiUrl, config.apiToken).gateway1;
+  const gw2 = config.gateways?.gateway2 || buildDefaultGateways(config.apiUrl, config.apiToken).gateway2;
+
+  if (!isDeveloper) {
+    return {
+      ...config,
+      apiUrl: '',
+      apiToken: '',
+      maskedToken: 'Khusus Developer',
+      hasGatewayAccess: false,
+      gateways: {
+        gateway1: {
+          id: 'gateway1',
+          label: gw1.label,
+          enabled: gw1.enabled,
+          provider: gw1.provider,
+          apiUrl: '',
+          apiToken: '',
+          maskedToken: 'Khusus Developer'
+        },
+        gateway2: {
+          id: 'gateway2',
+          label: gw2.label,
+          enabled: gw2.enabled,
+          provider: gw2.provider,
+          apiUrl: '',
+          apiToken: '',
+          maskedToken: 'Khusus Developer'
+        }
+      }
+    };
+  }
+
   return {
     ...config,
     apiToken: '',
-    maskedToken: maskToken(config.apiToken)
+    maskedToken: maskToken(gw1.apiToken || config.apiToken),
+    hasGatewayAccess: true,
+    gateways: {
+      gateway1: {
+        ...gw1,
+        apiToken: '',
+        maskedToken: maskToken(gw1.apiToken)
+      },
+      gateway2: {
+        ...gw2,
+        apiToken: '',
+        maskedToken: maskToken(gw2.apiToken)
+      }
+    }
   };
 }
 
@@ -278,7 +414,19 @@ export class WhatsappAlertService {
         const slots = parsedSlots || this.normalizeRecipientSlots(null, recs);
         const activeRecipients = this.getActiveRecipientsFromSlots(slots);
 
+        const resolvedUrl = r.api_url || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send';
         const resolvedToken = r.api_token || process.env.WHATSAPP_API_TOKEN || '';
+        let parsedGateways: Partial<Record<WaGatewayId, Partial<WaGatewayConfig>>> | null = null;
+        if (r.gateways_json) {
+          try {
+            parsedGateways = JSON.parse(r.gateways_json);
+          } catch {
+            parsedGateways = null;
+          }
+        }
+        const gateways = normalizeGateways(parsedGateways, resolvedUrl, resolvedToken);
+        const gatewayMode = normalizeGatewayMode(r.gateway_mode);
+
         localWaConfig = {
           id: r.id || 'main',
           isEnabled: Boolean(r.is_enabled),
@@ -293,28 +441,34 @@ export class WhatsappAlertService {
           globalEarlyWarningThreshold: parseInt(String(r.global_early_warning_threshold || '5'), 10),
           recipients: activeRecipients,
           recipientSlots: slots,
-          apiUrl: r.api_url || process.env.WHATSAPP_API_URL || 'https://api.fonnte.com/send',
-          apiToken: resolvedToken,
-          maskedToken: maskToken(resolvedToken)
+          apiUrl: gateways.gateway1.apiUrl,
+          apiToken: gateways.gateway1.apiToken,
+          maskedToken: maskToken(gateways.gateway1.apiToken),
+          gatewayMode,
+          gateways
         };
       }
     } catch {
       // Memory fallback
     }
 
+    const gateways = normalizeGateways(localWaConfig.gateways, localWaConfig.apiUrl, localWaConfig.apiToken);
     return {
       ...localWaConfig,
       recipientSlots: this.normalizeRecipientSlots(localWaConfig.recipientSlots, localWaConfig.recipients),
-      maskedToken: maskToken(localWaConfig.apiToken)
+      maskedToken: maskToken(gateways.gateway1.apiToken || localWaConfig.apiToken),
+      gatewayMode: normalizeGatewayMode(localWaConfig.gatewayMode),
+      gateways
     };
   }
 
   /**
-   * 2. Ambil Konfigurasi WA Alert (Tersanitasi untuk klien)
+   * 2. Ambil Konfigurasi WA Alert (Tersanitasi untuk klien; gateway hanya ditampilkan ke Developer)
    */
-  static async getConfig(): Promise<WaConfigData> {
+  static async getConfig(options?: { isDeveloper?: boolean }): Promise<WaConfigData> {
     const internal = await this.getInternalConfig();
-    return sanitizeConfigForClient(internal);
+    const isDeveloper = options?.isDeveloper !== false;
+    return sanitizeConfigForClient(internal, isDeveloper);
   }
 
   /**
@@ -326,14 +480,112 @@ export class WhatsappAlertService {
     recipientSlots: WaRecipientSlot[];
     apiUrl: string;
     apiToken: string;
+    gatewayMode: WaGatewayMode;
+    gateways: { gateway1: WaGatewayConfig; gateway2: WaGatewayConfig };
   }> {
     const internal = await this.getInternalConfig();
     return {
       isEnabled: internal.isEnabled,
       recipients: this.getActiveRecipientsFromSlots(internal.recipientSlots),
       recipientSlots: internal.recipientSlots,
-      apiUrl: internal.apiUrl,
-      apiToken: internal.apiToken
+      apiUrl: internal.gateways.gateway1.apiUrl || internal.apiUrl,
+      apiToken: internal.gateways.gateway1.apiToken || internal.apiToken,
+      gatewayMode: internal.gatewayMode,
+      gateways: internal.gateways
+    };
+  }
+
+  /**
+   * Eksekusi pengiriman via Gateway 1 & Gateway 2 sesuai mode (Failover atau Paralel)
+   */
+  static async dispatchThroughGateways(
+    target: string,
+    message: string,
+    configOverride?: { gatewayMode: WaGatewayMode; gateways: { gateway1: WaGatewayConfig; gateway2: WaGatewayConfig } },
+    customProvider?: WhatsAppProvider
+  ): Promise<{ success: boolean; details: string; hasAnyToken: boolean; usedGateway: string | null }> {
+    if (customProvider) {
+      const res = await customProvider.sendMessage(target, message);
+      return {
+        success: res.success,
+        details: res.details,
+        hasAnyToken: true,
+        usedGateway: 'custom'
+      };
+    }
+
+    const internal = configOverride || (await this.getInternalConfig());
+    const activeGateways = [internal.gateways.gateway1, internal.gateways.gateway2].filter((g) => g.enabled);
+
+    if (activeGateways.length === 0) {
+      return {
+        success: false,
+        details: 'Kedua Gateway WhatsApp (Gateway 1 & Gateway 2) sedang dimatikan (OFF).',
+        hasAnyToken: false,
+        usedGateway: null
+      };
+    }
+
+    const hasAnyToken = activeGateways.some((g) => Boolean(g.apiToken) || g.provider === 'webhook');
+
+    if (internal.gatewayMode === 'parallel') {
+      const settled = await Promise.allSettled(
+        activeGateways.map(async (gw) => {
+          const provider = new FonnteProvider(gw.apiUrl, gw.apiToken, gw.provider);
+          const res = await provider.sendMessage(target, message);
+          return { gw, res };
+        })
+      );
+
+      let anySuccess = false;
+      const detailsList: string[] = [];
+      const succeededGateways: string[] = [];
+
+      for (const item of settled) {
+        if (item.status === 'fulfilled') {
+          detailsList.push(`[${item.value.gw.label}] ${item.value.res.details}`);
+          if (item.value.res.success) {
+            anySuccess = true;
+            succeededGateways.push(item.value.gw.id);
+          }
+        } else {
+          detailsList.push(`[Gateway Error] ${String(item.reason)}`);
+        }
+      }
+
+      return {
+        success: anySuccess,
+        details: detailsList.join(' | '),
+        hasAnyToken,
+        usedGateway: succeededGateways.length > 0 ? succeededGateways.join('+') : null
+      };
+    }
+
+    // Mode Failover Otomatis: coba Gateway aktif #1, jika gagal lanjut ke #2
+    const attemptLogs: string[] = [];
+    for (const gw of activeGateways) {
+      const provider = new FonnteProvider(gw.apiUrl, gw.apiToken, gw.provider);
+      try {
+        const res = await provider.sendMessage(target, message);
+        attemptLogs.push(`[${gw.label}] ${res.details}`);
+        if (res.success) {
+          return {
+            success: true,
+            details: attemptLogs.join(' -> Failover -> '),
+            hasAnyToken,
+            usedGateway: gw.id
+          };
+        }
+      } catch (err: unknown) {
+        attemptLogs.push(`[${gw.label}] Error: ${getErrorMessage(err)}`);
+      }
+    }
+
+    return {
+      success: false,
+      details: attemptLogs.join(' -> Failover -> '),
+      hasAnyToken,
+      usedGateway: null
     };
   }
 
@@ -371,8 +623,11 @@ export class WhatsappAlertService {
    * 3. Update Konfigurasi WA Alert (Dilarang Jeda 0 Menit! Maksimal 4 slot nomor penerima)
    */
   static async updateConfig(
-    payload: Partial<WaConfigData>,
-    operator: { id: string; name: string }
+    payload: Partial<WaConfigData> & {
+      gateways?: Partial<Record<WaGatewayId, Partial<WaGatewayConfig>>>;
+    },
+    operator: { id: string; name: string },
+    options?: { allowGatewayEdit?: boolean }
   ): Promise<WaConfigData> {
     // Validasi aturan jeda minimal
     if (payload.cooldownMinutes !== undefined) {
@@ -402,6 +657,52 @@ export class WhatsappAlertService {
     }
 
     const updatedRecipients = this.getActiveRecipientsFromSlots(updatedSlots);
+    const canEditGateway = options?.allowGatewayEdit !== false;
+
+    const currentGw1 = current.gateways.gateway1;
+    const currentGw2 = current.gateways.gateway2;
+    let nextGateways = { gateway1: { ...currentGw1 }, gateway2: { ...currentGw2 } };
+    let nextGatewayMode = current.gatewayMode;
+
+    if (canEditGateway) {
+      if (payload.gatewayMode !== undefined) {
+        nextGatewayMode = normalizeGatewayMode(payload.gatewayMode);
+      }
+      const inGw1 = payload.gateways?.gateway1;
+      const inGw2 = payload.gateways?.gateway2;
+
+      const resolvedGw1Url =
+        inGw1?.apiUrl && inGw1.apiUrl.trim()
+          ? inGw1.apiUrl.trim()
+          : payload.apiUrl && payload.apiUrl.trim()
+            ? payload.apiUrl.trim()
+            : currentGw1.apiUrl;
+      const resolvedGw1Token =
+        inGw1?.apiToken && inGw1.apiToken.trim()
+          ? inGw1.apiToken.trim()
+          : payload.apiToken && payload.apiToken.trim()
+            ? payload.apiToken.trim()
+            : currentGw1.apiToken;
+
+      nextGateways = {
+        gateway1: {
+          id: 'gateway1',
+          label: inGw1?.label && inGw1.label.trim() ? inGw1.label.trim().slice(0, 60) : currentGw1.label,
+          enabled: inGw1?.enabled !== undefined ? Boolean(inGw1.enabled) : currentGw1.enabled,
+          provider: inGw1?.provider !== undefined ? normalizeProviderType(inGw1.provider) : currentGw1.provider,
+          apiUrl: resolvedGw1Url,
+          apiToken: resolvedGw1Token
+        },
+        gateway2: {
+          id: 'gateway2',
+          label: inGw2?.label && inGw2.label.trim() ? inGw2.label.trim().slice(0, 60) : currentGw2.label,
+          enabled: inGw2?.enabled !== undefined ? Boolean(inGw2.enabled) : currentGw2.enabled,
+          provider: inGw2?.provider !== undefined ? normalizeProviderType(inGw2.provider) : currentGw2.provider,
+          apiUrl: inGw2?.apiUrl && inGw2.apiUrl.trim() ? inGw2.apiUrl.trim() : currentGw2.apiUrl,
+          apiToken: inGw2?.apiToken && inGw2.apiToken.trim() ? inGw2.apiToken.trim() : currentGw2.apiToken
+        }
+      };
+    }
 
     const merged: WaConfigData = {
       ...current,
@@ -416,8 +717,10 @@ export class WhatsappAlertService {
       globalEarlyWarningThreshold: payload.globalEarlyWarningThreshold !== undefined ? Math.max(1, Number(payload.globalEarlyWarningThreshold)) : current.globalEarlyWarningThreshold,
       recipients: updatedRecipients,
       recipientSlots: updatedSlots,
-      apiUrl: (payload.apiUrl && payload.apiUrl.trim()) ? payload.apiUrl.trim() : current.apiUrl,
-      apiToken: (payload.apiToken && payload.apiToken.trim()) ? payload.apiToken.trim() : current.apiToken
+      apiUrl: nextGateways.gateway1.apiUrl,
+      apiToken: nextGateways.gateway1.apiToken,
+      gatewayMode: nextGatewayMode,
+      gateways: nextGateways
     };
 
     localWaConfig = merged;
@@ -428,7 +731,8 @@ export class WhatsappAlertService {
           is_enabled = ?, cooldown_minutes = ?, active_hours_start = ?, active_hours_end = ?,
           alert_on_out_of_stock = ?, alert_on_low_stock = ?, alert_on_early_warning = ?,
           global_low_stock_threshold = ?, global_early_warning_threshold = ?,
-          recipients_json = ?, recipient_slots_json = ?, api_url = ?, api_token = ?
+          recipients_json = ?, recipient_slots_json = ?, api_url = ?, api_token = ?,
+          gateways_json = ?, gateway_mode = ?
         WHERE id = 'main'`,
         [
           merged.isEnabled ? 1 : 0,
@@ -443,7 +747,9 @@ export class WhatsappAlertService {
           JSON.stringify(merged.recipients),
           JSON.stringify(merged.recipientSlots),
           merged.apiUrl,
-          merged.apiToken
+          merged.apiToken,
+          JSON.stringify(merged.gateways),
+          merged.gatewayMode
         ]
       );
 
@@ -459,7 +765,10 @@ export class WhatsappAlertService {
             isEnabled: merged.isEnabled,
             cooldownMinutes: merged.cooldownMinutes,
             recipientsCount: merged.recipients.length,
-            slotsConfigured: merged.recipientSlots.filter(s => s.number.length > 0).length
+            slotsConfigured: merged.recipientSlots.filter(s => s.number.length > 0).length,
+            gatewayMode: merged.gatewayMode,
+            gw1Enabled: merged.gateways.gateway1.enabled,
+            gw2Enabled: merged.gateways.gateway2.enabled
           })
         ]
       );
@@ -467,7 +776,7 @@ export class WhatsappAlertService {
       // Memory store fallback
     }
 
-    return sanitizeConfigForClient(merged);
+    return sanitizeConfigForClient(merged, canEditGateway);
   }
 
   private static async findThresholdRow(level: 'produk' | 'tipe', targetId: number): Promise<WaThresholdRow | undefined> {
@@ -850,19 +1159,11 @@ export class WhatsappAlertService {
       return { sent: false, reason: 'NO_RECIPIENTS', message: 'Daftar penerima WhatsApp belum diisi.' };
     }
 
-    // Kirim via WhatsAppProvider (default: FonnteProvider dengan token internal asli)
-    const provider = options?.provider || new FonnteProvider(config.apiUrl, config.apiToken);
-    let sendSuccess = false;
-    let fonnteResponse = '';
-
-    try {
-      const targetStr = uniqueRecipients.join(',');
-      const res = await provider.sendMessage(targetStr, formattedMessage);
-      sendSuccess = res.success;
-      fonnteResponse = res.details;
-    } catch (err: unknown) {
-      fonnteResponse = `Error: ${getErrorMessage(err)}`;
-    }
+    // Kirim via Dual Gateway (Failover / Paralel) atau customProvider untuk pengujian
+    const targetStr = uniqueRecipients.join(',');
+    const dispatchRes = await this.dispatchThroughGateways(targetStr, formattedMessage, config, options?.provider);
+    const sendSuccess = dispatchRes.success;
+    const fonnteResponse = dispatchRes.details;
 
     const logRecord: WaDeliveryLogRecord = {
       id: `walog_${Date.now()}`,
@@ -873,9 +1174,10 @@ export class WhatsappAlertService {
       summary_counts: JSON.stringify({
         habis: evaluation.outOfStock.length,
         menipis: evaluation.lowStock.length,
-        dini: evaluation.earlyWarning.length
+        dini: evaluation.earlyWarning.length,
+        usedGateway: dispatchRes.usedGateway
       }),
-      fonnte_status: sendSuccess ? 'SUCCESS' : (config.apiToken ? 'FAILED' : 'SIMULATED'),
+      fonnte_status: sendSuccess ? 'SUCCESS' : (dispatchRes.hasAnyToken ? 'FAILED' : 'SIMULATED'),
       fonnte_response: fonnteResponse,
       operator_id: options?.operator?.id || 'system'
     };
@@ -953,8 +1255,7 @@ export class WhatsappAlertService {
 
     const targetStr = targets.join(',');
     const testMessage = formatTestConnectionMessage(targetStr);
-    const provider = customProvider || new FonnteProvider(config.apiUrl, config.apiToken);
-    const result = await provider.sendMessage(targetStr, testMessage);
+    const result = await this.dispatchThroughGateways(targetStr, testMessage, config, customProvider);
 
     // Update cooldown
     localWaConfig.lastSentAt = new Date().toISOString();
@@ -970,7 +1271,7 @@ export class WhatsappAlertService {
       trigger_type: 'TEST_MESSAGE',
       recipients: targetStr,
       message_snippet: testMessage.slice(0, 120),
-      fonnte_status: result.success ? 'SUCCESS' : (config.apiToken ? 'FAILED' : 'SIMULATED'),
+      fonnte_status: result.success ? 'SUCCESS' : (result.hasAnyToken ? 'FAILED' : 'SIMULATED'),
       fonnte_response: result.details,
       operator_id: operator?.id || 'manual'
     };
@@ -983,6 +1284,54 @@ export class WhatsappAlertService {
         ? `Uji koneksi WhatsApp berhasil dikirim ke ${targets.length} penerima!`
         : `Pesan uji dikirim dalam mode simulasi backend (${result.details}).`,
       details: result.details
+    };
+  }
+
+  /**
+   * 10b. Pengiriman Uji Khusus Satu Gateway (Khusus Developer - menguji Gateway 1 atau Gateway 2)
+   */
+  static async sendTestGateway(
+    gatewayId: WaGatewayId,
+    targetPhone: string | undefined,
+    operator: { id: string; name: string },
+    customProvider?: WhatsAppProvider
+  ): Promise<{ success: boolean; gatewayId: WaGatewayId; message: string; details: string }> {
+    const config = await this.getInternalConfig();
+    const gw = config.gateways[gatewayId];
+    if (!gw) {
+      throw new Error(`Gateway "${gatewayId}" tidak ditemukan.`);
+    }
+
+    const targets = targetPhone
+      ? this.deduplicateRecipients([targetPhone])
+      : this.deduplicateRecipients(config.recipients);
+
+    if (targets.length === 0) {
+      throw new Error('Isi minimal satu nomor penerima atau masukkan nomor tujuan uji terlebih dahulu.');
+    }
+
+    const targetStr = targets.join(',');
+    const testMessage = `[UJI ${gw.label.toUpperCase()}] ${formatTestConnectionMessage(targetStr)}`;
+    const provider = customProvider || new FonnteProvider(gw.apiUrl, gw.apiToken, gw.provider);
+    const res = await provider.sendMessage(targetStr, testMessage);
+
+    await this.recordExternalDeliveryLog({
+      trigger_type: gatewayId === 'gateway1' ? 'TEST_GATEWAY_1' : 'TEST_GATEWAY_2',
+      recipients: targetStr,
+      message_snippet: testMessage.slice(0, 140),
+      summary_counts: JSON.stringify({ gatewayId, provider: gw.provider }),
+      fonnte_status: res.success ? 'SUCCESS' : (gw.apiToken ? 'FAILED' : 'SIMULATED'),
+      fonnte_response: `[${gw.label}] ${res.details}`,
+      operator_id: operator.id
+    });
+
+    return {
+      success: res.success,
+      gatewayId,
+      message: res.success
+        ? `${gw.label} berhasil mengirim pesan uji ke ${targets.length} penerima.`
+        : `Uji ${gw.label} selesai (${res.details}).`,
+      details: res.details
     };
   }
 

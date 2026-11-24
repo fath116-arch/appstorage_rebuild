@@ -82,6 +82,12 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
     return match ? [{ id: match.id, nama: match.nama }] : [];
   }
 
+  if (upper === 'SELECT ID, NAMA FROM JENIS WHERE AKTIF = 1') {
+    return Array.from(memoryStore.jenis.values())
+      .filter(j => j.aktif === 1 || j.aktif === true)
+      .map(j => ({ id: j.id, nama: j.nama }));
+  }
+
   // ATRIBUT & ATRIBUT_OPSI
   if (upper.startsWith('INSERT INTO ATRIBUT (')) {
     const nextId = nextNumericId(memoryStore.atribut);
@@ -338,6 +344,12 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
     return match ? [{ id: match.id, nama: match.nama }] : [];
   }
 
+  if (upper === 'SELECT ID, JENIS_ID, NAMA FROM PRODUK WHERE AKTIF = 1') {
+    return Array.from(memoryStore.produk.values())
+      .filter(p => p.aktif === 1 || p.aktif === true)
+      .map(p => ({ id: p.id, jenis_id: p.jenis_id, nama: p.nama }));
+  }
+
   // TIPE
   if (upper.startsWith('INSERT INTO TIPE (')) {
     const nextId = nextNumericId(memoryStore.tipe);
@@ -453,6 +465,12 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
           jenis_nama: jenis ? jenis.nama : ''
         };
       });
+    }
+
+    if (upper === 'SELECT ID, PRODUK_ID, NAMA_TIPE FROM TIPE WHERE AKTIF = 1') {
+      return Array.from(memoryStore.tipe.values())
+        .filter(t => t.aktif === 1 || t.aktif === true)
+        .map(t => ({ id: t.id, produk_id: t.produk_id, nama_tipe: t.nama_tipe }));
     }
   }
 

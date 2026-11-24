@@ -49,17 +49,18 @@ async function runPaket1Tests() {
   // 1. Pengujian Helpers Matriks Permissions
   console.log('[1] Pengujian Definisi Permissions Terpusat (backend/src/utils/permissions.ts):');
   assert(isRoleAllowed('developer', PERMISSION_GROUPS.SETTING_API) === true, 'Developer diizinkan di Setting API');
-  assert(isRoleAllowed('admin', PERMISSION_GROUPS.SETTING_API) === true, 'Admin diizinkan di Setting API');
-  assert(isRoleAllowed('warehouse_admin', PERMISSION_GROUPS.SETTING_API) === false, 'Warehouse Admin dilarang di Setting API');
+  assert(isRoleAllowed('admin', PERMISSION_GROUPS.SETTING_API) === false, 'Admin dibatasi pada Setting API Sistem/Gateway (Developer ONLY)');
+  assert(isRoleAllowed('warehouse_admin', PERMISSION_GROUPS.SETTING_API) === false, 'Legacy Warehouse Admin dilarang di Setting API Sistem');
   assert(isRoleAllowed('technician', PERMISSION_GROUPS.SETTING_API) === false, 'Technician dilarang di Setting API');
 
-  assert(isRoleAllowed('warehouse_admin', PERMISSION_GROUPS.CATALOG_WRITE) === true, 'Warehouse Admin diizinkan menulis di Katalog');
+  assert(isRoleAllowed('admin', PERMISSION_GROUPS.CATALOG_WRITE) === true, 'Admin diizinkan menulis di Katalog');
+  assert(isRoleAllowed('warehouse_admin', PERMISSION_GROUPS.CATALOG_WRITE) === true, 'Legacy alias warehouse_admin dinormalisasi ke Admin (boleh tulis Katalog)');
   assert(isRoleAllowed('technician', PERMISSION_GROUPS.CATALOG_WRITE) === false, 'Technician dilarang menulis di Katalog');
   assert(isRoleAllowed('technician', PERMISSION_GROUPS.CATALOG_READ) === true, 'Technician diizinkan membaca Katalog & Storage Box');
 
-  // 2. Pengujian Setting API via Middleware requireRole(['developer', 'admin'])
-  console.log('\n[2] Pengujian Middleware Endpoint Setting API (403 untuk Admin Gudang & Teknisi):');
-  const settingApiMiddleware = requireRole(['developer', 'admin']);
+  // 2. Pengujian Setting API Sistem & Gateway via Middleware requireRole(['developer'])
+  console.log('\n[2] Pengujian Middleware Endpoint Setting API Sistem (403 untuk Admin & Teknisi):');
+  const settingApiMiddleware = requireRole(['developer']);
 
   for (const role of roles) {
     const req: any = { user: { id: `usr-${role}`, username: role, role } };
@@ -70,7 +71,7 @@ async function runPaket1Tests() {
       nextCalled = true;
     });
 
-    if (role === 'developer' || role === 'admin') {
+    if (role === 'developer') {
       assert(nextCalled === true && res.statusCode === 200, `Setting API: Role "${role}" DIIZINKAN (Next called)`);
     } else {
       assert(
@@ -80,9 +81,9 @@ async function runPaket1Tests() {
     }
   }
 
-  // 3. Pengujian Katalog Write via Middleware requireRole(['developer', 'admin', 'warehouse_admin'])
-  console.log('\n[3] Pengujian Middleware Endpoint Tulis Katalog (403 untuk Teknisi, 200 untuk Admin Gudang):');
-  const catalogWriteMiddleware = requireRole(['developer', 'admin', 'warehouse_admin']);
+  // 3. Pengujian Katalog Write via Middleware requireRole(['developer', 'admin'])
+  console.log('\n[3] Pengujian Middleware Endpoint Tulis Katalog (403 untuk Teknisi, 200 untuk Admin & alias):');
+  const catalogWriteMiddleware = requireRole(['developer', 'admin']);
 
   for (const role of roles) {
     const req: any = { user: { id: `usr-${role}`, username: role, role } };
@@ -119,9 +120,9 @@ async function runPaket1Tests() {
     assert(nextCalled === true, `Lihat Isi Storage Box: Role "${role}" DIIZINKAN membaca isi box`);
   }
 
-  // 5. Pengujian WA Alert Settings (Developer, Admin, Warehouse Admin Boleh Ubah, Teknisi Ditolak 403)
+  // 5. Pengujian WA Alert Settings (Developer & Admin Boleh Ubah Penerima, Teknisi Ditolak 403)
   console.log('\n[5] Pengujian Pengaturan WhatsApp Alert (Ubah Pengaturan Ditolak 403 untuk Teknisi):');
-  const waAlertSettingsMiddleware = requireRole(['developer', 'admin', 'warehouse_admin']);
+  const waAlertSettingsMiddleware = requireRole(['developer', 'admin']);
 
   for (const role of roles) {
     const req: any = { user: { id: `usr-${role}`, username: role, role } };
@@ -133,7 +134,7 @@ async function runPaket1Tests() {
     });
 
     if (['developer', 'admin', 'warehouse_admin'].includes(role)) {
-      assert(nextCalled === true, `WA Alert Settings: Role "${role}" DIIZINKAN mengubah konfigurasi`);
+      assert(nextCalled === true, `WA Alert Settings: Role "${role}" DIIZINKAN mengubah konfigurasi penerima/ambang`);
     } else {
       assert(
         nextCalled === false && res.statusCode === 403,

@@ -4,13 +4,13 @@
  */
 
 import express from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
 import { RequestService } from '../services/requestService';
-import { isWarehouseManager } from '../utils/permissions';
+import { isFeatureEnabled, isWarehouseManager } from '../utils/permissions';
 
 const router = express.Router();
 
-router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/', requireAuth, requireFeature('requests_create'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const {
       tipe_id,
@@ -75,7 +75,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: express.Res
   }
 });
 
-router.post('/bag', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
+router.post('/bag', requireAuth, requireFeature('requests_create'), async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const { bag_id, alasan, actor_id, on_behalf_reason } = req.body;
     if (!bag_id || !alasan) {
@@ -107,8 +107,9 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: express.Resp
     const requestedPemohonId = req.query.pemohon_id ? String(req.query.pemohon_id) : undefined;
     const search = req.query.search ? String(req.query.search) : undefined;
 
-    // Teknisi hanya melihat request miliknya sendiri kecuali pengelola gudang / admin / developer
-    const pemohonId = isWarehouseManager(req.user!.role) ? requestedPemohonId : req.user!.id;
+    // Teknisi hanya melihat request miliknya sendiri kecuali pengelola gudang / diberi akses requests_manage
+    const canManage = isWarehouseManager(req.user!.role) || isFeatureEnabled(req.user, 'requests_manage');
+    const pemohonId = canManage ? requestedPemohonId : req.user!.id;
 
     const list = await RequestService.listRequests({
       pemohonId,
@@ -125,7 +126,8 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: express.Resp
 router.get('/held', requireAuth, async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const actorIdParam = req.query.actor_id ? String(req.query.actor_id) : undefined;
-    const actorId = isWarehouseManager(req.user!.role) ? actorIdParam : req.user!.id;
+    const canManage = isWarehouseManager(req.user!.role) || isFeatureEnabled(req.user, 'requests_manage');
+    const actorId = canManage ? actorIdParam : req.user!.id;
     const held = await RequestService.listHeldByTechnicians({ actorId });
     return res.json({ success: true, items: held });
   } catch (err: any) {
@@ -136,7 +138,7 @@ router.get('/held', requireAuth, async (req: AuthenticatedRequest, res: express.
 router.get(
   '/open-for-actor/:actorId',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('requests_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const actorId = String(req.params.actorId);
@@ -154,7 +156,8 @@ router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: express.R
     if (!reqObj) {
       return res.status(404).json({ success: false, message: 'Permohonan tidak ditemukan.' });
     }
-    if (!isWarehouseManager(req.user!.role) && reqObj.pemohon_id !== req.user!.id && reqObj.actor_id !== req.user!.id) {
+    const canManage = isWarehouseManager(req.user!.role) || isFeatureEnabled(req.user, 'requests_manage');
+    if (!canManage && reqObj.pemohon_id !== req.user!.id && reqObj.actor_id !== req.user!.id) {
       return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses melihat permohonan ini.' });
     }
     return res.json({ success: true, data: reqObj });
@@ -169,7 +172,8 @@ router.get('/:id/timeline', requireAuth, async (req: AuthenticatedRequest, res: 
     if (!reqObj) {
       return res.status(404).json({ success: false, message: 'Permohonan tidak ditemukan.' });
     }
-    if (!isWarehouseManager(req.user!.role) && reqObj.pemohon_id !== req.user!.id && reqObj.actor_id !== req.user!.id) {
+    const canManage = isWarehouseManager(req.user!.role) || isFeatureEnabled(req.user, 'requests_manage');
+    if (!canManage && reqObj.pemohon_id !== req.user!.id && reqObj.actor_id !== req.user!.id) {
       return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke timeline permohonan ini.' });
     }
     const timeline = await RequestService.getRequestTimeline(reqObj.id);
@@ -182,7 +186,7 @@ router.get('/:id/timeline', requireAuth, async (req: AuthenticatedRequest, res: 
 router.post(
   '/:id/approve',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('requests_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const requestId = String(req.params.id);
@@ -206,7 +210,7 @@ router.post(
 router.post(
   '/:id/pickup',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('requests_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const requestId = String(req.params.id);
@@ -229,7 +233,7 @@ router.post(
 router.post(
   '/:id/return',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('requests_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const requestId = String(req.params.id);
@@ -296,7 +300,7 @@ router.post(
 router.post(
   '/:id/reject',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('requests_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const requestId = String(req.params.id);

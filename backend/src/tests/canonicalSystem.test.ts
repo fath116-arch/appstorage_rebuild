@@ -89,8 +89,11 @@ async function runCanonicalTests() {
     assert(futureCheck.valid === false, 'Waktu kejadian di masa depan ditolak untuk seluruh peran');
 
     const tenDaysAgo = new Date(nowRef.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const techBackdate = validateOccurredAt({ occurredAt: tenDaysAgo, role: 'technician', now: nowRef });
+    assert(techBackdate.valid === false, 'Backdate > 7 hari ditolak untuk technician');
+
     const whBackdate = validateOccurredAt({ occurredAt: tenDaysAgo, role: 'warehouse_admin', now: nowRef });
-    assert(whBackdate.valid === false, 'Backdate > 7 hari ditolak untuk warehouse_admin');
+    assert(whBackdate.valid === true && whBackdate.isBackdated === true, 'Alias legacy warehouse_admin dinormalisasi ke admin dan diizinkan backdate > 7 hari');
 
     const adminBackdate = validateOccurredAt({ occurredAt: tenDaysAgo, role: 'admin', now: nowRef });
     assert(adminBackdate.valid === true && adminBackdate.isBackdated === true, 'Backdate > 7 hari diizinkan untuk admin');

@@ -6,7 +6,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { executeQuery, runTransaction } from '../db/database';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
 import { ActivityLogService } from '../services/activityLogService';
 import { StockService } from '../services/stockService';
 import { getErrorMessage } from '../utils/errorUtils';
@@ -52,7 +52,7 @@ async function authenticateApiKey(req: express.Request): Promise<{ valid: boolea
 
 /**
  * POST /api/tickets/consume
- * Webhook resmi auto-deduct suku cadang oleh sistem tiket eksternal (Jira, GLPI, Zendesk)
+ * Webhook resmi auto-deduct data barang oleh sistem tiket eksternal (Jira, GLPI, Zendesk)
  * Menggunakan katalog & stok kanonis (item fisik atau stok_jumlah).
  */
 router.post('/consume', async (req: express.Request, res: express.Response) => {
@@ -247,7 +247,7 @@ router.post('/consume', async (req: express.Request, res: express.Response) => {
 });
 
 // GET /api/tickets/keys
-router.get('/keys', requireAuth, requireRole(['developer', 'admin']), async (_req, res) => {
+router.get('/keys', requireAuth, requireFeature('integration_tickets'), async (_req, res) => {
   try {
     const keys = await executeQuery<Omit<ApiKeyRecord, 'api_key_hash'>>(
       'SELECT id, name, system_name, is_active, created_at, last_used_at FROM api_keys ORDER BY created_at DESC'
@@ -259,7 +259,7 @@ router.get('/keys', requireAuth, requireRole(['developer', 'admin']), async (_re
 });
 
 // POST /api/tickets/keys
-router.post('/keys', requireAuth, requireRole(['developer', 'admin']), async (req: AuthenticatedRequest, res) => {
+router.post('/keys', requireAuth, requireFeature('integration_tickets'), async (req: AuthenticatedRequest, res) => {
   try {
     const { name, systemName } = req.body;
     if (!name || !systemName) {

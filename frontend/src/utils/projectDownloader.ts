@@ -175,7 +175,7 @@ export default defineConfig({
   // 5. README.md
   const readme = `# FieldOps IT - Aplikasi Inventori & Integrasi Tiket Lapangan (v${APP_VERSION})
 
-Aplikasi manajemen inventori suku cadang untuk teknisi IT lapangan dengan fitur:
+Aplikasi manajemen inventori data barang untuk teknisi IT lapangan dengan fitur:
 - Responsive Smartphone UI & Menu Dropdown Compact Header
 - Ekspor katalog inventori & laporan mutasi stok ke Excel (.xlsx)
 - Keamanan & Hashing Kata Sandi Akun PBKDF2 (100k SHA-256) & CWE-1236 Sanitization
@@ -184,13 +184,13 @@ Aplikasi manajemen inventori suku cadang untuk teknisi IT lapangan dengan fitur:
 - Dashboard Analisis Tren 30 Hari & Top-Moving Items (Recharts)
 - Laporan stok mingguan (Weekly Report) dengan export Excel & CSV
 - Input barang masuk (Restock/PO) & Output barang keluar (Tiket Lapangan)
-- Akun pengguna dengan Role-Based Access Control (Teknisi, Admin, Supervisor)
+- Akun pengguna dengan Role-Based Access Control (Teknisi, Admin, Developer)
 - Integrasi Sistem Tiket Eksternal (Auto-deduct stok via API/Webhook)
 
 ## 🚀 Fitur & Perbaikan Utama Rilis v${APP_VERSION}:
 1. **Smartphone UI & Dropdown Navigation:** Menu dropdown compact header & touch drawer untuk kemudahan penggunaan di layar seluler.
 2. **Ekspor Format Excel (.xlsx):** Download data inventori & laporan dalam format spreadsheet Excel lengkap dengan header berwarna dan formula total.
-3. **Enkripsi Akun Web Crypto SHA-256:** Hashing kata sandi akun dengan salt untuk pengamanan wewenang teknisi dan admin gudang.
+3. **Enkripsi Akun Web Crypto SHA-256:** Hashing kata sandi akun dengan salt untuk pengamanan wewenang teknisi dan admin.
 4. **Dark Mode UI Harmony & Fixes:** Penyempurnaan tema gelap secara menyeluruh untuk header dropdown, sub-dropdown, garis divider vertikal/horizontal, badge profil, dan pop-up profil pengguna.
 
 ## Cara Menjalankan di Komputer Lokal:

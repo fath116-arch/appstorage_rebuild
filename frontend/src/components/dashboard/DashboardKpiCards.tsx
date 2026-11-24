@@ -65,11 +65,11 @@ export const DashboardKpiCards: React.FC<DashboardKpiCardsProps> = ({
         </div>
       </div>
 
-      {/* Card 3: Perputaran Suku Cadang */}
+      {/* Card 3: Perputaran Data Barang */}
       <div className="glass rounded-xl p-5 flex flex-col justify-between transition-all hover:translate-y-[-2px] hover:shadow-md">
         <div className="flex items-center justify-between">
           <span className="font-mono text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
-            Perputaran Suku Cadang
+            Perputaran Data Barang
           </span>
           <div className="w-8 h-8 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
             <Activity className="w-4 h-4" />

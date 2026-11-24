@@ -260,7 +260,7 @@ export const GoLiveModal: React.FC<GoLiveModalProps> = ({
                     </span>
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">
-                    Verifikasi autentikasi berbasis Web Crypto API SHA-256 + Salt untuk peran akun Teknisi, Admin Gudang, dan Supervisor IT.
+                    Verifikasi autentikasi berbasis Web Crypto API + Salt untuk peran akun Teknisi, Admin, dan Developer.
                   </p>
                 </div>
               </div>
@@ -280,7 +280,7 @@ export const GoLiveModal: React.FC<GoLiveModalProps> = ({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <h3 className="font-bold text-slate-900 dark:text-white text-xs">
-                      4. Uji Pengambilan Barang Suku Cadang Lapangan via Barcode HP
+                      4. Uji Pengambilan Data Barang Lapangan via Barcode HP
                     </h3>
                     <button
                       onClick={() => { onClose(); onNavigateTab('catalog'); }}

@@ -69,9 +69,20 @@ export class ConfirmationService {
       }
     }
 
-    // Validasi Tier 3: Pengguna harus mengetik nama objek persis + cek re-autentikasi password jika > REAUTH_MENIT
+    // Validasi Tier 3: Aksi penghapusan wajib mengetik "delete"; aksi Tier 3 lainnya mengetik nama objek persis + cek re-autentikasi password jika > REAUTH_MENIT
     if (tier === 3) {
-      if (!input.targetName || input.objectNameTyped?.trim() !== input.targetName.trim()) {
+      const isDeleteAction =
+        input.actionType.startsWith('delete') || input.actionType === 'permanent_delete';
+
+      if (isDeleteAction) {
+        if (input.objectNameTyped?.trim().toLowerCase() !== 'delete') {
+          return {
+            success: false,
+            tier,
+            message: 'Konfirmasi Tingkat 3 gagal: Ketik kata "delete" untuk melanjutkan penghapusan.'
+          };
+        }
+      } else if (!input.targetName || input.objectNameTyped?.trim() !== input.targetName.trim()) {
         return {
           success: false,
           tier,

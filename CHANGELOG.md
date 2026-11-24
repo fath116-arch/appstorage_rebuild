@@ -1,8 +1,33 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.2.7-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.8-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+## 🚀 [v1.2.8] - Login-Only & Tutup Registrasi Publik, Peleburan Role Admin, Izin Fitur Slider ON/OFF (Developer), Dual WA Gateway, Hapus Massal + Konfirmasi "delete", Impor Excel/Google Sheet, & Istilah "Data Barang" - 2026-11-24
+- **1. Layar Login Khusus Masuk (Tutup Pendaftaran Publik)**:
+  - Menghapus tab dan tautan pendaftaran mandiri dari `LoginScreen.tsx` sehingga halaman masuk hanya melayani **Login** dan **Lupa Kata Sandi / Reset**.
+  - Mengunci endpoint `POST /api/auth/register` dengan respons `HTTP 403 Forbidden` (pendaftaran mandiri ditutup; akun baru hanya dibuat oleh **Developer** / **Admin** dari panel web atau CLI server `npm run setup:admin`).
+- **2. Peleburan Peran `admin` & `warehouse_admin` Menjadi 1 Peran `admin` (`14_v128_rbac_wa2_and_features.sql`, `permissions.ts`)**:
+  - Konsolidasi peran menjadi 3 peran kanonis: **`developer`**, **`admin`** (melebur `admin` + `warehouse_admin` + `supervisor`), dan **`technician`**. Nilai legacy `warehouse_admin`/`supervisor`/`superadmin` tetap dinormalisasi otomatis untuk kompatibilitas mundur.
+  - Peran `admin` dibekali wewenang operasional harian bawaan (Gudang, Request, Katalog & Impor, Kelola User khusus `admin`/`technician`, WA Alert 4 slot penerima & ambang tanpa gateway, Pola SN, Laporan/Riwayat).
+  - Pembatasan ketat akun: `Admin` hanya dapat membuat, menyetujui, menonaktifkan, mereset kata sandi, dan menghapus akun berlevel **`admin`** atau **`technician`** (`HTTP 403` jika menyentuh akun `developer`).
+- **3. Manajemen Akses Fitur Per Akun via Slider ON/OFF (Khusus `developer`)**:
+  - Menambahkan kolom `users.feature_permissions` (JSON override atas `FEATURE_CATALOG`), endpoint `PUT /api/auth/users/:id/features` (khusus `developer`), serta penegakan runtime `requireFeature()` pada rute REST dan `isFeatureEnabled(user, key)` di frontend.
+  - Di tab **Setting → Manajemen Pengguna**, role `Developer` memiliki tombol **Atur Fitur** untuk menyalakan/mematikan akses modul per akun non-developer menggunakan saklar slider ON/OFF murni (`w-11 h-6`) serta tombol **Reset ke Bawaan Peran**.
+- **4. Dual WhatsApp Gateway dengan Slider ON/OFF (Khusus `developer`)**:
+  - Menambahkan dukungan **2 WhatsApp Gateway** (`gateway1` & `gateway2` beserta `gatewayMode`: `failover` | `primary_only` | `broadcast_both`) pada `wa_config.gateways_json` & `wa_config.gateway_mode`, masing-masing dengan nama, API URL, API Token ter-mask, dan **slider ON/OFF**.
+  - Akses konfigurasi & uji gateway (`POST /api/whatsapp/test-gateway`) dikunci **hanya untuk role `developer`**; role `admin` tetap dapat mengelola 4 slot penerima bersaklar ON/OFF, jam aktif, cooldown, dan ambang stok tanpa pernah menerima URL/token gateway (`HTTP 403` jika mencoba mengubah gateway).
+- **5. Hapus Massal (Multi-Pilih) & Konfirmasi Ketik `"delete"` di 5 Target Katalog/Stok**:
+  - Menyederhanakan konfirmasi penghapusan Tingkat 3 pada `ConfirmDeleteModal.tsx` & `ConfirmationService`: pengguna cukup mengetik kata **`delete`** (tidak lagi harus mengetik nama kategori/produk/box yang panjang).
+  - Menambahkan pemilihan multi-baris (*Pilih Semua* + checkbox + tombol *Hapus Terpilih*) dan endpoint massal atomik dengan proteksi stok/request terbuka untuk ke-5 target: **Produk** (`DELETE /api/catalog/products/bulk`), **Kategori** (`DELETE /api/catalog/jenis/bulk`), **Atribut** (`DELETE /api/catalog/attributes/bulk`), **Storage Box** (`DELETE /api/boxes/bulk`), dan **Item Fisik Ber-ID** (`DELETE /api/stock/items/:id` & `DELETE /api/stock/items/bulk`).
+- **6. Impor Data Katalog, Box, & Stok Awal dari Excel (`.xlsx`/`.csv`) atau Google Spreadsheet Publik**:
+  - Menambahkan `ImportService` dan rute `/api/import/*` (`GET /template`, `POST /preview`, `POST /commit`) bersama modal `CatalogImportModal.tsx`.
+  - Mendukung pengunduhan **Template Excel Resmi** (sheet `Data_Barang` & `Panduan_Isi`), unggah file `.xlsx`/`.csv` atau tempel tautan **Google Spreadsheet publik**, pratinjau validasi baris demi baris (*mode tambah stok* atau *lewati yang sudah ada*), serta eksekusi impor atomik untuk membuat Kategori, Produk, Varian Tipe, Storage Box baru, dan saldo stok awal (termasuk daftar Serial Number).
+- **7. Penyelarasan Istilah `"Suku Cadang"` → `"Data Barang"`**:
+  - Mengganti seluruh label antarmuka, kolom laporan ExcelJS, ringkasan Dashboard, Riwayat Transaksi, Integrasi Tiket, dan modal operasional dari *"Suku Cadang"* menjadi **"Data Barang"**.
+
+---
 
 ## 🚀 [v1.2.7] - Pengajuan Pembelian Barang, WA 4 Slot ON/OFF, Auto-Refresh 5 Menit, Lembar Pengesahan Dinamis, & MariaDB Strict Auth - 2026-11-23
 - **1. Request Pengajuan Pembelian Barang (`request_type = 'beli'`) & Notifikasi WA Selektif**:

@@ -5,7 +5,7 @@
  */
 
 import express from 'express';
-import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requireAuth, requireFeature, AuthenticatedRequest } from '../middleware/authMiddleware';
 import { executeQuery } from '../db/database';
 
 const router = express.Router();
@@ -126,9 +126,9 @@ router.get('/', async (_req, res) => {
 
 /**
  * POST /api/sn-patterns
- * Tambah pola SN baru (Developer, Admin, dan Admin Gudang)
+ * Tambah pola SN baru (Fitur: sn_patterns)
  */
-router.post('/', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
+router.post('/', requireAuth, requireFeature('sn_patterns'), async (req: AuthenticatedRequest, res) => {
   try {
     const { nama, pola_sederhana, contoh_sn, pola_regex, is_advanced, auto_uppercase, strip_spaces, strip_prefixes } = req.body;
 
@@ -189,9 +189,9 @@ router.post('/', requireAuth, requireRole(['developer', 'admin', 'warehouse_admi
 
 /**
  * PUT /api/sn-patterns/:id
- * Edit pola SN (Developer, Admin, dan Admin Gudang)
+ * Edit pola SN (Fitur: sn_patterns)
  */
-router.put('/:id', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
+router.put('/:id', requireAuth, requireFeature('sn_patterns'), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { nama, pola_sederhana, contoh_sn, pola_regex, is_advanced, aktif, auto_uppercase, strip_spaces, strip_prefixes } = req.body;
@@ -242,9 +242,9 @@ router.put('/:id', requireAuth, requireRole(['developer', 'admin', 'warehouse_ad
 
 /**
  * DELETE /api/sn-patterns/:id
- * Hapus pola SN (Developer, Admin, dan Admin Gudang)
+ * Hapus pola SN (Fitur: sn_patterns)
  */
-router.delete('/:id', requireAuth, requireRole(['developer', 'admin', 'warehouse_admin']), async (req: AuthenticatedRequest, res) => {
+router.delete('/:id', requireAuth, requireFeature('sn_patterns'), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     let currentList = await getPatternsFromDb();

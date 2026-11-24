@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { CanonicalTransactionView, activityApi } from '../services/activityApi';
-import { isWarehouseManager } from '../utils/permissions';
+import { isFeatureEnabled } from '../utils/permissions';
 import { getErrorMessage } from '../utils/errorUtils';
 import {
   formatWibDateTime,
@@ -42,7 +42,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 }) => {
   const { user } = useAuth();
   const { transactions, setActiveTab, refreshData, showToast } = useInventory();
-  const canCorrect = isWarehouseManager(user?.role);
+  const canCorrect = isFeatureEnabled(user, 'history_correct');
 
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'IN' | 'OUT' | 'TRANSFER'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,7 +153,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
-              <span>Mutasi Suku Cadang</span>
+              <span>Mutasi Data Barang</span>
               <span aria-hidden="true">·</span>
               <span>Log Permanen (Append-Only Ledger)</span>
               <span aria-hidden="true">·</span>
@@ -308,7 +308,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               <tr>
                 <th className="py-3 px-4">Waktu Kejadian (WIB)</th>
                 <th className="py-3 px-4">Tipe Mutasi</th>
-                <th className="py-3 px-4">Suku Cadang / Barang</th>
+                <th className="py-3 px-4">Data Barang</th>
                 <th className="py-3 px-4 text-right">Jumlah</th>
                 <th className="py-3 px-4">Referensi / Request</th>
                 <th className="py-3 px-4">Pelaku &amp; Pencatat</th>
@@ -500,7 +500,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-lg border border-slate-100 dark:border-slate-700/60 space-y-1">
-                <div className="text-slate-400 dark:text-slate-500 font-medium">Suku Cadang / Barang:</div>
+                <div className="text-slate-400 dark:text-slate-500 font-medium">Data Barang:</div>
                 <div className="font-bold text-slate-900 dark:text-white text-sm">{selectedTx.item_name}</div>
                 <div className="font-mono text-slate-500 dark:text-slate-400">{selectedTx.item_sku}</div>
                 <div className="pt-2 flex items-baseline gap-2">

@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const APP_VERSION = '1.2.7';
-export const APP_VERSION_TAG = 'v1.2.7';
-export const APP_RELEASE_NAME = 'v1.2.7 (Pengajuan Pembelian Barang & WA Selektif, 4 Slot WA ON/OFF, Auto-Refresh 5 Menit, Lembar Pengesahan Dinamis, & MariaDB Strict Auth)';
-export const APP_BUILD_DATE = '2026-11-23';
+export const APP_VERSION = '1.2.8';
+export const APP_VERSION_TAG = 'v1.2.8';
+export const APP_RELEASE_NAME = 'v1.2.8 (Peleburan Peran Admin, Akses Fitur Slider Per-Akun, Dual WA Gateway Developer, Hapus Massal Konfirmasi "delete", Impor Excel/Spreadsheet, & Login-Only)';
+export const APP_BUILD_DATE = '2026-11-24';
 
 export const SYSTEM_METADATA = {
   version: APP_VERSION,

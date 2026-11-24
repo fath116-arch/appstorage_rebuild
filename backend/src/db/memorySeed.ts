@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { memoryStore } from './memoryStore';
+import { normalizeRole } from '../utils/permissions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,11 @@ export async function seedMemoryDb(): Promise<void> {
     const users: Array<Record<string, unknown>> = JSON.parse(fs.readFileSync(authSeedPath, 'utf-8'));
     users.forEach((u) => {
       if (typeof u.id === 'string') {
-        memoryStore.users.set(u.id, { ...u, created_at: new Date().toISOString() });
+        memoryStore.users.set(u.id, {
+          ...u,
+          role: normalizeRole(typeof u.role === 'string' ? u.role : 'technician'),
+          created_at: new Date().toISOString()
+        });
       }
     });
   }
@@ -82,6 +87,8 @@ export async function seedMemoryDb(): Promise<void> {
       delete_type: 3,
       delete_kind: 3,
       delete_box: 3,
+      delete_attribute: 3,
+      delete_item: 3,
       correct_item_id: 3,
       change_role: 3,
       change_id_rule: 3
@@ -151,8 +158,8 @@ export async function seedMemoryDb(): Promise<void> {
 
   // Seed Default Box Storage
   if (memoryStore.box.size === 0) {
-    memoryStore.box.set('box-1', { id: 'box-1', kode: 'BOX-A-01', keterangan: 'Rak Utama Suku Cadang - Rak A Level 1', aktif: 1, dibuat_pada: new Date().toISOString() });
-    memoryStore.box.set('box-2', { id: 'box-2', kode: 'BOX-A-02', keterangan: 'Rak Utama Suku Cadang - Rak A Level 2', aktif: 1, dibuat_pada: new Date().toISOString() });
+    memoryStore.box.set('box-1', { id: 'box-1', kode: 'BOX-A-01', keterangan: 'Rak Utama Data Barang - Rak A Level 1', aktif: 1, dibuat_pada: new Date().toISOString() });
+    memoryStore.box.set('box-2', { id: 'box-2', kode: 'BOX-A-02', keterangan: 'Rak Utama Data Barang - Rak A Level 2', aktif: 1, dibuat_pada: new Date().toISOString() });
     memoryStore.box.set('box-3', { id: 'box-3', kode: 'BOX-A-03', keterangan: 'Box Penyimpanan Material Campuran', aktif: 1, dibuat_pada: new Date().toISOString() });
   }
 

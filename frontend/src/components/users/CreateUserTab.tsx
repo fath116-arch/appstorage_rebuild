@@ -6,8 +6,9 @@ import React, { useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../../services/api';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { getRoleDisplayLabel } from '../../utils/permissions';
 
-export type CreatableRole = 'developer' | 'admin' | 'warehouse_admin' | 'technician';
+export type CreatableRole = 'developer' | 'admin' | 'technician';
 
 interface CreateUserTabProps {
   isDeveloper: boolean;
@@ -47,7 +48,10 @@ export const CreateUserTab: React.FC<CreateUserTabProps> = ({
       });
 
       if (res.success) {
-        setFormMsg({ type: 'success', text: `Akun "${newUsername}" (${newRole}) berhasil dibuat langsung AKTIF!` });
+        setFormMsg({
+          type: 'success',
+          text: `Akun "${newUsername}" (${getRoleDisplayLabel(newRole)}) berhasil dibuat langsung AKTIF!`
+        });
         setNewUsername('');
         setNewName('');
         setNewEmail('');
@@ -70,7 +74,9 @@ export const CreateUserTab: React.FC<CreateUserTabProps> = ({
           Pembuatan Akun Langsung (Server-Side)
         </h4>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Akun yang dibuat melalui panel ini akan langsung berstatus <strong>AKTIF</strong> tanpa proses approval tambahan.
+          {isDeveloper
+            ? 'Akun baru langsung berstatus AKTIF. Anda dapat membuat akun Developer, Admin, atau Teknisi.'
+            : 'Akun baru langsung berstatus AKTIF. Peran Admin hanya dapat membuat akun Admin atau Teknisi.'}
         </p>
       </div>
 
@@ -135,11 +141,10 @@ export const CreateUserTab: React.FC<CreateUserTabProps> = ({
           className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
         >
           {isDeveloper && (
-            <option value="developer">Developer (Master System Engineering &amp; Full Access)</option>
+            <option value="developer">Developer (Sistem Engineering, Atur Fitur Akun &amp; Gateway WA)</option>
           )}
-          <option value="admin">Admin Utama / Boss (Full Access Manajemen &amp; Approval)</option>
-          <option value="warehouse_admin">Admin Gudang IT (Kelola Barang, Stok In &amp; Out)</option>
-          <option value="technician">Teknisi Lapangan (Pengambilan Suku Cadang &amp; Checklist)</option>
+          <option value="admin">Admin (Gudang, Request, Katalog, User Admin/Teknisi, WA Alert &amp; Pola SN)</option>
+          <option value="technician">Teknisi Lapangan (Pengambilan Data Barang, Request &amp; Checklist)</option>
         </select>
       </div>
 
@@ -167,3 +172,4 @@ export const CreateUserTab: React.FC<CreateUserTabProps> = ({
     </form>
   );
 };
+

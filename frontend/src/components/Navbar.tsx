@@ -32,7 +32,11 @@ import {
 import { exportProductsToExcel } from '../utils/excelExporter';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeSelector } from './ThemeSelector';
-import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
+import {
+  FeatureKey,
+  getRoleDisplayLabel,
+  isFeatureEnabled
+} from '../utils/permissions';
 import { getErrorMessage } from '../utils/errorUtils';
 
 interface NavbarProps {
@@ -90,8 +94,36 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { showToast } = useToast();
   const { user, logout } = useAuth();
 
-  const isDevOrAdmin = isAdminOrDev(user?.role);
-  const canAccessSettings = isWarehouseManager(user?.role);
+  const canManageUsers = isFeatureEnabled(user, 'users_manage');
+  const canViewDashboard = isFeatureEnabled(user, 'dashboard');
+  const canViewCatalog = isFeatureEnabled(user, 'catalog_view');
+  const canViewHistory = isFeatureEnabled(user, 'history_view') || isFeatureEnabled(user, 'stock_in_out');
+  const canViewRequests = isFeatureEnabled(user, 'requests_create') || isFeatureEnabled(user, 'requests_manage');
+  const canViewReports = isFeatureEnabled(user, 'reports_view');
+  const canExportReports = isFeatureEnabled(user, 'reports_export');
+  const canChecklist = isFeatureEnabled(user, 'checklist');
+  const canAccessSettings = (
+    [
+      'setup_check',
+      'setup_database',
+      'setup_tunnel',
+      'wa_alert_recipients',
+      'integration_tickets',
+      'users_manage',
+      'sn_patterns',
+      'security_audit',
+    ] as FeatureKey[]
+  ).some((fk) => isFeatureEnabled(user, fk));
+
+  const isTabVisible = (tabId: TabType): boolean => {
+    if (tabId === 'dashboard') return canViewDashboard;
+    if (tabId === 'catalog') return canViewCatalog;
+    if (tabId === 'inout') return canViewHistory;
+    if (tabId === 'requests') return canViewRequests;
+    if (tabId === 'weekly-report') return canViewReports;
+    if (tabId === 'settings') return canAccessSettings;
+    return true;
+  };
 
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -131,15 +163,15 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  const stockGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string; showBadge?: boolean }> = [
-    { id: 'catalog', label: 'Katalog Inventaris', icon: Package, iconClass: 'text-blue-600 dark:text-blue-400', showBadge: true },
-    { id: 'inout', label: 'Barang Masuk / Keluar', icon: ArrowLeftRight, iconClass: 'text-emerald-600 dark:text-emerald-400' },
-    { id: 'requests', label: 'Request & Alat Teknisi', icon: ClipboardCheck, iconClass: 'text-purple-600 dark:text-purple-400' },
+  const stockGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string; showBadge?: boolean; visible?: boolean }> = [
+    { id: 'catalog', label: 'Katalog Inventaris', icon: Package, iconClass: 'text-blue-600 dark:text-blue-400', showBadge: true, visible: canViewCatalog },
+    { id: 'inout', label: 'Barang Masuk / Keluar', icon: ArrowLeftRight, iconClass: 'text-emerald-600 dark:text-emerald-400', visible: canViewHistory },
+    { id: 'requests', label: 'Request & Alat Teknisi', icon: ClipboardCheck, iconClass: 'text-purple-600 dark:text-purple-400', visible: canViewRequests },
   ];
 
   const reportGroupLinks: Array<{ id: TabType; label: string; icon: LucideIcon; iconClass: string; visible?: boolean }> = [
-    { id: 'weekly-report', label: 'Laporan Pergerakan Mingguan', icon: FileText, iconClass: 'text-indigo-600 dark:text-indigo-400', visible: true },
-    { id: 'settings', label: isDevOrAdmin ? 'Setting Sistem & Integrasi' : 'Setting Operasional Gudang', icon: Settings, iconClass: 'text-teal-600 dark:text-teal-400', visible: canAccessSettings },
+    { id: 'weekly-report', label: 'Laporan Pergerakan Mingguan', icon: FileText, iconClass: 'text-indigo-600 dark:text-indigo-400', visible: canViewReports },
+    { id: 'settings', label: 'Setting Sistem & Pengaturan', icon: Settings, iconClass: 'text-teal-600 dark:text-teal-400', visible: canAccessSettings },
   ];
 
   // Menu Tools hanya berisi alat harian operasional (pengaturan sistem dipindahkan ke tab Setting)
@@ -159,6 +191,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: FileSpreadsheet,
       iconColorClass: 'text-emerald-600 dark:text-emerald-400',
       masterTextClass: 'text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-700/60',
+      visible: canExportReports,
       onClick: handleExportExcelQuick
     },
     {
@@ -167,12 +200,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: Printer,
       iconColorClass: 'text-indigo-600 dark:text-indigo-400',
       masterTextClass: 'text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700/60',
+      visible: canViewReports,
       onClick: () => onOpenLabelPrint?.()
     }
   ];
 
   const visibleToolsItems = toolsItems.filter(item => {
-    if (item.adminOnly && !isDevOrAdmin) return false;
     if (item.visible === false) return false;
     return true;
   });
@@ -252,31 +285,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1 divide-y divide-slate-200 dark:divide-slate-700/60">
 
                       {/* Direct Link: Dashboard Utama */}
-                      <div className="pb-1">
-                        <button
-                          onClick={() => {
-                            setActiveTab('dashboard');
-                            closeAllDropdowns();
-                          }}
-                          className={`w-full text-left p-2.5 rounded-xl flex items-center gap-3 transition-colors ${
-                            activeTab === 'dashboard'
-                              ? 'bg-slate-900 text-white dark:bg-slate-700 font-semibold'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-800 dark:text-slate-200'
-                          }`}
-                        >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                            activeTab === 'dashboard' ? 'bg-white/10 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                          }`}>
-                            <LayoutDashboard className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="text-xs font-bold">Dashboard Utama</div>
-                            <div className={`text-[10px] ${activeTab === 'dashboard' ? 'text-slate-300' : 'text-slate-400 dark:text-slate-400'}`}>
-                              Ringkasan stok &amp; aktivitas terkini
+                      {canViewDashboard && (
+                        <div className="pb-1">
+                          <button
+                            onClick={() => {
+                              setActiveTab('dashboard');
+                              closeAllDropdowns();
+                            }}
+                            className={`w-full text-left p-2.5 rounded-xl flex items-center gap-3 transition-colors ${
+                              activeTab === 'dashboard'
+                                ? 'bg-slate-900 text-white dark:bg-slate-700 font-semibold'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-800 dark:text-slate-200'
+                            }`}
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                              activeTab === 'dashboard' ? 'bg-white/10 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                            }`}>
+                              <LayoutDashboard className="w-4 h-4" />
                             </div>
-                          </div>
-                        </button>
-                      </div>
+                            <div className="flex-1">
+                              <div className="text-xs font-bold">Dashboard Utama</div>
+                              <div className={`text-[10px] ${activeTab === 'dashboard' ? 'text-slate-300' : 'text-slate-400 dark:text-slate-400'}`}>
+                                Ringkasan stok &amp; aktivitas terkini
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+                      )}
 
                       {/* Kelompok Sub-Dropdown 1: Stok & Mutasi Inventaris */}
                       <div className="pt-1.5 pb-1">
@@ -297,7 +332,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                         {expandedSections.stok && (
                           <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1 animate-in fade-in duration-150">
-                            {stockGroupLinks.map((link) => {
+                            {stockGroupLinks.filter(link => link.visible !== false).map((link) => {
                               const Icon = link.icon;
                               const isActive = activeTab === link.id;
                               return (
@@ -360,13 +395,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                               );
                             })}
 
-                            <button
-                              onClick={() => { closeAllDropdowns(); onOpenChecklist(); }}
-                              className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors"
-                            >
-                              <Briefcase className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                              <span>Checklist Tas Lapangan Teknisi</span>
-                            </button>
+                            {canChecklist && (
+                              <button
+                                onClick={() => { closeAllDropdowns(); onOpenChecklist(); }}
+                                className="w-full text-left p-2 rounded-lg text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors"
+                              >
+                                <Briefcase className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                                <span>Checklist Tas Lapangan Teknisi</span>
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -429,7 +466,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             <div className="mt-1 ml-2 pl-2 border-l-2 border-slate-300 dark:border-slate-700 space-y-1.5 animate-in fade-in duration-150">
                               <div className="p-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
                                 <div className="font-bold text-slate-900 dark:text-white">{user.name}</div>
-                                <div className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">{user.role} ({user.department})</div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">{getRoleDisplayLabel(user.role)} ({user.department})</div>
                                 <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">@{user.username}</div>
                                 <div className="mt-1 flex items-center justify-between">
                                   <span className="text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded">
@@ -446,7 +483,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               <button
                                 onClick={() => {
                                   closeAllDropdowns();
-                                  if (isDevOrAdmin) {
+                                  if (canManageUsers) {
                                     openSettingsSection('users');
                                   } else {
                                     onOpenUserModal();
@@ -455,7 +492,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 className="w-full text-left p-1.5 rounded-lg text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-slate-700/60 font-medium flex items-center gap-1.5"
                               >
                                 <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                                <span>{isDevOrAdmin ? 'Kelola Akun (Setting)' : 'Matriks Hak Akses'}</span>
+                                <span>{canManageUsers ? 'Kelola Akun (Setting)' : 'Matriks Hak Akses'}</span>
                               </button>
 
                               <button
@@ -505,7 +542,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Zone 2: Quick Desktop Nav Links */}
             <nav className="hidden xl:flex items-center gap-2 text-xs font-semibold">
-              {PRIMARY_TABS.filter(tab => tab.showOnDesktop && (tab.id !== 'settings' || canAccessSettings)).map((tab) => {
+              {PRIMARY_TABS.filter(tab => tab.showOnDesktop && isTabVisible(tab.id)).map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
@@ -601,12 +638,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <div className="font-bold text-slate-900 dark:text-white text-xs truncate max-w-[100px]">
                         {user.name}
                       </div>
-                      <div className="text-[10px] opacity-70 text-slate-600 dark:text-slate-300 truncate max-w-[100px] capitalize">
-                        {user.role}
+                      <div className="text-[10px] opacity-70 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+                        {getRoleDisplayLabel(user.role)}
                       </div>
                     </div>
                     <div className={`w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0 ${
-                      user.role === 'technician' ? 'bg-blue-600' : user.role === 'admin' ? 'bg-emerald-600' : 'bg-purple-600'
+                      user.role === 'technician' ? 'bg-blue-600' : user.role === 'admin' ? 'bg-emerald-600' : 'bg-cyan-600'
                     }`}>
                       {user.name ? user.name.charAt(0) : 'U'}
                     </div>
@@ -634,7 +671,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <div className="px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] border-b border-slate-200 dark:border-slate-700 space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="text-slate-500 dark:text-slate-400 font-medium">Peran Server:</span>
-                            <span className="font-bold text-slate-900 dark:text-white font-mono text-[10px] bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded">{user.role.toUpperCase()}</span>
+                            <span className="font-bold text-slate-900 dark:text-white font-mono text-[10px] bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded">{getRoleDisplayLabel(user.role)}</span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-slate-500 dark:text-slate-400 font-medium">Status Akun:</span>
@@ -651,7 +688,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <button
                             onClick={() => {
                               closeAllDropdowns();
-                              if (isDevOrAdmin) {
+                              if (canManageUsers) {
                                 openSettingsSection('users');
                               } else {
                                 onOpenUserModal();
@@ -660,21 +697,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                             className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/60 rounded-lg transition-colors font-medium text-slate-800 dark:text-slate-200"
                           >
                             <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                            <span>{isDevOrAdmin ? 'Kelola Akun (Tab Setting)' : 'Matriks Wewenang Akun'}</span>
+                            <span>{canManageUsers ? 'Kelola Akun (Tab Setting)' : 'Matriks Wewenang Akun'}</span>
                           </button>
                         </div>
 
                         <div className="border-t border-slate-100 dark:border-slate-700 pt-1.5 px-3 py-1.5 space-y-1">
-                          <button
-                            onClick={() => {
-                              closeAllDropdowns();
-                              handleExportExcelQuick();
-                            }}
-                            className="w-full text-left py-1 text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-semibold flex items-center gap-1.5"
-                          >
-                            <FileSpreadsheet className="w-3.5 h-3.5" />
-                            <span>Ekspor Katalog ke Excel (.xlsx)</span>
-                          </button>
+                          {canExportReports && (
+                            <button
+                              onClick={() => {
+                                closeAllDropdowns();
+                                handleExportExcelQuick();
+                              }}
+                              className="w-full text-left py-1 text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-semibold flex items-center gap-1.5"
+                            >
+                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <span>Ekspor Katalog ke Excel (.xlsx)</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               closeAllDropdowns();
@@ -718,7 +757,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around py-1 px-1 shadow-lg no-print transition-colors"
         aria-label="Navigasi Bawah Smartphone"
       >
-        {PRIMARY_TABS.filter(tab => tab.showOnMobile && (tab.id !== 'settings' || canAccessSettings)).map((tab) => {
+        {PRIMARY_TABS.filter(tab => tab.showOnMobile && isTabVisible(tab.id)).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

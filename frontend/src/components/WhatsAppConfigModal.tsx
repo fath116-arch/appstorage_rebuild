@@ -3,12 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * WhatsApp Gateway Configuration & Multi-Tier Watchlist Modal
- * FieldOps IT v1.2.5 Paket 6:
- * - Ambang Berjenjang (Tipe > Produk > Global)
- * - Daftar Pantauan (Watchlist) & Peringatan Dini
- * - Cooldown 15 Menit di Backend & Ringkasan Konsolidasi
- * - Filter Stok Rusak (Item Rusak tidak dihitung)
- * - Role Access: Teknisi Read-Only
+ * FieldOps IT v1.2.8:
+ * - Developer-Only Dual WhatsApp Gateways (Gateway 1 & Gateway 2, Failover / Parallel, ON/OFF sliders)
+ * - Admin & Developer: 4-slot recipients with ON/OFF sliders, cooldown, active hours, thresholds, & watchlist
+ * - Technician: Read-Only log viewer
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -19,9 +17,10 @@ import {
   WhatsAppConfigData,
   ThresholdMatrixItem,
   WaLogItem,
+  WaGatewayConfig,
   normalizeWaRecipientSlots
 } from '../services/whatsappService';
-import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
+import { getRoleDisplayLabel, isDeveloperRole, isFeatureEnabled } from '../utils/permissions';
 import { WaConfigTab } from './whatsapp/WaConfigTab';
 import { WaThresholdsTab } from './whatsapp/WaThresholdsTab';
 import { WaLogsTab } from './whatsapp/WaLogsTab';
@@ -33,6 +32,27 @@ interface WhatsAppConfigModalProps {
   embedded?: boolean;
 }
 
+const buildDefaultGateways = (): { gateway1: WaGatewayConfig; gateway2: WaGatewayConfig } => ({
+  gateway1: {
+    id: 'gateway1',
+    name: 'Gateway 1 (Utama)',
+    provider: 'fonnte',
+    enabled: true,
+    apiUrl: 'https://api.fonnte.com/send',
+    apiToken: '',
+    maskedToken: ''
+  },
+  gateway2: {
+    id: 'gateway2',
+    name: 'Gateway 2 (Cadangan)',
+    provider: 'fonnte',
+    enabled: false,
+    apiUrl: 'https://api.fonnte.com/send',
+    apiToken: '',
+    maskedToken: ''
+  }
+});
+
 export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
   isOpen,
   onClose,
@@ -41,14 +61,15 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
   const { user } = useAuth();
   const { showToast } = useToast();
 
-  // Role Permissions: developer, admin, warehouse_admin can edit settings; technician is read-only
-  // Fonnte API Token / Credentials are restricted exclusively to developer & admin
-  const canEdit = isWarehouseManager(user?.role);
-  const canManageCredentials = isAdminOrDev(user?.role);
+  // v1.2.8: Admin/enabled users manage 4 recipient slots + thresholds + active hours;
+  // ONLY Developer can view & edit WhatsApp Gateways (gateway1 & gateway2, URL & Tokens)
+  const canEdit = isFeatureEnabled(user, 'wa_alert_recipients');
+  const canManageCredentials = isDeveloperRole(user?.role);
 
   const [activeTab, setActiveTab] = useState<'config' | 'thresholds' | 'logs'>('config');
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingGateway, setTestingGateway] = useState<'gateway1' | 'gateway2' | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
 
   const [config, setConfig] = useState<WhatsAppConfigData>({
@@ -61,6 +82,8 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
     globalEarlyWarningThreshold: 5,
     recipients: ['081290008888'],
     recipientSlots: normalizeWaRecipientSlots(null, ['081290008888']),
+    gatewayMode: 'failover',
+    gateways: buildDefaultGateways(),
     apiUrl: 'https://api.fonnte.com/send',
     apiToken: '',
     activeHoursStart: '',
@@ -79,10 +102,18 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
         whatsappService.getLogs(50)
       ]);
       const normalizedSlots = normalizeWaRecipientSlots(cfg.recipientSlots, cfg.recipients);
+      const defaultGateways = buildDefaultGateways();
       setConfig({
         ...cfg,
         recipientSlots: normalizedSlots,
         recipients: normalizedSlots.filter((s) => s.enabled && s.number.trim()).map((s) => s.number.trim()),
+        gatewayMode: cfg.gatewayMode || 'failover',
+        gateways: cfg.gateways
+          ? {
+              gateway1: { ...defaultGateways.gateway1, ...cfg.gateways.gateway1, apiToken: '' },
+              gateway2: { ...defaultGateways.gateway2, ...cfg.gateways.gateway2, apiToken: '' },
+            }
+          : defaultGateways
       });
       setThresholdMatrix(thresh);
       setLogs(lg);
@@ -118,16 +149,42 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
       .filter((s) => s.enabled && s.number.trim().length > 0)
       .map((s) => s.number.trim());
 
-    setLoading(true);
-    const res = await whatsappService.updateConfig({
-      ...config,
+    const payload: Partial<WhatsAppConfigData> = {
+      isEnabled: config.isEnabled,
+      cooldownMinutes: config.cooldownMinutes,
+      alertOnOutOfStock: config.alertOnOutOfStock,
+      alertOnLowStock: config.alertOnLowStock,
+      alertOnEarlyWarning: config.alertOnEarlyWarning,
+      globalLowStockThreshold: config.globalLowStockThreshold,
+      globalEarlyWarningThreshold: config.globalEarlyWarningThreshold,
+      activeHoursStart: config.activeHoursStart,
+      activeHoursEnd: config.activeHoursEnd,
       recipientSlots: slots,
       recipients: activeRecipients,
-    });
+    };
+
+    if (canManageCredentials) {
+      payload.gatewayMode = config.gatewayMode || 'failover';
+      payload.gateways = config.gateways;
+      if (config.gateways?.gateway1) {
+        payload.apiUrl = config.gateways.gateway1.apiUrl;
+        if (config.gateways.gateway1.apiToken) {
+          payload.apiToken = config.gateways.gateway1.apiToken;
+        }
+      }
+    }
+
+    setLoading(true);
+    const res = await whatsappService.updateConfig(payload);
     setLoading(false);
 
     if (res.success) {
-      showToast('Konfigurasi WhatsApp Alert & 4 slot penerima berhasil disimpan!', 'success');
+      showToast(
+        canManageCredentials
+          ? 'Konfigurasi WhatsApp Alert, 4 slot penerima, & Gateway ganda berhasil disimpan!'
+          : 'Konfigurasi WhatsApp Alert & 4 slot penerima berhasil disimpan!',
+        'success'
+      );
       loadData();
     } else {
       showToast(res.message, 'error');
@@ -141,6 +198,24 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
     setTestResult(null);
     const result = await whatsappService.testConnection();
     setTesting(false);
+
+    if (result.success) {
+      setTestResult(`✓ ${result.message}`);
+      showToast(result.message, 'success');
+      whatsappService.getLogs().then(setLogs);
+    } else {
+      setTestResult(`✗ ${result.message}`);
+      showToast(result.message, 'error');
+    }
+  };
+
+  const handleTestGateway = async (gatewayId: 'gateway1' | 'gateway2') => {
+    if (!canManageCredentials) return;
+
+    setTestingGateway(gatewayId);
+    setTestResult(null);
+    const result = await whatsappService.testGateway(gatewayId);
+    setTestingGateway(null);
 
     if (result.success) {
       setTestResult(`✓ ${result.message}`);
@@ -183,10 +258,10 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Pengaturan WhatsApp Alert (Gateway Fonnte)
+              Pengaturan WhatsApp Alert{canManageCredentials ? ' & Gateway Ganda' : ''}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Ambang Berjenjang (Tipe &gt; Produk &gt; Global), Jeda 15 Menit, dan Daftar Pantauan
+              4 Slot Penerima (Saklar ON/OFF), Ambang Berjenjang (Tipe &gt; Produk &gt; Global), Jeda 15 Menit
             </p>
           </div>
         </div>
@@ -201,98 +276,100 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
         )}
       </div>
 
-        {/* Role Banners */}
-        {!canEdit ? (
-          <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 shrink-0">
-            <Lock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <span>
-              Peran Anda saat ini (<strong className="font-semibold">{user?.role}</strong>) hanya diizinkan untuk melihat riwayat log WhatsApp (Read-Only). Pengaturan dilindungi untuk Developer, Admin, dan Admin Gudang.
-            </span>
-          </div>
-        ) : user?.role === 'warehouse_admin' ? (
-          <div className="px-5 py-2 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 text-[11px] flex items-center gap-2 shrink-0">
-            <Lock className="w-3.5 h-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
-            <span>
-              Sebagai <strong>Admin Gudang</strong>, Anda dapat mengatur penerima notifikasi, ambang stok, dan daftar pantauan. Kredensial Token Fonnte dikelola khusus oleh Developer dan Admin.
-            </span>
-          </div>
-        ) : null}
-
-        {/* Tab Navigation */}
-        <div className="px-5 pt-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 bg-white dark:bg-slate-900 shrink-0">
-          <button
-            onClick={() => setActiveTab('config')}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'config'
-                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>Pengaturan &amp; Jeda 15 Menit</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('thresholds')}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'thresholds'
-                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <ListFilter className="w-4 h-4" />
-            <span>Ambang Berjenjang &amp; Daftar Pantauan</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'logs'
-                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Riwayat Pengiriman ({logs.length})</span>
-          </button>
+      {/* Role Banners */}
+      {!canEdit ? (
+        <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 shrink-0">
+          <Lock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            Peran Anda saat ini (<strong className="font-semibold">{getRoleDisplayLabel(user?.role)}</strong>) hanya diizinkan untuk melihat riwayat log WhatsApp (Read-Only). Pengaturan dikelola oleh Admin &amp; Developer.
+          </span>
         </div>
-
-        {/* Tab Content */}
-        <div className="p-5 overflow-y-auto flex-1 text-xs space-y-5">
-          {activeTab === 'config' && (
-            <WaConfigTab
-              config={config}
-              setConfig={setConfig}
-              canEdit={canEdit}
-              canManageCredentials={canManageCredentials}
-              loading={loading}
-              testing={testing}
-              testResult={testResult}
-              onSaveConfig={handleSaveConfig}
-              onTestConnection={handleTestConnection}
-              onDispatchAlert={handleDispatchConsolidatedAlert}
-            />
-          )}
-
-          {activeTab === 'thresholds' && (
-            <WaThresholdsTab
-              thresholdMatrix={thresholdMatrix}
-              canEdit={canEdit}
-              onRefresh={loadData}
-            />
-          )}
-
-          {activeTab === 'logs' && (
-            <WaLogsTab
-              logs={logs}
-              onRefreshLogs={() => { whatsappService.getLogs(50).then(setLogs); }}
-            />
-          )}
+      ) : !canManageCredentials ? (
+        <div className="px-5 py-2 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 text-[11px] flex items-center gap-2 shrink-0">
+          <Lock className="w-3.5 h-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
+          <span>
+            Anda dapat mengatur 4 slot penerima WhatsApp, jam aktif, ambang stok, &amp; daftar pantauan. Pengaturan Gateway &amp; Token API WA dikelola khusus oleh peran <strong>Developer</strong>.
+          </span>
         </div>
+      ) : null}
+
+      {/* Tab Navigation */}
+      <div className="px-5 pt-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 bg-white dark:bg-slate-900 shrink-0">
+        <button
+          onClick={() => setActiveTab('config')}
+          className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'config'
+              ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-bold'
+              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          <span>Pengaturan &amp; Jeda 15 Menit</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('thresholds')}
+          className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'thresholds'
+              ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-bold'
+              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <ListFilter className="w-4 h-4" />
+          <span>Ambang Berjenjang &amp; Daftar Pantauan</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'logs'
+              ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-bold'
+              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <History className="w-4 h-4" />
+          <span>Riwayat Pengiriman ({logs.length})</span>
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      <div className="p-5 overflow-y-auto flex-1 text-xs space-y-5">
+        {activeTab === 'config' && (
+          <WaConfigTab
+            config={config}
+            setConfig={setConfig}
+            canEdit={canEdit}
+            canManageCredentials={canManageCredentials}
+            loading={loading}
+            testing={testing}
+            testingGateway={testingGateway}
+            testResult={testResult}
+            onSaveConfig={handleSaveConfig}
+            onTestConnection={handleTestConnection}
+            onTestGateway={handleTestGateway}
+            onDispatchAlert={handleDispatchConsolidatedAlert}
+          />
+        )}
+
+        {activeTab === 'thresholds' && (
+          <WaThresholdsTab
+            thresholdMatrix={thresholdMatrix}
+            canEdit={canEdit}
+            onRefresh={loadData}
+          />
+        )}
+
+        {activeTab === 'logs' && (
+          <WaLogsTab
+            logs={logs}
+            onRefreshLogs={() => { whatsappService.getLogs(50).then(setLogs); }}
+          />
+        )}
+      </div>
 
       {!embedded && (
         <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center text-xs text-slate-500 shrink-0">
-          <span>FieldOps IT Fonnte Gateway Integration</span>
+          <span>FieldOps IT WhatsApp Alert Integration</span>
           <button
             type="button"
             onClick={onClose}
@@ -315,3 +392,4 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({
     </div>
   );
 };
+

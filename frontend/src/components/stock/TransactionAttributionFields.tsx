@@ -57,7 +57,7 @@ export const TransactionAttributionFields: React.FC<TransactionAttributionFields
     }
     const maxPastMs = 7 * 24 * 60 * 60 * 1000;
     if (!allowBackdateOverride && now - parsed.getTime() > maxPastMs) {
-      return 'Admin Gudang maksimal mencatat mundur 7 hari. Gunakan Admin/Developer untuk koreksi lebih lama.';
+      return 'Maksimal mencatat mundur 7 hari. Gunakan akun Admin/Developer untuk koreksi lebih lama.';
     }
     return null;
   }, [occurredAtLocal, allowBackdateOverride]);

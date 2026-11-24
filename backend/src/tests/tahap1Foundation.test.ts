@@ -54,12 +54,12 @@ async function runTests() {
   // Test 2: Pengaturan Dinamis Bebas Hardcode
   console.log('\n[2] Pengujian Pengaturan Dinamis (Tabel pengaturan):');
   const accessTtl = await SettingService.getInt('ACCESS_TOKEN_TTL_DETIK');
-  assert(accessTtl === 900, `ACCESS_TOKEN_TTL_DETIK terbaca dari konfigurasi: ${accessTtl} detik`);
+  assert(accessTtl === 2592000, `ACCESS_TOKEN_TTL_DETIK terbaca dari konfigurasi: ${accessTtl} detik (30 hari)`);
 
   const retensiHari = await SettingService.getInt('RETENSI_SAMPAH_HARI');
   assert(retensiHari === 14, `RETENSI_SAMPAH_HARI terbaca dari konfigurasi: ${retensiHari} hari`);
 
-  // Test 3: Sesi Server-Authoritative & Single Session Per User (MAX_SESI_PER_AKUN = 1)
+  // Test 3: Sesi Server-Authoritative & Penegakan Kuota MAX_SESI_PER_AKUN
   console.log('\n[3] Pengujian Sesi Server & Pembatasan Kuota (MAX_SESI_PER_AKUN):');
   const userDev = {
     id: 'usr-dev-01',
@@ -72,27 +72,33 @@ async function runTests() {
     status: 'ACTIVE'
   };
 
-  // Login 1 (Komputer)
-  const sess1 = await SessionService.createSession(userDev, '192.168.1.10', 'Mozilla/Desktop');
-  const checkSess1 = await SessionService.validateSession(sess1.accessToken, sess1.deviceId);
-  assert(checkSess1.valid === true, 'Sesi 1 berhasil dibuat dan valid di server');
+  // Uji penegakan kuota = 1 secara dinamis lalu kembalikan ke bawaan (50)
+  await SettingService.set('MAX_SESI_PER_AKUN', '1');
+  try {
+    // Login 1 (Komputer)
+    const sess1 = await SessionService.createSession(userDev, '192.168.1.10', 'Mozilla/Desktop');
+    const checkSess1 = await SessionService.validateSession(sess1.accessToken, sess1.deviceId);
+    assert(checkSess1.valid === true, 'Sesi 1 berhasil dibuat dan valid di server');
 
-  // Login 2 (Ponsel) -> Sesi 1 harus otomatis dicabut!
-  const sess2 = await SessionService.createSession(userDev, '10.0.0.5', 'Mobile/Safari');
-  const checkSess1AfterLogin2 = await SessionService.validateSession(sess1.accessToken, sess1.deviceId);
-  assert(checkSess1AfterLogin2.valid === false, 'Login kedua berhasil mencabut sesi pertama otomatis (MAX_SESI_PER_AKUN)');
+    // Login 2 (Ponsel) -> Sesi 1 harus otomatis dicabut saat MAX_SESI_PER_AKUN = 1!
+    const sess2 = await SessionService.createSession(userDev, '10.0.0.5', 'Mobile/Safari');
+    const checkSess1AfterLogin2 = await SessionService.validateSession(sess1.accessToken, sess1.deviceId);
+    assert(checkSess1AfterLogin2.valid === false, 'Login kedua berhasil mencabut sesi pertama otomatis (MAX_SESI_PER_AKUN)');
 
-  const checkSess2 = await SessionService.validateSession(sess2.accessToken, sess2.deviceId);
-  assert(checkSess2.valid === true, 'Sesi 2 aktif sebagai sesi tunggal pengguna');
+    const checkSess2 = await SessionService.validateSession(sess2.accessToken, sess2.deviceId);
+    assert(checkSess2.valid === true, 'Sesi 2 aktif sebagai sesi tunggal pengguna');
 
-  // Test 4: Rotasi Refresh Token & Anti-Replay Detection
-  console.log('\n[4] Pengujian Rotasi Refresh Token & Deteksi Penyalinan Token (Anti-Replay):');
-  const rotate1 = await SessionService.rotateRefreshToken(sess2.refreshToken, sess2.deviceId, '10.0.0.5', 'Mobile/Safari');
-  assert(rotate1.success === true, 'Rotasi refresh token berhasil menghasilkan access token dan refresh token baru');
+    // Test 4: Rotasi Refresh Token & Anti-Replay Detection
+    console.log('\n[4] Pengujian Rotasi Refresh Token & Deteksi Penyalinan Token (Anti-Replay):');
+    const rotate1 = await SessionService.rotateRefreshToken(sess2.refreshToken, sess2.deviceId, '10.0.0.5', 'Mobile/Safari');
+    assert(rotate1.success === true, 'Rotasi refresh token berhasil menghasilkan access token dan refresh token baru');
 
-  // Upaya memakai ulang refresh token lama yang sudah dirotasi -> Harap ditolak!
-  const replayAttempt = await SessionService.rotateRefreshToken(sess2.refreshToken, sess2.deviceId, '10.0.0.99', 'HackerTool');
-  assert(replayAttempt.success === false, 'Penggunaan ulang refresh token lama ditolak (Anti-Replay aktif)');
+    // Upaya memakai ulang refresh token lama yang sudah dirotasi -> Harap ditolak!
+    const replayAttempt = await SessionService.rotateRefreshToken(sess2.refreshToken, sess2.deviceId, '10.0.0.99', 'HackerTool');
+    assert(replayAttempt.success === false, 'Penggunaan ulang refresh token lama ditolak (Anti-Replay aktif)');
+  } finally {
+    await SettingService.set('MAX_SESI_PER_AKUN', '50');
+  }
 
   // Test 5: Penegakan Konfirmasi Bertingkat (Tier 2 & 3 Server Enforcement)
   console.log('\n[5] Pengujian Konfirmasi Sensitif Bertingkat (Tier 0-3):');

@@ -473,7 +473,7 @@ export const FieldTripChecklistModal: React.FC<FieldTripChecklistModalProps> = (
           items: itemsToDeduct,
           reference_number: ticketNumber,
           recipient_destination: destination,
-          catatan: `Pengambilan suku cadang (${selectedBag?.nama_tas || 'Tas Kerja Lapangan'})`
+          catatan: `Pengambilan data barang (${selectedBag?.nama_tas || 'Tas Kerja Lapangan'})`
         });
         await refreshData();
       }

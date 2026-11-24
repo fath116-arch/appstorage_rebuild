@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, UserProfile } from '../services/api';
-import { isAdminOrDev, isDeveloperRole } from '../utils/permissions';
+import { getRoleDisplayLabel, isDeveloperRole, isFeatureEnabled, normalizeRole } from '../utils/permissions';
 import { getErrorMessage } from '../utils/errorUtils';
 import { RoleMatrixTab } from './users/RoleMatrixTab';
 import { UserApprovalsTab } from './users/UserApprovalsTab';
@@ -49,7 +49,7 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
   const [resetPasswordValue, setResetPasswordValue] = useState('');
 
   const isDeveloper = isDeveloperRole(user?.role);
-  const hasAdminAccess = isAdminOrDev(user?.role);
+  const hasAdminAccess = isFeatureEnabled(user, 'users_manage');
 
   const showNotice = useCallback((type: 'error' | 'success', text: string) => {
     setActionNotice({ type, text });
@@ -179,7 +179,9 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Persetujuan akun di bawah Admin dikelola langsung di sini.
+              {isDeveloper
+                ? 'Kelola semua akun, persetujuan, dan aktif/nonaktifkan fitur per akun.'
+                : 'Pembuatan dan persetujuan akun Admin & Teknisi dikelola di sini.'}
             </p>
           </div>
         </div>
@@ -246,9 +248,9 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
           <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-sm shrink-0 shadow-sm text-white ${
-                user.role === 'developer' ? 'bg-cyan-600' : user.role === 'admin' ? 'bg-emerald-600' : user.role === 'supervisor' ? 'bg-purple-600' : 'bg-blue-600'
+                normalizeRole(user.role) === 'developer' ? 'bg-cyan-600' : normalizeRole(user.role) === 'admin' ? 'bg-emerald-600' : 'bg-blue-600'
               }`}>
-                {user.role === 'developer' ? <Code2 className="w-5 h-5" /> : user.name.charAt(0)}
+                {normalizeRole(user.role) === 'developer' ? <Code2 className="w-5 h-5" /> : user.name.charAt(0)}
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -257,13 +259,13 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
                     @{user.username}
                   </span>
                   <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                    user.role === 'developer'
+                    normalizeRole(user.role) === 'developer'
                       ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800'
-                      : user.role === 'admin'
+                      : normalizeRole(user.role) === 'admin'
                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                      : 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-800'
                   }`}>
-                    {user.role} (Full Access)
+                    {getRoleDisplayLabel(user.role)}
                   </span>
                 </div>
                 <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 flex items-center gap-3">
@@ -355,6 +357,7 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
           {activeTab === 'approvals' && (
             <UserApprovalsTab
               pendingUsers={pendingUsers}
+              isDeveloper={isDeveloper}
               onRefresh={loadUsers}
               onApprove={handleApprove}
               onReject={handleReject}
@@ -364,6 +367,7 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
           {activeTab === 'users' && (
             <UserManagementTab
               currentUserId={user?.id}
+              isDeveloper={isDeveloper}
               usersList={usersList}
               isLoadingUsers={isLoadingUsers}
               onAddUserClick={() => setActiveTab('add')}
@@ -371,6 +375,8 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
               onToggleStatus={handleToggleStatus}
               onResetPassword={handleAdminResetPassword}
               onDeleteUser={handleDeleteUser}
+              onRefreshUsers={loadUsers}
+              onFeatureNotice={showNotice}
             />
           )}
 

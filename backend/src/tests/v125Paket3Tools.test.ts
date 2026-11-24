@@ -47,9 +47,9 @@ async function runPaket3Tests() {
 
   const roles: UserRole[] = ['developer', 'admin', 'warehouse_admin', 'technician'];
 
-  // 1. Matriks Hak Akses Tool: Database (requireRole(['developer', 'admin']))
-  console.log('[1] Matriks Hak Akses Tool: Database Backup & Trash (Developer/Admin ONLY):');
-  const databaseMiddleware = requireRole(['developer', 'admin']);
+  // 1. Matriks Hak Akses Tool: Database (requireRole(['developer']))
+  console.log('[1] Matriks Hak Akses Tool: Database Backup & Config (Developer ONLY by default):');
+  const databaseMiddleware = requireRole(['developer']);
 
   for (const role of roles) {
     const req: any = { user: { id: `usr-${role}`, username: role, role } };
@@ -60,7 +60,7 @@ async function runPaket3Tests() {
       nextCalled = true;
     });
 
-    if (role === 'developer' || role === 'admin') {
+    if (role === 'developer') {
       assert(nextCalled === true && res.statusCode === 200, `Database Tool: Role "${role}" DIIZINKAN`);
     } else {
       assert(
@@ -70,9 +70,9 @@ async function runPaket3Tests() {
     }
   }
 
-  // 2. Matriks Hak Akses Tool: Audit Keamanan & Trash Purge (Developer/Admin ONLY)
-  console.log('\n[2] Matriks Hak Akses Tool: Audit Keamanan System (Developer/Admin ONLY):');
-  const auditMiddleware = requireRole(['developer', 'admin']);
+  // 2. Matriks Hak Akses Tool: Audit Keamanan & Trash Purge (Developer ONLY by default)
+  console.log('\n[2] Matriks Hak Akses Tool: Audit Keamanan System (Developer ONLY by default):');
+  const auditMiddleware = requireRole(['developer']);
 
   for (const role of roles) {
     const req: any = { user: { id: `usr-${role}`, username: role, role } };
@@ -83,7 +83,7 @@ async function runPaket3Tests() {
       nextCalled = true;
     });
 
-    if (role === 'developer' || role === 'admin') {
+    if (role === 'developer') {
       assert(nextCalled === true && res.statusCode === 200, `Audit Tool: Role "${role}" DIIZINKAN`);
     } else {
       assert(
@@ -93,9 +93,9 @@ async function runPaket3Tests() {
     }
   }
 
-  // 3. Matriks Hak Akses Tool: WA Alert Configuration Edit (Developer/Admin/Warehouse Admin ONLY)
+  // 3. Matriks Hak Akses Tool: WA Alert Configuration Edit (Developer & Admin / legacy alias)
   console.log('\n[3] Matriks Hak Akses Tool: Ubah Pengaturan WA Alert (Ditolak 403 untuk Teknisi):');
-  const waConfigMiddleware = requireRole(['developer', 'admin', 'warehouse_admin']);
+  const waConfigMiddleware = requireRole(['developer', 'admin']);
 
   for (const role of roles) {
     const req: any = { user: { id: `usr-${role}`, username: role, role } };

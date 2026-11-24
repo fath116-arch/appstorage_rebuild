@@ -6,16 +6,23 @@
 import crypto from 'crypto';
 import { executeQuery } from '../db/database';
 import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
+import {
+  CanonicalRole,
+  FeaturePermissionsMap,
+  normalizeRole,
+  parseFeaturePermissions
+} from '../utils/permissions';
 
 export interface UserProfile {
   id: string;
   username: string;
   name: string;
   email: string;
-  role: 'technician' | 'warehouse_admin' | 'admin' | 'developer' | 'supervisor' | 'superadmin';
+  role: CanonicalRole;
   department: string;
   phone: string;
   status: string;
+  feature_permissions?: FeaturePermissionsMap;
 }
 
 interface UserRecordRow {
@@ -23,10 +30,11 @@ interface UserRecordRow {
   username: string;
   name: string;
   email: string;
-  role: UserProfile['role'];
+  role: string;
   department: string;
   phone?: string | null;
   status: string;
+  feature_permissions?: string | FeaturePermissionsMap | null;
   password_hash?: string | null;
   salt?: string | null;
 }
@@ -37,10 +45,8 @@ interface LegacySessionRow {
   expires_at: string;
 }
 
-export function normalizeUserRole(rawRole: UserRecordRow['role'] | string): UserProfile['role'] {
-  if (rawRole === 'superadmin') return 'developer';
-  if (rawRole === 'supervisor') return 'admin';
-  return rawRole as UserProfile['role'];
+export function normalizeUserRole(rawRole: UserRecordRow['role'] | string): CanonicalRole {
+  return normalizeRole(rawRole);
 }
 
 export function sanitizeClientIp(rawIp?: string | null): string {
@@ -171,7 +177,8 @@ export class AuthService {
       role: normalizeUserRole(user.role),
       department: user.department,
       phone: user.phone || '',
-      status: user.status
+      status: user.status,
+      feature_permissions: parseFeaturePermissions(user.feature_permissions)
     };
 
     return {
@@ -210,7 +217,8 @@ export class AuthService {
       role: normalizeUserRole(user.role),
       department: user.department,
       phone: user.phone || '',
-      status: user.status
+      status: user.status,
+      feature_permissions: parseFeaturePermissions(user.feature_permissions)
     };
   }
 

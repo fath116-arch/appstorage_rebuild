@@ -56,7 +56,7 @@ export interface ActorOption {
   id: string;
   username: string;
   name: string;
-  role: 'developer' | 'admin' | 'warehouse_admin' | 'technician' | string;
+  role: 'developer' | 'admin' | 'technician' | string;
   department: string;
   status: string;
 }

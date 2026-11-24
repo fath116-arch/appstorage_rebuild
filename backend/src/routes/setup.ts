@@ -5,20 +5,20 @@
  */
 
 import { Router, Response } from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature, requireRole } from '../middleware/authMiddleware';
 import { SystemSetupService } from '../services/systemSetupService';
 import { getErrorMessage } from '../utils/errorUtils';
 
 const router = Router();
 
-// Seluruh endpoint /api/setup/* wajib terautentikasi & khusus Developer/Admin
-router.use(requireAuth, requireRole(['developer', 'admin']));
+// Seluruh endpoint /api/setup/* wajib terautentikasi
+router.use(requireAuth);
 
 /**
  * GET /api/setup/status
  * Membaca pengaturan .env tersamar, daftar command CLI setup, dan ringkasan diagnostik koneksi
  */
-router.get('/status', async (_req: AuthenticatedRequest, res: Response) => {
+router.get('/status', requireFeature('setup_check'), async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const settings = SystemSetupService.getMaskedSettings();
     const report = await SystemSetupService.runSystemCheck();
@@ -42,7 +42,7 @@ router.get('/status', async (_req: AuthenticatedRequest, res: Response) => {
  * POST /api/setup/check
  * Menjalankan pemeriksaan ulang menyeluruh atas DB, WA, Tunnel, .env, dan Akun Admin
  */
-router.post('/check', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/check', requireFeature('setup_check'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const publicUrl = typeof req.body?.publicUrl === 'string' ? req.body.publicUrl.trim() : undefined;
     const report = await SystemSetupService.runSystemCheck({ publicUrl });
@@ -65,7 +65,7 @@ router.post('/check', async (req: AuthenticatedRequest, res: Response) => {
  * POST /api/setup/database
  * Menyimpan konfigurasi MariaDB ke .env lokal, menjalankan uji koneksi langsung, & memuat ulang pool
  */
-router.post('/database', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/database', requireFeature('setup_database'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { host, port, name, user, password, rootPassword, reloadPool } = req.body || {};
     const result = await SystemSetupService.saveAndTestDatabase({
@@ -99,7 +99,7 @@ router.post('/database', async (req: AuthenticatedRequest, res: Response) => {
  * POST /api/setup/tunnel
  * Menyimpan token & URL Cloudflare Tunnel ke .env lokal, memvalidasi format token, & menguji URL publik opsional
  */
-router.post('/tunnel', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/tunnel', requireFeature('setup_tunnel'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { token, publicUrl, clearToken, testPublicUrl } = req.body || {};
     const result = await SystemSetupService.saveAndTestTunnel({
@@ -130,9 +130,9 @@ router.post('/tunnel', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * POST /api/setup/whatsapp
- * Menyimpan konfigurasi gateway WA Fonnte ke .env + tabel wa_config & menjalankan uji kirim opsional
+ * Khusus Developer: menyimpan konfigurasi gateway WA ke .env + tabel wa_config
  */
-router.post('/whatsapp', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/whatsapp', requireRole(['developer']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { apiUrl, apiToken, targetPhones, isEnabled, cooldownMinutes, runTest } = req.body || {};
     const operator = { id: req.user!.id, name: req.user!.name };
@@ -167,7 +167,7 @@ router.post('/whatsapp', async (req: AuthenticatedRequest, res: Response) => {
  * POST /api/setup/test-login
  * Menguji diagnostik login bertahap (lookup user, status ACTIVE, verifikasi PBKDF2, probe tulis tabel sessions & sesi)
  */
-router.post('/test-login', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/test-login', requireFeature('setup_check'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : undefined;

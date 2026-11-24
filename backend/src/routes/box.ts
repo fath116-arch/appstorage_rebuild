@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
 import { StockService } from '../services/stockService';
 import { ConfirmationService } from '../services/confirmationService';
 
@@ -43,7 +43,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post(
   '/',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('catalog_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const { kode, keterangan } = req.body;
@@ -62,7 +62,7 @@ router.post(
 router.post(
   '/move',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('stock_in_out'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const { item_id, tipe_id, box_asal_id, box_tujuan_id, jumlah, catatan } = req.body;
@@ -88,9 +88,51 @@ router.post(
 );
 
 router.delete(
+  '/bulk',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const ids = Array.from(new Set(rawIds.map((x: unknown) => String(x).trim()).filter(Boolean))) as string[];
+      const preCheck = await StockService.canDeleteBoxBulk(ids);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Storage Box terpilih tidak dapat dihapus.' });
+      }
+
+      const targetId = `bulk:${[...ids].sort().join(',')}`;
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_box',
+        targetId
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_box',
+          targetId
+        });
+      }
+
+      const result = await StockService.deleteBoxBulk(ids, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
   '/:id',
   requireAuth,
-  requireRole(['developer', 'admin', 'warehouse_admin']),
+  requireFeature('catalog_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const id = String(req.params.id);

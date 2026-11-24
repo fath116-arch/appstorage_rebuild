@@ -111,7 +111,10 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       );
     }
     if (user) {
-      if (upper.includes('PASSWORD_HASH = ?') && upper.includes('SALT = ?')) {
+      if (upper.includes('FEATURE_PERMISSIONS = ?')) {
+        user.feature_permissions = params[0];
+        user.updated_at = new Date().toISOString();
+      } else if (upper.includes('PASSWORD_HASH = ?') && upper.includes('SALT = ?')) {
         user.password_hash = params[0];
         user.salt = params[1] || '';
         user.updated_at = new Date().toISOString();
@@ -197,13 +200,13 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       const match = memoryStore.sesi.get(params[0]);
       if (!match) return [];
       const user = memoryStore.users.get(match.user_id) || {};
-      return [{ ...match, username: user.username, name: user.name, email: user.email, role: user.role, department: user.department, phone: user.phone, status: user.status }];
+      return [{ ...match, username: user.username, name: user.name, email: user.email, role: user.role, department: user.department, phone: user.phone, status: user.status, feature_permissions: user.feature_permissions || null }];
     }
     if (upper.includes('WHERE S.REFRESH_HASH = ?') || upper.includes('WHERE REFRESH_HASH = ?')) {
       const match = list.find(s => s.refresh_hash === params[0]);
       if (!match) return [];
       const user = memoryStore.users.get(match.user_id) || {};
-      return [{ ...match, username: user.username, name: user.name, email: user.email, role: user.role, department: user.department, phone: user.phone, status: user.status }];
+      return [{ ...match, username: user.username, name: user.name, email: user.email, role: user.role, department: user.department, phone: user.phone, status: user.status, feature_permissions: user.feature_permissions || null }];
     }
     return list;
   }

@@ -99,6 +99,12 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
     return { affectedRows: 1 };
   }
 
+  if (upper.startsWith('DELETE FROM ITEM WHERE ID = ?')) {
+    const id = String(params[0]);
+    const deleted = memoryStore.item_v2.delete(id);
+    return { affectedRows: deleted ? 1 : 0 };
+  }
+
   if (upper.startsWith('UPDATE ITEM SET KONDISI')) {
     const target = params[2];
     const it = memoryStore.item_v2.get(target) || Array.from(memoryStore.item_v2.values()).find(i => i.id === target || i.kode_id === target);
@@ -370,6 +376,13 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   }
 
   if (upper.startsWith('SELECT') && upper.includes('FROM ITEM')) {
+    if (params.length > 0 && upper.includes('WHERE UPPER(KODE_ID) = UPPER(?)')) {
+      const targetKode = String(params[0] || '').trim().toUpperCase();
+      const it = Array.from(memoryStore.item_v2.values()).find(
+        i => String(i.kode_id || '').trim().toUpperCase() === targetKode
+      );
+      return it ? [{ ...it }] : [];
+    }
     if (params.length > 0 && (upper.includes('WHERE ID = ?') || upper.includes('WHERE ID = ? OR KODE_ID = ?'))) {
       const target = String(params[0]).toLowerCase();
       const target2 = params[1] ? String(params[1]).toLowerCase() : target;

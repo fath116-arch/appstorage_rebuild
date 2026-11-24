@@ -118,6 +118,41 @@ export const stockApi = {
     );
   },
 
+  async deleteBoxBulk(ids: string[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/boxes/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ ids, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus storage box terpilih.'
+    );
+  },
+
+  async deleteItem(itemId: string, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/stock/items/${encodeURIComponent(itemId)}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
+      },
+      'Gagal menghapus item fisik.'
+    );
+  },
+
+  async deleteItemsBulk(ids: string[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/stock/items/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ ids, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus item fisik terpilih.'
+    );
+  },
+
   async pindahBox(payload: {
     item_id?: string;
     tipe_id?: number;

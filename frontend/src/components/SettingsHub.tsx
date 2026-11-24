@@ -1,9 +1,7 @@
 /**
  * Centralized Settings Hub (Tab Setting)
- * - Developer & Admin: Full 8-card infrastructure, RBAC, WA, Integration, SN, Security, & Diagnostics access
- * - Warehouse Admin (Admin Gudang): Scoped access to genuinely useful warehouse modules (WA Alert & SN Patterns)
- * - Technician: Access restricted notice
- * - Card selection opens full-width inline view with Back button
+ * - Every module card is governed dynamically by FeatureKey (per-role defaults + Developer feature sliders)
+ * - Unified roles: Developer, Admin, Technician
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -24,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { SettingsSectionId, useInventory } from '../context/InventoryContext';
-import { isAdminOrDev, isWarehouseManager } from '../utils/permissions';
+import { FeatureKey, isDeveloperRole, isFeatureEnabled } from '../utils/permissions';
 import {
   CliScriptEntry,
   SystemCheckReport,
@@ -42,86 +40,83 @@ import { SecurityReportModal } from './SecurityReportModal';
 
 interface SettingCardConfig {
   id: SettingsSectionId;
+  featureKey: FeatureKey;
   title: string;
   description: string;
   icon: LucideIcon;
   metaLabel: string;
-  adminOnly: boolean;
-  warehouseAllowed: boolean;
+  developerOnly?: boolean;
 }
 
 const SETTING_CARDS: SettingCardConfig[] = [
   {
     id: 'check',
+    featureKey: 'setup_check',
     title: 'Status & Cek Koneksi Sistem',
     description: 'Diagnostik langsung berkas .env, koneksi MariaDB, Akun Admin, Gateway WA, Cloudflare Tunnel, serta daftar perintah CLI setup.',
     icon: Activity,
     metaLabel: 'Diagnostik & CLI',
-    adminOnly: true,
-    warehouseAllowed: false
+    developerOnly: true
   },
   {
     id: 'database',
+    featureKey: 'setup_database',
     title: 'Database MariaDB & Backup',
     description: 'Pengaturan koneksi .env MariaDB, uji ping & muat ulang pool runtime, serta unduh file cadangan inventori JSON.',
     icon: Database,
     metaLabel: 'setup:db · Backup',
-    adminOnly: true,
-    warehouseAllowed: false
+    developerOnly: true
   },
   {
     id: 'tunnel',
+    featureKey: 'setup_tunnel',
     title: 'Cloudflare Tunnel & Akses HP',
     description: 'Kelola token Cloudflare Tunnel di .env, validasi struktur token, uji URL publik, dan bagikan QR Code PWA HP.',
     icon: Cloud,
     metaLabel: 'setup:tunnel · QR',
-    adminOnly: true,
-    warehouseAllowed: false
+    developerOnly: true
   },
   {
     id: 'whatsapp',
+    featureKey: 'wa_alert_recipients',
     title: 'Notifikasi WhatsApp Alert',
-    description: 'Atur penerima alert stok menipis, jam aktif, ambang batas berjenjang, daftar pantauan, uji koneksi, dan log pengiriman.',
+    description: 'Atur 4 slot nomor penerima dengan saklar ON/OFF, jam aktif, ambang batas berjenjang, daftar pantauan, & log pengiriman.',
     icon: BellRing,
-    metaLabel: 'setup:wa · Ambang',
-    adminOnly: false,
-    warehouseAllowed: true
+    metaLabel: 'WA Alert · 4 Slot'
   },
   {
     id: 'integration',
+    featureKey: 'integration_tickets',
     title: 'Integrasi Tiket Eksternal',
     description: 'Kelola API Key webhook sistem tiket lapangan, jalankan simulator auto-deduct, dan tinjau log sinkronisasi.',
     icon: Webhook,
     metaLabel: 'Webhook & Key',
-    adminOnly: true,
-    warehouseAllowed: false
+    developerOnly: true
   },
   {
     id: 'users',
+    featureKey: 'users_manage',
     title: 'Akun Pengguna & Matriks Peran',
-    description: 'Persetujuan pendaftaran akun baru, buat akun server, reset kata sandi, ubah status akun, dan tinjau matriks RBAC.',
+    description: 'Buat & setujui akun Admin/Teknisi, reset kata sandi, ubah status akun, matriks RBAC, serta pengatur fitur per akun (Developer).',
     icon: Users,
-    metaLabel: 'setup:admin · RBAC',
-    adminOnly: true,
-    warehouseAllowed: false
+    metaLabel: 'setup:admin · RBAC'
   },
   {
     id: 'sn-patterns',
+    featureKey: 'sn_patterns',
     title: 'Pengaturan Pola Serial Number',
     description: 'Konfigurasi pola identifikasi (#, A, ?, *) dan normalisasi barcode Serial Number untuk perangkat gudang.',
     icon: QrCode,
-    metaLabel: 'Barcode SN',
-    adminOnly: false,
-    warehouseAllowed: true
+    metaLabel: 'Barcode SN'
   },
   {
     id: 'security',
-    title: 'Laporan Audit Keamanan',
-    description: 'Tinjauan temuan keamanan aplikasi, progres remidiasi administratif, serta catatan optimasi performa server.',
+    featureKey: 'security_audit',
+    title: 'Laporan Audit Keamanan & Sampah',
+    description: 'Tinjauan temuan keamanan aplikasi, tempat sampah retensi 14 hari, serta catatan optimasi performa server.',
     icon: ShieldAlert,
-    metaLabel: 'Audit & Remidiasi',
-    adminOnly: true,
-    warehouseAllowed: false
+    metaLabel: 'Audit & Sampah',
+    developerOnly: true
   }
 ];
 
@@ -129,22 +124,23 @@ export const SettingsHub: React.FC = () => {
   const { user } = useAuth();
   const { activeSettingsSection, setActiveSettingsSection } = useInventory();
 
-  const isDevOrAdmin = isAdminOrDev(user?.role);
-  const canAccessSettings = isWarehouseManager(user?.role);
+  const isDeveloper = isDeveloperRole(user?.role);
+  const canViewSetupDiagnostics = isFeatureEnabled(user, 'setup_check');
+
+  const visibleCards = useMemo(
+    () => SETTING_CARDS.filter((card) => isFeatureEnabled(user, card.featureKey)),
+    [user]
+  );
+
+  const canAccessSettings = visibleCards.length > 0;
 
   const [settings, setSettings] = useState<SystemMaskedSettings | null>(null);
   const [report, setReport] = useState<SystemCheckReport | null>(null);
   const [cliScripts, setCliScripts] = useState<CliScriptEntry[]>([]);
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
 
-  const visibleCards = useMemo(() => {
-    if (isDevOrAdmin) return SETTING_CARDS;
-    if (canAccessSettings) return SETTING_CARDS.filter((c) => c.warehouseAllowed);
-    return [];
-  }, [isDevOrAdmin, canAccessSettings]);
-
   const loadSetupStatus = useCallback(async () => {
-    if (!isDevOrAdmin) return;
+    if (!canViewSetupDiagnostics) return;
     setIsLoadingStatus(true);
     try {
       const res = await setupApi.getStatus();
@@ -156,14 +152,14 @@ export const SettingsHub: React.FC = () => {
     } finally {
       setIsLoadingStatus(false);
     }
-  }, [isDevOrAdmin]);
+  }, [canViewSetupDiagnostics]);
 
   useEffect(() => {
     loadSetupStatus();
   }, [loadSetupStatus]);
 
   const handleRunCheck = async (publicUrl?: string) => {
-    if (!isDevOrAdmin) return;
+    if (!canViewSetupDiagnostics) return;
     setIsLoadingStatus(true);
     try {
       const res = await setupApi.runCheck(publicUrl);
@@ -184,7 +180,7 @@ export const SettingsHub: React.FC = () => {
           Akses Halaman Setting Dibatasi
         </h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-          Menu Setting hanya tersedia untuk peran Developer, Admin, serta modul gudang terpilih untuk Admin Gudang.
+          Menu Setting hanya tersedia untuk modul yang diaktifkan pada peran Anda oleh Developer atau Admin.
         </p>
       </div>
     );
@@ -206,7 +202,7 @@ export const SettingsHub: React.FC = () => {
             <span>Kembali ke Setting</span>
           </button>
           <div className="text-xs text-amber-700 dark:text-amber-300">
-            Modul pengaturan ini hanya dapat diakses oleh peran Admin atau Developer.
+            Modul pengaturan ini tidak aktif pada hak akses akun Anda saat ini.
           </div>
         </div>
       );
@@ -245,7 +241,7 @@ export const SettingsHub: React.FC = () => {
 
         {/* Full-Width Inline Module Content */}
         <div>
-          {activeSettingsSection === 'check' && isDevOrAdmin && (
+          {activeSettingsSection === 'check' && isFeatureEnabled(user, 'setup_check') && (
             <SystemCheckPanel
               settings={settings}
               report={report}
@@ -255,31 +251,31 @@ export const SettingsHub: React.FC = () => {
             />
           )}
 
-          {activeSettingsSection === 'database' && isDevOrAdmin && (
+          {activeSettingsSection === 'database' && isFeatureEnabled(user, 'setup_database') && (
             <DatabaseSetupPanel settings={settings} onUpdated={loadSetupStatus} />
           )}
 
-          {activeSettingsSection === 'tunnel' && isDevOrAdmin && (
+          {activeSettingsSection === 'tunnel' && isFeatureEnabled(user, 'setup_tunnel') && (
             <TunnelSetupPanel settings={settings} onUpdated={loadSetupStatus} />
           )}
 
-          {activeSettingsSection === 'whatsapp' && (
+          {activeSettingsSection === 'whatsapp' && isFeatureEnabled(user, 'wa_alert_recipients') && (
             <WhatsAppConfigModal embedded isOpen onClose={() => setActiveSettingsSection(null)} />
           )}
 
-          {activeSettingsSection === 'integration' && isDevOrAdmin && (
+          {activeSettingsSection === 'integration' && isFeatureEnabled(user, 'integration_tickets') && (
             <TicketIntegrationHub />
           )}
 
-          {activeSettingsSection === 'users' && isDevOrAdmin && (
+          {activeSettingsSection === 'users' && isFeatureEnabled(user, 'users_manage') && (
             <UserRoleSwitcher embedded isOpen onClose={() => setActiveSettingsSection(null)} />
           )}
 
-          {activeSettingsSection === 'sn-patterns' && (
+          {activeSettingsSection === 'sn-patterns' && isFeatureEnabled(user, 'sn_patterns') && (
             <SNPatternSettingsModal embedded isOpen onClose={() => setActiveSettingsSection(null)} />
           )}
 
-          {activeSettingsSection === 'security' && isDevOrAdmin && (
+          {activeSettingsSection === 'security' && isFeatureEnabled(user, 'security_audit') && (
             <SecurityReportModal embedded isOpen onClose={() => setActiveSettingsSection(null)} />
           )}
         </div>
@@ -288,7 +284,7 @@ export const SettingsHub: React.FC = () => {
   }
 
   const getCardLiveSummary = (cardId: SettingsSectionId): string | null => {
-    if (!isDevOrAdmin || !report) return null;
+    if (!canViewSetupDiagnostics || !report) return null;
     if (cardId === 'check') {
       return report.overallStatus === 'ready'
         ? 'Semua koneksi utama terhubung'
@@ -317,16 +313,16 @@ export const SettingsHub: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-slate-900 dark:text-white font-display">
-            Pengaturan Sistem &amp; Integrasi
+            Pengaturan Sistem &amp; Operasional
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            {isDevOrAdmin
-              ? 'Pusat konfigurasi infrastruktur (.env), integrasi layanan, akun, pola barcode, dan diagnostik sistem.'
-              : 'Pengaturan operasional gudang yang tersedia untuk Admin Gudang (Notifikasi Stok WhatsApp & Pola Serial Number).'}
+            {isDeveloper
+              ? 'Akses penuh Developer: konfigurasi infrastruktur (.env), Gateway WhatsApp ganda, pengatur fitur per akun, integrasi, & audit.'
+              : 'Pusat pengaturan sesuai wewenang akun Anda: Kelola pengguna Admin/Teknisi, 4 slot WA Alert, dan Pola Serial Number.'}
           </p>
         </div>
 
-        {isDevOrAdmin && (
+        {canViewSetupDiagnostics && (
           <button
             type="button"
             onClick={() => handleRunCheck()}
@@ -339,8 +335,8 @@ export const SettingsHub: React.FC = () => {
         )}
       </div>
 
-      {/* System Health Quick Strip (Admin & Developer Only) */}
-      {isDevOrAdmin && report && (
+      {/* System Health Quick Strip (Only when setup_check enabled) */}
+      {canViewSetupDiagnostics && report && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {report.checks
             .filter((c) => c.key !== 'admin')
@@ -418,7 +414,7 @@ export const SettingsHub: React.FC = () => {
 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate pr-2">
-                  {liveSummary || (card.adminOnly ? 'Admin & Developer' : 'Admin, Developer & Admin Gudang')}
+                  {liveSummary || (card.developerOnly ? 'Khusus Developer' : 'Admin & Developer')}
                 </span>
                 <span className="inline-flex items-center gap-1 font-semibold text-slate-900 dark:text-emerald-400 shrink-0">
                   <span>Buka</span>
@@ -432,3 +428,4 @@ export const SettingsHub: React.FC = () => {
     </div>
   );
 };
+

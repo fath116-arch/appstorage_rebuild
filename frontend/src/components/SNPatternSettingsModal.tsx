@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
-import { isWarehouseManager } from '../utils/permissions';
+import { isFeatureEnabled } from '../utils/permissions';
 import { apiFetch } from '../services/httpClient';
 import { 
   SNPattern, 
@@ -47,7 +47,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
 }) => {
   const { user } = useAuth();
   const { showToast } = useInventory();
-  const canManagePatterns = isWarehouseManager(user?.role);
+  const canManagePatterns = isFeatureEnabled(user, 'sn_patterns');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [patterns, setPatterns] = useState<SNPattern[]>(DEFAULT_SN_PATTERNS);
@@ -258,7 +258,7 @@ export const SNPatternSettingsModal: React.FC<SNPatternSettingsModalProps> = ({
             <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-800 dark:text-amber-300 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>
-                Peran Anda (<strong className="font-semibold">{user?.role}</strong>) hanya dapat membaca daftar pola SN aktif. Perubahan konfigurasi tersedia untuk Developer, Admin, dan Admin Gudang.
+                Peran Anda (<strong className="font-semibold">{user?.role}</strong>) hanya dapat membaca daftar pola SN aktif. Perubahan konfigurasi tersedia untuk akun dengan izin kelola Pola SN (Developer atau Admin).
               </span>
             </div>
           )}

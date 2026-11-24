@@ -259,14 +259,14 @@ async function runTestSuite() {
       alasan: 'Permohonan teknisi untuk item dalam kondisi baik'
     });
 
-    if (!req || req.status !== 'menunggu') {
-      throw new Error('Gagal membuat request valid');
+    if (!req || (req.status !== 'diajukan' && req.status !== 'menunggu')) {
+      throw new Error(`Gagal membuat request valid (status: ${req?.status})`);
     }
     validRequestId = req.id;
   });
 
-  // 11. Test Persetujuan Request & Auto-deduct Memastikan Non-Rusak
-  await test('RequestService.approveRequest berhasil menyetujui request item non-rusak', async () => {
+  // 11. Test Persetujuan Request & Penyerahan (Pickup -> keluar) Memastikan Non-Rusak
+  await test('RequestService.approveRequest + pickupRequest berhasil memproses request item non-rusak', async () => {
     const approvalRes = await RequestService.approveRequest({
       requestId: validRequestId,
       penyetujuId: testUserId
@@ -276,9 +276,23 @@ async function runTestSuite() {
       throw new Error(`Approval gagal: ${JSON.stringify(approvalRes)}`);
     }
 
-    const check = await StockService.checkDuplicateKodeId(itemBaikId);
-    if (check.item?.status !== 'keluar') {
-      throw new Error(`Item ${itemBaikId} harusnya berstatus 'keluar' setelah disetujui`);
+    const checkReserved = await StockService.checkDuplicateKodeId(itemBaikId);
+    if (checkReserved.item?.status !== 'dipesan') {
+      throw new Error(`Item ${itemBaikId} harusnya berstatus 'dipesan' setelah disetujui, didapat '${checkReserved.item?.status}'`);
+    }
+
+    const pickupRes = await RequestService.pickupRequest({
+      requestId: validRequestId,
+      recordedById: testUserId,
+      recordedByRole: 'admin'
+    });
+    if (!pickupRes.success) {
+      throw new Error(`Pickup gagal: ${JSON.stringify(pickupRes)}`);
+    }
+
+    const checkOut = await StockService.checkDuplicateKodeId(itemBaikId);
+    if (checkOut.item?.status !== 'keluar') {
+      throw new Error(`Item ${itemBaikId} harusnya berstatus 'keluar' setelah diserahkan, didapat '${checkOut.item?.status}'`);
     }
   });
 

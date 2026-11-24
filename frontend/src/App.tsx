@@ -158,7 +158,7 @@ const AppContent: React.FC = () => {
               <img src="/logo.webp" alt="FieldOps IT" className="w-full h-full object-contain" />
             </div>
             <span className="font-bold text-slate-900 dark:text-slate-100">FieldOps IT</span>
-            <span className="font-medium text-slate-600 dark:text-slate-400">· Inventarisasi Suku Cadang &amp; Auto-Deduct Tiket Lapangan</span>
+            <span className="font-medium text-slate-600 dark:text-slate-400">· Inventarisasi Data Barang &amp; Auto-Deduct Tiket Lapangan</span>
             <span className="font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-md">
               v{VERSION}
             </span>

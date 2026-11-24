@@ -55,6 +55,16 @@ export function normalizeWaRecipientSlots(
   return result;
 }
 
+export interface WaGatewayConfig {
+  id: 'gateway1' | 'gateway2';
+  name: string;
+  provider: 'fonnte' | 'wablas' | 'webhook';
+  enabled: boolean;
+  apiUrl: string;
+  apiToken: string;
+  maskedToken?: string;
+}
+
 export interface WhatsAppConfigData {
   id?: string;
   isEnabled: boolean;
@@ -69,6 +79,12 @@ export interface WhatsAppConfigData {
   globalEarlyWarningThreshold: number;
   recipients: string[];
   recipientSlots?: WaRecipientSlot[];
+  gatewayMode?: 'failover' | 'parallel';
+  gateways?: {
+    gateway1: WaGatewayConfig;
+    gateway2: WaGatewayConfig;
+  };
+  hasGatewayAccess?: boolean;
   apiUrl: string;
   apiToken: string;
   maskedToken?: string;
@@ -219,6 +235,32 @@ export class WhatsAppService {
         success: ok && data.success !== false,
         message: data.message || (ok ? 'Uji koneksi terkirim' : `Gagal HTTP ${status}`),
         remainingSeconds: data.remainingSeconds,
+        details: data.details,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        message: `Gagal menghubungi server backend: ${getErrorMessage(err, 'Unknown error')}`,
+      };
+    }
+  }
+
+  /**
+   * Developer-only test for a specific gateway (gateway1 or gateway2)
+   */
+  async testGateway(gatewayId: 'gateway1' | 'gateway2', targetPhone?: string): Promise<{ success: boolean; message: string; details?: string }> {
+    try {
+      const { ok, status, data } = await requestJson<{
+        success?: boolean;
+        message?: string;
+        details?: string;
+      }>('/api/whatsapp/test-gateway', {
+        method: 'POST',
+        body: JSON.stringify({ gatewayId, targetPhone }),
+      });
+      return {
+        success: ok && data.success !== false,
+        message: data.message || (ok ? 'Uji gateway terkirim' : `Gagal HTTP ${status}`),
         details: data.details,
       };
     } catch (err: unknown) {
