@@ -1,4 +1,4 @@
-# STATUS.md — FieldOps IT Inventory (v1.2.8)
+# STATUS.md — FieldOps IT Inventory (v1.2.8.5)
 
 Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENTS.md` sebelum bekerja.
 
@@ -7,16 +7,17 @@ Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENT
 - [x] Paket 1 s/d Paket 7 (Rilis v1.2.5 / v1.2.5.3 Complete)
 - [x] v1.2.6 — Unifikasi Model Data Tunggal, Output Keranjang, Request & Multi-Tas, Kontrol Katalog, & UTC/WIB Complete
 - [x] v1.2.7 — Pengajuan Pembelian Barang (`beli`), WA Selektif, 4 Slot WA ON/OFF, Auto-Refresh 5 Menit, Lembar Pengesahan Dinamis, & MariaDB Strict Auth Complete
-- [x] **v1.2.8 — Login-Only & Tutup Registrasi Publik, Peleburan Role `admin`, Izin Fitur Slider ON/OFF (Developer), Dual WA Gateway, Hapus Massal + `"delete"`, Impor Excel/Google Sheet, & Istilah "Data Barang"** — Terverifikasi:
-  - `v128Updates.test.ts`: PASS (Login-Only 403 Register, Role Merge & Batas Admin, Feature Sliders `PUT /api/auth/users/:id/features`, Dual WA Gateway Developer-Only, Multi-Select Bulk Delete + `"delete"`, & Impor `.xlsx`/CSV)
-  - `purchaseWa4ReportConfig.test.ts`: 20/20 PASS
-  - `authLoginMariaDbCompat.test.ts`: 22/22 PASS
-  - `systemSetup.test.ts`: PASS | `canonicalSystem.test.ts`: PASS | `catalogDeleteEditAndReturnRequest.test.ts`: PASS
-  - `bagAndCompleteRequest.test.ts`: PASS | `v125Paket6WaAlert.test.ts`: PASS | `bugfixScanFonnte.test.ts`: PASS
+- [x] v1.2.8 — Login-Only & Tutup Registrasi Publik, Peleburan Role `admin`, Izin Fitur Slider ON/OFF (Developer), Dual WA Gateway, Hapus Massal + `"delete"`, Impor Excel/Google Sheet, & Istilah "Data Barang" Complete
+- [x] **v1.2.8.5 — Silent Production Auto-Update & Anti-Cache PWA/Proxy, Pemisahan Log Aktivitas User ke Kartu Kelola User, & Kompatibilitas Start Production** — Terverifikasi:
+  - `userLogsAndCache.test.ts`: **24/24 PASS** (`USER_ACTIVITY_ACTIONS` terpisah dari `/api/activities`, audit siklus hidup akun, `GET /api/auth/user-logs` RBAC & filter, header anti-cache `index.html`/`sw.js`/`build-meta.json`/`/api/health`, Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, & `appUpdater.ts` safe silent reload)
+  - `v128Updates.test.ts`: **41/41 PASS** (Login-Only 403 Register, Role Merge & Batas Admin, Feature Sliders `PUT /api/auth/users/:id/features`, Dual WA Gateway Developer-Only, Multi-Select Bulk Delete + `"delete"`, & Impor `.xlsx`/CSV)
+  - `purchaseWa4ReportConfig.test.ts`: 20/20 PASS | `authLoginMariaDbCompat.test.ts`: 22/22 PASS
+  - `systemSetup.test.ts`: PASS | `canonicalSystem.test.ts`: 20/20 PASS | `tahap1Foundation.test.ts`: 19/19 PASS
+  - `catalogDeleteEditAndReturnRequest.test.ts`: PASS | `bagAndCompleteRequest.test.ts`: PASS | `v125Paket6WaAlert.test.ts`: PASS
   - `npm run lint` (`tsc --noEmit`) & `npm run build`: 0 Galat
 
 ## Sedang dikerjakan
-- Rilis **v1.2.8** selesai dan terverifikasi penuh. Seluruh pembaruan arsitektur & operasional (penutupan pendaftaran publik, peleburan peran `admin` + `warehouse_admin`, izin fitur per akun slider ON/OFF khusus `developer`, Dual WA Gateway khusus `developer`, hapus massal multi-pilih + ketik `"delete"` di 5 target, impor Excel/Google Spreadsheet publik, serta istilah *"Data Barang"*) telah disinkronkan beserta dokumentasinya.
+- Rilis **v1.2.8.5** selesai dan terverifikasi penuh. Seluruh perbaikan dan pembaruan 6 jam terakhir hingga rilis terbaru—meliputi **anti-cache build production + muat ulang otomatis senyap**, **pemisahan log login/logout/sesi/manajemen akun ke tab `Log Aktivitas User` dalam kartu Kelola User**, **perbaikan payload `feature_permissions` & audit akun lengkap**, serta **skrip `npm start` berbasis `cross-env`**—telah diuji dan disinkronkan beserta dokumentasinya.
 
 ## Keputusan penting
 - **Satu Model Data Kanonik Tunggal & Auto-Refresh Senyap 5 Menit**: Pemisahan v1/v2 dihilangkan sepenuhnya; Katalog, Input, Output, Request, Riwayat Transaksi, Dashboard, dan Laporan membaca sumber tunggal (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`), dengan `InventoryContext.refreshData()` otomatis pasca-mutasi maupun sinkronisasi senyap latar belakang setiap 5 menit (`visibilitychange`-aware).
@@ -31,6 +32,8 @@ Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENT
 - **Akuntabilitas `actor_id` vs `recorded_by_id` & Ledger Koreksi**: Transaksi atas nama pengguna lain wajib mencatat `on_behalf_reason` (khusus `admin`/`developer`), `occurred_at` dibatasi 7 hari ke belakang untuk non-admin/developer (bebas untuk `admin`/`developer`, dilarang masa depan), dan koreksi audit dicatat append-only (`POST /api/activities/:id/correct`, `correction_of_id`).
 - **Siklus Request Teknisi, Multi-Tas, & Status `Selesai`**: Alur penuh `diajukan → disetujui (reservasi 'dipesan' / reserved_qty) → diambil ('keluar', taken_at) → dikembalikan (pengajuan 'kembalikan' 3 kondisi terpetakan + verifikasi gudang, wajib untuk Alat) | selesai ('Terpakai Pelanggan' khusus Barang Habis Pakai dengan Nama/ID Pelanggan & Catatan Pemasangan)` atau `ditolak` / `dibatalkan`, serta `beli` (`diajukan → disetujui → selesai 'Dibeli'`). Mendukung pembuatan banyak template Tas Kerja Kantor (`BAG_TEMPLATE`) dan pengajuan **Pilih Paket Tas** (`POST /api/requests/bag`).
 - **Zona Waktu UTC ↔ WIB**: Backend mengunci `process.env.TZ = 'UTC'` dan menyimpan UTC di MariaDB dengan format SQL strict `YYYY-MM-DD HH:mm:ss` (`toMysqlUtcSeconds`); seluruh tampilan dan rentang mingguan (Senin 00:00 WIB – Minggu 23:59:59.999 WIB) serta ekspor ExcelJS memakai `Asia/Jakarta` (WIB) + sanitasi CWE-1236.
+- **Anti-Cache Build Production & Pembaruan Otomatis Senyap (`appUpdater.ts`, `build-meta.json`, v1.2.8.5)**: Setiap build frontend menerbitkan `__APP_BUILD_ID__` + `dist/build-meta.json` dan mengekspose `buildId` di `/api/health`; shell HTML, `sw.js`, `registerSW.js`, `manifest.webmanifest`, `build-meta.json`, dan `workbox-*.js` dilayani dengan `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`, Workbox memakai `skipWaiting` + `clientsClaim` + `cleanupOutdatedCaches`, dan `appUpdater.ts` melakukan pembersihan cache + `reload()` senyap hanya saat tidak ada modal atau input aktif (anti-loop 30 detik).
+- **Pemisahan Log Aktivitas User (`USER_ACTIVITY_ACTIONS`, `UserActivityLogsTab.tsx`, v1.2.8.5)**: Log login, logout, pencabutan sesi, deteksi token reuse, dan manajemen akun (`buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun`) dikeluarkan dari feed transaksi barang (`GET /api/activities` & `/api/reports/weekly`) dan dipusatkan di `GET /api/auth/user-logs` (izin `users_manage`, Admin & Developer) di dalam kartu **Kelola User**, sekaligus memperbaiki kompatibilitas payload `feature_permissions` pada `PUT /api/auth/users/:id/features` dan paritas kueri memori di `authMemory.ts`.
 - **Ekstraksi `SCAN_SN` Ketat**: Token hasil scan foto/kamera diuji per token terhadap regex ketat tipe (`^...$`) tanpa fallback ke MAC/D-SN/teks mentah.
 
 ## Hasil audit keamanan (disetujui)
@@ -51,8 +54,8 @@ Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENT
 | **Log Aktivitas Append-Only** | Append-only, ID harian (`AKT-YYYYMMDD-NNNN`), koreksi via `correction_of_id` | `ActivityLogService` mencatat log & koreksi append-only tanpa endpoint hapus | **Sesuai** | Pertahankan |
 
 ## Masalah terbuka
-- Tidak ada. Seluruh rangkaian pengujian otomatis (`v1.2.0` s/d `v1.2.8`), `npm run lint`, dan `npm run build` lulus 100%.
+- Tidak ada. Seluruh rangkaian pengujian otomatis (`v1.2.0` s/d `v1.2.8.5`, termasuk `userLogsAndCache.test.ts` 24/24 PASS & `v128Updates.test.ts` 41/41 PASS), `npm run lint`, dan `npm run build` lulus 100%.
 
 ## Catatan kontributor
-- Seluruh rangkaian fitur dan dokumentasi hingga Versi **v1.2.8** telah disinkronkan di root (`README.md`, `DOCUMENTATION.md`, `CHANGELOG.md`, `package.json`) dan `docs/` (`ARCHITECTURE.md`, `DATA.md`, `DEPLOY.md`, `PERAN_DAN_AKSES.md`, `PROGRESS.md`, `STATUS.md`, `CHANGELOG.md`, `SKRIP_CLI.md`, `TEMA_DAN_DESAIN.md`).
+- Seluruh rangkaian fitur dan dokumentasi hingga Versi **v1.2.8.5** telah disinkronkan di root (`README.md`, `DOCUMENTATION.md`, `CHANGELOG.md`, `package.json`) dan `docs/` (`ARCHITECTURE.md`, `DATA.md`, `DEPLOY.md`, `PERAN_DAN_AKSES.md`, `PROGRESS.md`, `STATUS.md`, `CHANGELOG.md`, `SKRIP_CLI.md`, `TEMA_DAN_DESAIN.md`).
 - Dokumen historis di `docs/v1.2.0/`, `docs/LEGACY_AUDIT.md`, dan `AUDIT_REPORT.md` dipertahankan sebagai arsip perjalanan rilis terdahulu.

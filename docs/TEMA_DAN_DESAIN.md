@@ -1,6 +1,6 @@
-# Sistem Tema, Desain & Responsivitas - FieldOps IT (v1.2.8)
+# Sistem Tema, Desain & Responsivitas - FieldOps IT (v1.2.8.5)
 
-Dokumen ini memuat spesifikasi sistem desain, token warna CSS di `frontend/src/index.css`, disiplin *Dark Mode & Zero-Pill*, tipografi, responsivitas layout, serta isolasi cetak A4 pada **FieldOps IT (`v1.2.8`)**.
+Dokumen ini memuat spesifikasi sistem desain, token warna CSS di `frontend/src/index.css`, disiplin *Dark Mode & Zero-Pill*, tipografi, responsivitas layout, serta isolasi cetak A4 pada **FieldOps IT (`v1.2.8.5`)**.
 
 ---
 
@@ -42,6 +42,8 @@ Aplikasi menggunakan **Tailwind CSS v4** (`@import "tailwindcss";` dengan `@cust
    - Kotak Logo kiri atas (`rounded-xl`, `bg-white` / `dark:bg-slate-100`) menjaga logo kubus tetap tajam di mode terang maupun gelap, dengan teks `"FieldOps IT"` responsif (`hidden sm:inline-block` pada layar sempit).
 3. **Modal & Dialog In-App (Tanpa `alert`/`confirm`/`prompt` Native)**:
    - Seluruh notifikasi aksi dan konfirmasi destruktif menggunakan `ToastContext` dan komponen modal in-app (`ConfirmDeleteModal.tsx` & modal penolakan/selesai request) agar kompatibel dengan runtime iframe dan tetap mengikuti tema aktif.
+4. **Kartu & Tab `Log Aktivitas User` (`UserActivityLogsTab.tsx`, `v1.2.8.5`)**:
+   - Menyajikan log login/logout, keamanan sesi, dan manajemen akun langsung di dalam kartu **Kelola User** (`UserRoleSwitcher.tsx`) tanpa kartu bersarang berlebih (*single-elevation*), memakai timestamp WIB `tabular-nums`, lencana status semantik, skeleton loading, serta status kosong/galat yang jelas di mode terang maupun gelap.
 
 ---
 

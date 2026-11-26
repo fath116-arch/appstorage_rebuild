@@ -1,6 +1,6 @@
-# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.8)
+# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.8.5)
 
-Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `14_v128_rbac_wa2_and_features.sql`, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, **Izin Fitur Per Akun**, **Dual WA Gateway**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.8`)**.
+Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `14_v128_rbac_wa2_and_features.sql`, isolasi log aktivitas user (`USER_ACTIVITY_ACTIONS`) dari feed mutasi barang, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, **Izin Fitur Per Akun**, **Dual WA Gateway**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.8.5`)**.
 
 ---
 
@@ -32,7 +32,7 @@ Menyimpan akun pengguna internal kantor dengan **3 peran kanonis** (`developer`,
 
 ### B. Skema Checklist Inspeksi, Multi-Tas Lapangan, & API Keys (`02_inventory_schema.sql`)
 
-> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.8 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
+> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.8.5 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
 
 #### 1. Tabel `checklists` (Inspeksi Harian & Template Multi-Tas Kerja Lapangan)
 Tabel `checklists` menjalankan dua peran melalui kolom `inspection_type`:
@@ -101,7 +101,7 @@ Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04` & `12_unify
 | :--- | :--- | :--- |
 | `id` | `VARCHAR(36)` | Primary Key transaksi |
 | `id_aktivitas` | `VARCHAR(32)` | ID Aktivitas unik harian berbasis kalender WIB (`AKT-YYYYMMDD-NNNN`) |
-| `aksi` | `VARCHAR(64)` | Jenis aksi (`tambah_item`, `barang_keluar`, `impor_katalog`, `ambil_request`, `ajukan_pengembalian`, `kembali_alat`, `kembalikan_request`, `selesai_request`, `buat_tas_kerja`, `ubah_tas_kerja`, `hapus_tas_kerja`, `koreksi_transaksi`, dsb.) |
+| `aksi` | `VARCHAR(64)` | Jenis aksi barang/operasional (`tambah_item`, `barang_keluar`, `impor_katalog`, `ambil_request`, `ajukan_pengembalian`, `kembali_alat`, `kembalikan_request`, `selesai_request`, `buat_tas_kerja`, `ubah_tas_kerja`, `hapus_tas_kerja`, `koreksi_transaksi`, dsb.) maupun aksi user terisolasi (`USER_ACTIVITY_ACTIONS`: `login`, `logout`, `cabut_sesi_otomatis`, `deteksi_token_reuse`, `cabut_seluruh_sesi_admin`, `buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun` yang disaring keluar dari `/api/activities` & `/api/reports/weekly` dan dibaca via `/api/auth/user-logs`) |
 | `pelaku_id` | `VARCHAR(36)` | Referensi pelaku utama |
 | `actor_id` / `actor_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Pelaku lapangan sebenarnya yang menerima/menjalankan mutasi |
 | `recorded_by_id` / `recorded_by_nama` | `VARCHAR(36)` / `VARCHAR(160)` | Petugas yang mencatat transaksi di sistem |

@@ -1,10 +1,10 @@
 # DOKUMEN ARSITEKTUR SISTEM (ARCHITECTURE.MD)
-**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.8)  
+**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.8.5)  
 **Database Mesin**: MariaDB 11.4 LTS (Server Lokal On-Premises, UTC)  
 **Arsitektur**: Decoupled Monorepo (`frontend/` React 19 SPA + `backend/` Express 5 REST API) dengan Model Data Kanonik Tunggal  
-**Status**: Rilis v1.2.8 Terverifikasi Penuh
+**Status**: Rilis v1.2.8.5 Terverifikasi Penuh
 
-> **Pembaruan Arsitektur v1.2.8**: Di atas model data kanonik tunggal (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`), rilis v1.2.8 menutup pendaftaran publik di halaman login (`POST /api/auth/register` → `403`), melebur peran `admin` dan `warehouse_admin` menjadi **`admin`**, menambahkan sistem **Izin Fitur Per Akun (`feature_permissions`)** via slider ON/OFF khusus `developer` dengan middleware `requireFeature()`, menyediakan **Dual WhatsApp Gateway (`gateway1` & `gateway2`)** khusus `developer`, melengkapi **Hapus Massal Multi-Pilih + Konfirmasi `"delete"`** di 5 target katalog/stok, serta menghadirkan **`ImportService`** (`/api/import/*`) untuk impor massal Excel (`.xlsx`/`.csv`) dan Google Spreadsheet publik.
+> **Pembaruan Arsitektur v1.2.8.5**: Menambahkan mekanisme **Anti-Cache Production & Pembaruan Otomatis Senyap** (`vite.config.ts` `__APP_BUILD_ID__` + `dist/build-meta.json`, Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, header `no-store` di `server.ts`, `/api/health` `buildId`, & `appUpdater.ts` safe silent reload), memisahkan seluruh log **login/logout, sesi, dan manajemen akun (`USER_ACTIVITY_ACTIONS`)** dari feed transaksi barang (`GET /api/activities`) ke tab **`Log Aktivitas User`** di dalam kartu Kelola User (`GET /api/auth/user-logs`), memperbaiki payload `feature_permissions` dan audit lengkap rute akun (`routes/auth.ts` + `authMemory.ts`), serta menyelaraskan `npm start` dengan `cross-env` di atas fondasi RBAC & katalog **v1.2.8**.
 
 ---
 
@@ -80,12 +80,12 @@ Sesuai prinsip pemisahan keamanan repositori, data autentikasi/kredensial akun d
    - Katalog bertingkat & Impor (`ImportService`): `jenis` → `atribut` / `atribut_opsi` → `produk` (`kategori_barang`, `tipe_stok`) → `tipe` / `tipe_nilai` (`sumber_id`, `prefix_id`, `pola_id`, `id_dikunci`).
    - Stok & Box: `box` (box campuran) → `item` (unit ber-ID unik dengan `status` & `kondisi`) dan `stok_jumlah` (stok mode `tanpa_id` dengan `reserved_qty`).
    - Permohonan & Paket Tas: `request` (mendukung pengambilan satuan `ambil`, pengambilan paket tas, pengajuan pengembalian `kembalikan`, pengajuan pembelian barang `beli` termasuk barang baru non-katalog `tipe_id = NULL`, serta penandaan `selesai` pemakaian pelanggan/pembelian) dan `checklists` (`TOOLKIT_CHECK` untuk inspeksi harian & `BAG_TEMPLATE` untuk Multi-Tas Kerja Lapangan).
-   - Ledger Append-Only: `transaksi` & `transaksi_detail` dengan ID aktivitas harian `AKT-YYYYMMDD-NNNN`, pemisahan `actor_id` vs `recorded_by_id`, `occurred_at` UTC, dan `correction_of_id`.
+   - Ledger Append-Only: `transaksi` & `transaksi_detail` dengan ID aktivitas harian `AKT-YYYYMMDD-NNNN`, pemisahan `actor_id` vs `recorded_by_id`, `occurred_at` UTC, dan `correction_of_id`. Sejak **v1.2.8.5**, aksi user (`USER_ACTIVITY_ACTIONS`: login, logout, pencabutan sesi, token reuse, & manajemen akun) disaring otomatis dari feed mutasi barang (`GET /api/activities` & laporan mingguan) dan ditampilkan melalui `GET /api/auth/user-logs` di dalam kartu Kelola User.
 3. **Domain Integrasi Eksternal, Dual WA Gateway, & Audit (`02`, `03`, `09`, `13`, `14`)**:
    - `api_keys` untuk integrasi helpdesk (`/api/tickets/consume`).
    - `wa_config` (termasuk `recipient_slots_json` 4 slot bersaklar ON/OFF serta `gateways_json` & `gateway_mode` Dual Gateway khusus `developer`), `wa_thresholds`, `wa_alert_status`, `wa_delivery_logs` untuk notifikasi stok otomatis & pengajuan pembelian barang (selektif `beli`).
    - `audit_logs` untuk catatan jejak perubahan administratif.
-   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.8).*
+   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.8.5).*
 
 ---
 

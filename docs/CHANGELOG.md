@@ -1,8 +1,24 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.2.8-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.8.5-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+---
+
+## 🚀 [v1.2.8.5] - Pembaruan Otomatis Senyap Production, Anti-Cache PWA/Proxy, Pemisahan Log Aktivitas User ke Kartu Kelola User, & Kompatibilitas Start Production - 2026-11-26
+Fokus rilis pemeliharaan & penyempurnaan dari pembaruan 6 jam terakhir hingga rilis terbaru:
+- **1. Kontrol Cache Production & Muat Ulang Otomatis Senyap Tanpa Hapus Cache Browser Manual**:
+  - **Identitas Build & Workbox PWA (`frontend/vite.config.ts`, `frontend/src/vite-env.d.ts`)**: Menghasilkan `__APP_BUILD_ID__` unik tiap build dan `dist/build-meta.json` (`fieldops-build-meta`), mengaktifkan `skipWaiting: true`, `clientsClaim: true`, dan `cleanupOutdatedCaches: true`, mengecualikan `/build-meta.json` & `/api/*` di `navigateFallbackDenylist`, memperbaiki `devOptions.enabled: true` (boolean), serta menyelaraskan deskripsi manifest PWA menjadi `"data barang"`.
+  - **Header Anti-Cache Server & `/api/health` (`backend/src/server.ts`)**: `GET /api/health` mengekspos `version: '1.2.8.5'`, `buildId`, & `builtAt` tanpa cache. Shell `index.html`, `sw.js`, `registerSW.js`, `manifest.webmanifest`, `build-meta.json`, dan `workbox-*.js` dikirim dengan `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`, sedangkan aset hash `/assets/*` tetap di-cache 1 tahun `immutable`.
+  - **Auto-Updater Aman (`frontend/src/utils/appUpdater.ts`, `frontend/src/main.tsx`)**: Mengecek pembaruan Service Worker & membandingkan `buildId` server saat buka halaman, `visibilitychange`, `focus`, dan interval 5 menit. Jika versi berubah, browser membersihkan cache lama dan reload senyap hanya saat tidak ada modal (`z-50`/`[role="dialog"]`) atau input aktif, dengan jeda anti-loop 30 detik di `sessionStorage`.
+- **2. Pemisahan Log Aktivitas Login/Logout, Sesi, & Manajemen Akun ke Kartu Kelola User**:
+  - **Isolasi Feed Inventaris (`activityLogService.ts`, `authMemory.ts`)**: Mengecualikan `USER_ACTIVITY_ACTIONS` (`login`, `logout`, `cabut_sesi_otomatis`, `deteksi_token_reuse`, `cabut_seluruh_sesi_admin`, `buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun`) secara bawaan dari `GET /api/activities` & `GET /api/reports/weekly` agar *Riwayat Barang Masuk & Keluar* murni berisi mutasi barang/operasional; menyelaraskan kueri `IN` / `NOT IN`, pencarian `LIKE`, & pengayaan `username_pelaku` pada adapter memori `authMemory.ts`.
+  - **Audit Akun Lengkap & Endpoint `GET /api/auth/user-logs` (`routes/auth.ts`)**: Mencatat audit non-blocking seluruh aksi manajemen akun (`buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `reset_sandi`, `hapus_akun`), memperbaiki `PUT /api/auth/users/:id/features` agar kompatibel dengan payload `feature_permissions` maupun `featurePermissions` + reset `null`, serta menambahkan `GET /api/auth/user-logs` (`requireAuth` + `requireFeature('users_manage')`, Admin & Developer) dengan filter kategori (`all` | `auth` | `session` | `account`) dan pencarian.
+  - **Tab `Log Aktivitas User` di Kartu Kelola User (`UserActivityLogsTab.tsx`, `UserRoleSwitcher.tsx`, `api.ts`)**: Menyajikan log otentikasi, sesi, & manajemen akun di dalam kartu **Kelola User** dengan filter kategori, pencarian, timestamp WIB `tabular-nums`, lencana semantik, skeleton loading, & state kosong/error.
+- **3. Start Production Cross-Platform & Pengujian (`package.json`, `userLogsAndCache.test.ts`)**:
+  - Memperbarui skrip `"start"` menjadi `cross-env NODE_ENV=production tsx backend/src/server.ts`.
+  - Terverifikasi melalui `backend/src/tests/userLogsAndCache.test.ts` (**24/24 LULUS**), `v128Updates.test.ts` (**41/41 LULUS**), `npm run lint`, & `npm run build`.
 
 ---
 

@@ -1,6 +1,6 @@
 # Panduan Lengkap Skrip CLI & Setup Sistem (`SKRIP_CLI.md`)
 
-**Aplikasi**: FieldOps IT Inventory (`v1.2.8`)  
+**Aplikasi**: FieldOps IT Inventory (`v1.2.8.5`)  
 **Cakupan**: Seluruh skrip NPM (`package.json`) dan utilitas CLI di `backend/src/scripts/`
 
 Dokumen ini menjadi referensi resmi seluruh perintah terminal yang tersedia di **FieldOps IT**, baik untuk instalasi awal server, konfigurasi integrasi (MariaDB, Cloudflare Tunnel, WhatsApp Fonnte), pemeriksaan kesehatan sistem, pemulihan Kotak Sampah 14 hari, maupun kompilasi & runtime aplikasi.
@@ -44,7 +44,7 @@ Seluruh skrip setup mendukung **mode interaktif** (tanya-jawab di terminal) seka
 | Perintah | Perintah Internal | Fungsi Utama |
 | :--- | :--- | :--- |
 | `npm run dev` | `tsx backend/src/server.ts` | Menjalankan server Express 5 + Vite middleware pada mode pengembangan di port `3000`. |
-| `npm run start` | `NODE_ENV=production tsx backend/src/server.ts` | Menjalankan server produksi (Express API + aset frontend terkompilasi dari `dist/`). |
+| `npm run start` | `cross-env NODE_ENV=production tsx backend/src/server.ts` | Menjalankan server produksi (Express API + aset frontend terkompilasi dari `dist/` dengan header anti-cache & dukungan lintas OS Windows/Linux). |
 | `npm run build` | `npm run build:frontend` | Memicu proses build frontend produksi ke direktori `dist/`. |
 | `npm run build:frontend` | `vite build --outDir dist frontend` | Membundel aplikasi React 19 + Tailwind CSS v4 menggunakan Vite. |
 | `npm run build:backend` | `tsc --noEmit` | Memeriksa ketepatan tipe TypeScript (`tsconfig.json`) tanpa menghasilkan file keluaran JS. |
@@ -225,13 +225,9 @@ docker compose exec backend npm run sampah -- --list
 
 Seluruh konfigurasi CLI di atas juga tersedia melalui tab **Setting** di antarmuka web FieldOps IT tanpa perlu membuka terminal server:
 
-- **Peran `admin` & `developer`** dapat mengakses seluruh kartu di tab **Setting**:
-  1. **Status & Cek Sistem** (`/api/setup/check` & `/api/setup/test-login` — setara `npm run setup:check` & `npm run setup:test-login`)
-  2. **Koneksi Database MariaDB** (`/api/setup/database` — setara `npm run setup:db`)
-  3. **Cloudflare Tunnel (HTTPS)** (`/api/setup/tunnel` — setara `npm run setup:tunnel`)
-  4. **Notifikasi WhatsApp Alert** (`/api/setup/whatsapp` & `/api/whatsapp/*` — setara `npm run setup:wa`)
-  5. **Manajemen Pengguna & Akses**, **Pengaturan Pola Serial Number (SN)**, **Database, Backup & Kotak Sampah**, **Laporan Keamanan & Audit**, serta **Integrasi Tiket Eksternal**.
-- **Peran `warehouse_admin` (Admin Gudang)** juga dapat membuka tab **Setting**, namun dibatasi **hanya untuk fitur yang relevan bagi operasional gudang**:
-  1. **Notifikasi WhatsApp Alert** (penerima, ambang stok berjenjang, pantauan produk, uji kirim & log pengiriman; *Token/URL Fonnte dikunci khusus `admin`/`developer`*).
-  2. **Pengaturan Pola Serial Number (SN)** (mengelola pola regex ekstraksi SN scanner & daftar normalisasi).
-- **Peran `technician`** tidak memiliki akses ke tab **Setting**.
+- **Peran `developer`** dapat mengakses seluruh kartu di tab **Setting** (termasuk Setup `.env`, Cek Sistem, Atur Fitur Slider Per Akun, Dual WhatsApp Gateway, API Key Tiket, Backup & Sampah).
+- **Peran `admin`** dapat mengakses kartu operasional di tab **Setting**:
+  1. **Manajemen Pengguna & `Log Aktivitas User`** (kelola akun `admin` & `technician`, serta lihat log login/logout/sesi/manajemen akun di `GET /api/auth/user-logs`).
+  2. **Notifikasi WhatsApp Alert** (4 slot penerima ON/OFF, ambang stok berjenjang, pantauan produk, uji kirim & log pengiriman; *Gateway URL/Token dikunci khusus `developer`*).
+  3. **Pengaturan Pola Serial Number (SN)** (`/api/sn-patterns`) & **Laporan Keamanan / Audit**.
+- **Peran `technician`** tidak memiliki akses bawaan ke tab **Setting** (kecuali diberi izin fitur tertentu melalui slider **Atur Fitur** oleh `developer`).

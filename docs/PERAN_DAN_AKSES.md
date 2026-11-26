@@ -1,6 +1,6 @@
-# Peran, Hak Akses & Keamanan Sesi - FieldOps IT (v1.2.8)
+# Peran, Hak Akses & Keamanan Sesi - FieldOps IT (v1.2.8.5)
 
-Dokumen ini mendefinisikan **Role-Based Access Control (RBAC)** server-authoritative, sistem **Izin Fitur Per Akun** (`feature_permissions`), alur autentikasi PBKDF2, manajemen sesi cookie server (`sesi`), serta mekanisme konfirmasi bertingkat (*Tier 0–3*) pada **FieldOps IT (`v1.2.8`)**.
+Dokumen ini mendefinisikan **Role-Based Access Control (RBAC)** server-authoritative, sistem **Izin Fitur Per Akun** (`feature_permissions`), audit **Log Aktivitas User** terpisah (`GET /api/auth/user-logs`), alur autentikasi PBKDF2, manajemen sesi cookie server (`sesi`), serta mekanisme konfirmasi bertingkat (*Tier 0–3*) pada **FieldOps IT (`v1.2.8.5`)**.
 
 ---
 
@@ -30,15 +30,16 @@ Definisi hak akses dipusatkan di `backend/src/utils/permissions.ts` dan disinkro
 | **Batas Tanggal Mundur (`occurred_at` Backdate)** | **Maks. 7 Hari** | **Tanpa Batas** | **Tanpa Batas** |
 | **Tab Setting — WA Alert 4 Slot Penerima ON/OFF & Ambang** (`POST /api/whatsapp/*`) | ❌ *(403)* | ✅ *(Tanpa Gateway)* | ✅ |
 | **Tab Setting — Pengaturan Pola Serial Number (SN)** (`/api/sn-patterns`) | ❌ *(403)* | ✅ | ✅ |
-| **Tab Setting — Kelola Akun (Buat, Setujui, Reset, Hapus)** (`/api/auth/users`) | ❌ *(403)* | ✅ *(Hanya `admin` & `technician`)* | ✅ *(Termasuk `developer`)* |
+| **Tab Setting — Kelola Akun (Buat, Setujui, Reset, Hapus) & Tab `Log Aktivitas User`** (`/api/auth/users`, `GET /api/auth/user-logs`) | ❌ *(403)* | ✅ *(Kelola `admin` & `technician`; lihat seluruh log user)* | ✅ *(Termasuk `developer`)* |
 | **Tab Setting — Atur Fitur Per Akun (Slider ON/OFF)** (`PUT /api/auth/users/:id/features`) | ❌ *(403)* | ❌ *(403)* | ✅ *(Khusus Developer)* |
 | **Tab Setting — Dual WhatsApp Gateway 1 & 2 (URL, Token, Uji Gateway)** (`/api/whatsapp/test-gateway`) | ❌ *(403)* | ❌ *(403)* | ✅ *(Khusus Developer)* |
 | **Tab Setting — Setup `.env` (DB, Cloudflare Tunnel), Cek Sistem, API Key Tiket, Backup & Sampah** (`/api/setup/*`) | ❌ *(403)* | ❌ *(403)* | ✅ *(Khusus Developer)* |
 
 ### 🎛️ Kustomisasi Fitur Per Akun (`feature_permissions`, Khusus `developer`)
-Selain wewenang bawaan per peran di atas, peran **`developer`** dapat menyalakan atau mematikan masing-masing dari **21 fitur (`FEATURE_CATALOG`)** untuk akun non-developer mana pun melalui menu **Setting → Manajemen Pengguna → Atur Fitur** dengan saklar slider ON/OFF (`PUT /api/auth/users/:id/features`).
+Selain wewenang bawaan per peran di atas, peran **`developer`** dapat menyalakan atau mematikan masing-masing dari **21 fitur (`FEATURE_CATALOG`)** untuk akun non-developer mana pun melalui menu **Setting → Manajemen Pengguna → Atur Fitur** dengan saklar slider ON/OFF (`PUT /api/auth/users/:id/features`, menerima properti `feature_permissions` maupun `featurePermissions`).
 - Jika saklar disetel khusus (`true`/`false`), nilai tersebut menjadi izin efektif akun pada UI maupun middleware backend `requireFeature('<feature_key>')`.
 - Tombol **Reset ke Bawaan Peran** menghapus seluruh override (`null`) agar akun kembali mengikuti hak akses bawaan perannya.
+- Sejak **v1.2.8.5**, setiap aktivitas login, logout, pencabutan sesi, token reuse, dan aksi manajemen akun (`buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun`) dipisahkan dari *Riwayat Barang Masuk & Keluar* ke tab **`Log Aktivitas User`** di dalam kartu **Kelola User** (`GET /api/auth/user-logs`, memerlukan izin fitur `users_manage` — dimiliki `admin` & `developer`).
 - Hak istimewa tingkat sistem (`Atur Fitur`, `Dual WA Gateway`, pengelolaan akun `developer`) **tidak** dapat didelegasikan ke peran non-developer.
 
 > **Catatan Aturan Khusus**:

@@ -1,6 +1,6 @@
 # PANDUAN DEPLOYMENT & OPERASIONAL SERVER (DEPLOY.MD)
 
-**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.8)  
+**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.8.5)  
 **Infrastruktur**: Docker Container (Ubuntu Server / Windows Docker Desktop) / Native Node.js  
 **Database**: MariaDB 11.4 LTS (Container Terisolasi / Standalone)  
 **Akses Jarak Jauh**: Cloudflare Tunnel (HTTPS Tanpa Buka Port Router)
@@ -132,11 +132,12 @@ Bila terdapat pembaruan kode aplikasi dari repositori Git, lakukan langkah pemba
    ```bash
    docker compose up -d --build
    ```
-4. **Periksa Status Server**:
+4. **Periksa Status Server & Pembaruan Otomatis Klien**:
    ```bash
    docker compose ps
    docker compose logs -f backend
    ```
+   *(Sejak **v1.2.8.5**, setelah server selesai dibangun ulang/restart dengan `buildId` baru, browser pengguna tidak perlu lagi menghapus cache secara manual: shell `index.html`, `sw.js`, dan `build-meta.json` menggunakan header `no-store`, dan `appUpdater.ts` memuat ulang halaman secara senyap begitu tab dibuka atau aman tanpa modal/input aktif).*
 
 ---
 
@@ -309,21 +310,21 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
    npm run setup:check
    ```
 
-7. **Jalankan Aplikasi Produksi**:
+7. **Jalankan Aplikasi Produksi (`cross-env NODE_ENV=production`)**:
    ```bash
    npm start
    ```
-   *Aplikasi kini aktif dan dapat diakses dari PC lain di jaringan lokal melalui `http://<IP-SERVER-KANTOR>:3000`.*
+   *Menggunakan `cross-env` agar berjalan lancar di Windows PowerShell/CMD maupun Linux. Aplikasi kini aktif di `http://<IP-SERVER-KANTOR>:3000` dengan sinkronisasi otomatis versi build produksi.*
 
 ---
 
-## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.8)
+## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.8.5)
 
 | Prefix Route | Endpoint Terverifikasi | Keterangan |
 | :--- | :--- | :--- |
-| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.8`, `buildId` sinkronisasi klien production, & status UTC MariaDB |
+| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.8.5`, `buildId` & `builtAt` sinkronisasi anti-cache production (`no-store`), & status UTC MariaDB |
 | `/api/setup` | `GET /status`, `POST /check`, `POST /database`, `POST /tunnel`, `POST /whatsapp`, `POST /test-login` | Diagnostik koneksi sistem (`.env`, DB, Admin, WA, Cloudflare Tunnel), tes login 6 tahap, simpan konfigurasi ke `.env`, reload pool DB, & katalog CLI (`developer` melalui `requireFeature`) |
-| `/api/auth` | `POST /login`, `/register` *(403 Closed)*, `/refresh`, `/logout`, `/reset-password`, `/confirm-token`; `GET /me`, `/actors`, `/user-logs` *(Admin/Developer `users_manage`)*; `GET/POST/DELETE /users`, `PUT /users/:id/features` *(Developer)*, `POST /users/:id/(approve\|reject\|status\|reset-password\|revoke-sessions)`; `GET /settings`, `PUT /settings/:key`; `GET /activity-logs`, `/activity-logs/:id/details`; `GET /trash`, `POST /trash/purge` | Autentikasi cookie HTTP-only 30 hari, registrasi publik ditutup (`403`), RBAC 3 peran + izin fitur per akun, log terpisah login/logout/sesi/akun, konfirmasi Tier 2/3 (`"delete"` untuk penghapusan), & tempat sampah 14 hari |
+| `/api/auth` | `POST /login`, `/register` *(403 Closed)*, `/refresh`, `/logout`, `/reset-password`, `/confirm-token`; `GET /me`, `/actors`, `/user-logs` *(Admin/Developer `users_manage`)*; `GET/POST/DELETE /users`, `PUT /users/:id/features` *(Developer)*, `POST /users/:id/(approve\|reject\|status\|reset-password\|revoke-sessions)`; `GET /settings`, `PUT /settings/:key`; `GET /activity-logs`, `/activity-logs/:id/details`; `GET /trash`, `POST /trash/purge` | Autentikasi cookie HTTP-only 30 hari, registrasi publik ditutup (`403`), RBAC 3 peran + izin fitur per akun (`feature_permissions`/`featurePermissions`), log terpisah login/logout/sesi/manajemen akun, konfirmasi Tier 2/3 (`"delete"` untuk penghapusan), & tempat sampah 14 hari |
 | `/api/catalog` | `GET /jenis`, `/jenis/:id`, `POST/PUT/DELETE /jenis/:id`, `DELETE /jenis/bulk`; `GET /jenis/:id/attributes`, `POST/PUT/DELETE /attributes/:id`, `DELETE /attributes/bulk`, `POST /attributes/:id/options`; `GET /tipe-stok-suggestions`; `GET/POST/PUT/DELETE /products/:id`, `DELETE /products/bulk`; `GET /products/:id/types`, `POST /types`, `PUT /types/:id/id-rule`; `GET /labels` | Manajemen penuh & hapus massal Kategori, Atribut, Opsi, Produk, Varian Tipe, aturan ID (`id_dikunci`), proteksi stok aktif, & data cetak label A4 |
 | `/api/import` | `GET /template`, `POST /preview`, `POST /commit` | Unduh template `.xlsx`, pratinjau validasi dari file Excel/CSV atau URL Google Spreadsheet publik, & impor atomik Katalog + Box + Stok Awal (`catalog_import`) |
 | `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move`, `DELETE /:id`, `DELETE /bulk` | Manajemen storage box campuran, relokasi antar box, & hapus tunggal/massal box kosong terproteksi |

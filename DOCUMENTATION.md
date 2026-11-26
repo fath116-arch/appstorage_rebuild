@@ -1,6 +1,6 @@
 # DOCUMENTATION.md - Dokumentasi Teknis & Panduan Operasional FieldOps IT
 
-![System Version](https://img.shields.io/badge/System_Version-v1.2.8-emerald.svg)
+![System Version](https://img.shields.io/badge/System_Version-v1.2.8.5-emerald.svg)
 ![React](https://img.shields.io/badge/React-19.3.0-61DAFB?logo=react)
 ![Express](https://img.shields.io/badge/Express-5.0.0-000000?logo=express)
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.4_LTS-003545?logo=mariadb)
@@ -9,7 +9,7 @@
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.3.3-38BDF8?logo=tailwindcss)
 ![Node](https://img.shields.io/badge/Node.js-22+_LTS-339933?logo=node.js)
 
-Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.8`)**.
+Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, pembaruan otomatis produksi anti-cache, pemisahan log aktivitas user, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.8.5`)**.
 
 ---
 
@@ -102,10 +102,11 @@ CLOUDFLARE_PUBLIC_URL=
    npm run lint
    npm run build
    ```
-5. **Jalankan Mode Produksi**:
+5. **Jalankan Mode Produksi (`cross-env NODE_ENV=production`)**:
    ```bash
    npm start
    ```
+   *(Menjalankan Express 5 dalam mode produksi yang melayani aset dari `dist/` dengan header anti-cache pada shell HTML/SW/`build-meta.json` dan auto-update klien senyap).*
 6. **Perintah Pemeliharaan CLI Tambahan**:
    - `npm run sampah -- --list` / `--pulihkan <id> [--dry-run]` / `--purge`: Kelola & pulihkan data di Kotak Sampah 14 hari (`sampah_hapus`).
    - `npm run test:backup`: Verifikasi integritas ekspor/impor backup JSON bebas akun.
@@ -157,26 +158,32 @@ CLOUDFLARE_PUBLIC_URL=
    - Memverifikasi sesi aktif langsung dari server (`GET /api/auth/me`) tanpa menyimpan token sesi maupun peran di `localStorage`.
    - Mendukung **3 peran kanonis** (`developer`, `admin`, `technician`) hasil peleburan `admin` + `warehouse_admin` beserta kustomisasi 21 izin fitur per akun via slider ON/OFF (`isFeatureEnabled(user, key)`).
    - `LoginScreen.tsx` hanya melayani **Login** dan **Lupa Kata Sandi** (pendaftaran publik ditutup total).
-2. **`InventoryContext.tsx`**:
+2. **`utils/appUpdater.ts`, `main.tsx`, & `vite.config.ts` (Anti-Cache & Auto-Update Production)**:
+   - Setiap kompilasi menghasilkan `__APP_BUILD_ID__` unik dan berkas `dist/build-meta.json` (`fieldops-build-meta`), dengan Workbox `skipWaiting: true`, `clientsClaim: true`, `cleanupOutdatedCaches: true`, serta `navigateFallbackDenylist` untuk `/api/*` & `/build-meta.json`.
+   - Saat buka halaman, `visibilitychange`, `focus`, maupun polling 5 menit, `appUpdater.ts` membandingkan `__APP_BUILD_ID__` dengan `buildId` di `GET /api/health` dan memperbarui Service Worker lalu melakukan reload senyap hanya saat aman (tidak ada dialog/modal `z-50` atau input aktif, plus anti-loop 30 detik `sessionStorage`).
+3. **`InventoryContext.tsx`**:
    - Mengelola sinkronisasi satu sumber data kanonik dari endpoint `/api/catalog/*`, `/api/boxes`, `/api/stock/*`, `/api/activities`, dan `/api/requests/*`.
    - Setiap mutasi otomatis memanggil `refreshData()`, ditambah **auto-refresh senyap setiap 5 menit** yang sadar visibilitas tab (`visibilitychange`).
-3. **`ToastContext.tsx` & `ThemeContext.tsx`**:
+4. **`ToastContext.tsx` & `ThemeContext.tsx`**:
    - `ToastContext` menggantikan dialog `alert()`/`confirm()` bawaan browser dengan toast dan modal in-app (`ConfirmDeleteModal.tsx` dengan konfirmasi ketik **`delete`** untuk aksi penghapusan).
    - `ThemeContext` mengelola preferensi `light`, `dark`, dan `system` melalui kelas `.dark` dan token CSS di `frontend/src/index.css`.
-4. **Komponen Operasional Utama**:
+5. **Komponen Operasional Utama**:
+   - **Manajemen Pengguna & Log Aktivitas User**: `UserRoleSwitcher.tsx` memuat kartu **Kelola User** lengkap dengan saklar **Atur Fitur** (`developer`) dan tab baru **`Log Aktivitas User`** (`UserActivityLogsTab.tsx`, akses Admin & Developer) untuk memantau login, logout, pencabutan sesi, token reuse, dan manajemen akun terpisah dari riwayat barang.
    - **Katalog, Box, Hapus Massal, & Impor**: `CatalogV2Manager.tsx` (subtab `Produk`, `Kategori`, `Storage Box`, `Kelola`, hapus massal multi-pilih untuk Produk/Kategori/Atribut/Box), `BoxContentModal.tsx` (termasuk hapus massal Item Fisik Ber-ID), `CatalogImportModal.tsx` (Template Excel & Impor `.xlsx`/`.csv`/Google Spreadsheet publik), dan `BatchLabelPrintModal.tsx`.
    - **Mutasi & Scanner**: `StockInputModal.tsx` (`SCAN_SN` ketat + Uji Regex + `useBarcodeScanner.ts`), `StockInOutModal.tsx` (Keranjang Keluar multi-item + Hubungkan ke Request).
    - **Request & Tas Kerja**: `TechnicianRequestsView.tsx` (Ambil Satuan, Pilih Paket Tas, Kembalikan dengan 3 kondisi, Pengajuan Pembelian Barang `beli` + WA selektif, Selesai Terpakai/Sudah Dibeli), `FieldTripChecklistModal.tsx` (Inspeksi Harian + Manajemen Multi-Tas Kerja Kantor).
-   - **Laporan & Audit**: `TransactionHistory.tsx` (Ledger append-only + Catat Koreksi Audit), `WeeklyReport.tsx` (Senin–Minggu WIB, ekspor `.xlsx` ExcelJS tersanitasi CWE-1236, `PrintReportModal.tsx`, `PrintDocumentModal.tsx`, serta editor Kop Surat & Lembar Pengesahan `REPORT_APPROVAL_CONFIG`).
+   - **Laporan & Audit**: `TransactionHistory.tsx` (Ledger append-only khusus mutasi barang + Catat Koreksi Audit), `WeeklyReport.tsx` (Senin–Minggu WIB, ekspor `.xlsx` ExcelJS tersanitasi CWE-1236, `PrintReportModal.tsx`, `PrintDocumentModal.tsx`, serta editor Kop Surat & Lembar Pengesahan `REPORT_APPROVAL_CONFIG`).
    - **Notifikasi WhatsApp**: `WhatsAppConfigModal.tsx` & `WaConfigTab.tsx` (4 slot nomor penerima dengan saklar ON/OFF individual + **Dual Gateway ON/OFF** khusus `developer`).
 
 ### C. Modul Layanan Backend (`backend/src/`)
-1. **Keamanan, Sesi, & Kriptografi**:
+1. **Keamanan, Sesi, Kriptografi, & Kontrol Cache Production**:
    - Kata sandi di-hash dengan **PBKDF2 SHA-256** (100.000 iterasi, 16-byte random salt).
    - Token sesi (`fieldops_access`, `fieldops_refresh`, `fieldops_device`, `fieldops_session`) disimpan sebagai cookie **HttpOnly**, divalidasi di tabel `sesi` dengan rotasi refresh token anti-replay.
    - Aksi sensitif ditegakkan di server oleh `ConfirmationService` (`token_konfirmasi` sekali pakai, TTL 120 detik, Tingkat 0–3).
-2. **Transaksi Atomik & Zona Waktu (`timezone.ts`)**:
+   - `server.ts` menyajikan `GET /api/health` (`buildId`, `builtAt`, `version: '1.2.8.5'`) serta file `index.html`, `sw.js`, `registerSW.js`, `manifest.webmanifest`, `build-meta.json`, dan `workbox-*.js` dengan header `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`, sedangkan `/assets/*` memakai cache `max-age=31536000, immutable`.
+2. **Transaksi Atomik, Isolasi Log User, & Zona Waktu (`timezone.ts`)**:
    - Server mengunci `process.env.TZ = 'UTC'` untuk penyimpanan konsisten di MariaDB, sementara seluruh tampilan UI, perhitungan ID Aktivitas (`AKT-YYYYMMDD-NNNN`), dan rekap laporan menggunakan zona waktu **WIB (`Asia/Jakarta`)**.
+   - `ActivityLogService` & `authMemory.ts` mengecualikan `USER_ACTIVITY_ACTIONS` dari feed barang (`GET /api/activities` & `GET /api/reports/weekly`) dan menyediakannya melalui `getUserActivityLogs()` (`GET /api/auth/user-logs`), sementara `routes/auth.ts` mencatat penuh aktivitas akun (`buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun`).
    - Mutasi stok (`StockService`, `RequestService`, `TicketIntegration`) dijalankan dalam `runTransaction()` untuk mencegah *race condition* dan menjaga konsistensi stok fisik vs reservasi (`dipesan` / `reserved_qty`).
 
 ---
@@ -185,9 +192,9 @@ CLOUDFLARE_PUBLIC_URL=
 
 Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie sesi server (`requireAuth` & `requireFeature`), kecuali `/api/health`, `/api/auth/login`, `/api/auth/reset-password`, dan webhook `/api/tickets/consume` (menggunakan `X-API-Key` atau `Bearer <api_key>`). Endpoint `POST /api/auth/register` mengembalikan `HTTP 403 Forbidden`:
 
-- **Autentikasi & Administrasi (`/api/auth`)**: Login/refresh/logout, profil `/me`, daftar `/actors`, manajemen `/users` (`admin` terbatas `admin`/`technician`), `/users/:id/features` (izin fitur slider khusus `developer`), `/confirm-token` (ketik `"delete"` untuk penghapusan), `/settings`, dan `/trash`.
+- **Autentikasi, Log User, & Administrasi (`/api/auth`)**: Login/refresh/logout, profil `/me`, daftar `/actors`, **`GET /user-logs`** (log login/logout/sesi/akun untuk Admin & Developer dengan `users_manage`), manajemen `/users` (`admin` terbatas `admin`/`technician`), `/users/:id/features` (izin fitur slider khusus `developer`, mendukung `feature_permissions` & `featurePermissions`), `/confirm-token` (ketik `"delete"` untuk penghapusan), `/settings`, dan `/trash`.
 - **Katalog, Impor, & Storage Box (`/api/catalog`, `/api/import`, `/api/boxes`)**: CRUD & hapus massal (`/bulk`) Kategori (`jenis`), Atribut & Opsi, Produk, Varian Tipe, aturan ID (`/types/:id/id-rule`), label cetak A4 (`/labels`), impor Excel/Google Sheet (`/api/import/{template,preview,commit}`), serta manajemen Storage Box (`/boxes/bulk` & `/boxes/move`).
-- **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, hapus tunggal/massal item fisik ber-ID (`/items/:id`, `/items/bulk`), serta feed aktivitas & koreksi append-only (`/activities/:id/correct`).
+- **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, hapus tunggal/massal item fisik ber-ID (`/items/:id`, `/items/bulk`), serta feed mutasi barang (tanpa log login/logout/akun) & koreksi append-only (`/activities/:id/correct`).
 - **Request & Multi-Tas (`/api/requests`, `/api/checklists`)**: Permohonan ambil satuan, paket tas (`/requests/bag`), pengembalian (`request_type: 'kembalikan'`), pengajuan pembelian barang (`request_type: 'beli'` dengan WA selektif), persetujuan, serah terima (`/pickup`), verifikasi kembali (`/return`), selesai pemakaian/pembelian (`/complete`), barang di tangan teknisi (`/held`), dan CRUD Multi-Tas (`/checklists/bags`).
 - **Laporan, Pola SN, Dual WA Gateway, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly`, `/debug-clock`, & `/approval-config`, `/api/sn-patterns`, `/api/whatsapp/*` (4 slot ON/OFF + **Dual Gateway** & `/test-gateway` khusus `developer`), `/api/setup/*` (`SystemSetupService` + `test-login`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
 
@@ -224,3 +231,4 @@ Seluruh fungsi ekspor CSV (`/api/reports/export/csv`) dan ExcelJS (`frontend/src
 | **Gagal terhubung ke MariaDB saat startup** | Layanan MariaDB belum siap atau kredensial `.env` salah | Periksa `DB_HOST`, `DB_USER`, `DB_PASSWORD`, dan status container `docker compose ps`. |
 | **Notifikasi WhatsApp tidak terkirim** | Token Fonnte kosong, akun di luar jam aktif, atau tertahan jeda *cooldown* 15 menit | Cek konfigurasi di **Setting → Notifikasi WhatsApp Alert** dan log pengiriman `GET /api/whatsapp/logs`. |
 | **Pencetakan Label A4 meluap ke 2 halaman** | Pengaturan margin cetak browser aktif | Pastikan skala cetak 100%, ukuran kertas A4, dan margin default CSS `@page { margin: 0 }` tidak ditimpa printer. |
+| **Tampilan web tertahan di build produksi lama** | Cache proxy/reverse proxy eksternal menyimpan shell lama | Sejak `v1.2.8.5`, shell HTML, `sw.js`, dan `build-meta.json` mengirim header `no-store` serta `appUpdater.ts` memuat ulang otomatis saat aman; jika memakai CDN/proxy eksternal, pastikan `Cache-Control: no-store` tidak di-override. |

@@ -1,6 +1,6 @@
 # FieldOps IT - Sistem Manajemen Inventaris & Operasional Teknisi Lapangan
 
-![Version](https://img.shields.io/badge/version-v1.2.8-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.8.5-emerald.svg)
 ![React](https://img.shields.io/badge/React-19.3.0-61DAFB?logo=react)
 ![Express](https://img.shields.io/badge/Express-5.0.0-000000?logo=express)
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.4_LTS-003545?logo=mariadb)
@@ -12,8 +12,15 @@ FieldOps IT adalah aplikasi web manajemen inventaris data barang, pencatatan mut
 
 ---
 
-## 🌟 Fitur Utama (v1.2.8)
+## 🌟 Fitur Utama (v1.2.8.5)
 
+- **Pembaruan Otomatis Senyap Production & Anti-Cache Browser/Proxy *(Baru di v1.2.8.5)***:
+  - Build produksi menyertakan `build-meta.json` (`__APP_BUILD_ID__`), Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, serta header HTTP anti-cache ketat (`no-store, no-cache, must-revalidate`) pada HTML, manifest, dan skrip Service Worker (`GET /api/health` mengekspos `buildId`).
+  - Browser klien mendeteksi build server terbaru saat buka halaman, perpindahan tab, maupun interval 5 menit, lalu memperbarui cache dan memuat ulang otomatis secara senyap saat tidak ada modal/input aktif — tanpa perlu hapus cache browser manual setelah update server.
+- **Pemisahan Log Aktivitas User ke Kartu Kelola User *(Baru di v1.2.8.5)***:
+  - Aktivitas login, logout, pencabutan sesi, deteksi token reuse, dan manajemen akun (`buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun`) dipisahkan dari *Riwayat Barang Masuk & Keluar* (`GET /api/activities` & laporan mingguan) ke tab **`Log Aktivitas User`** di dalam kartu **Kelola User** (`GET /api/auth/user-logs`, akses Admin & Developer).
+- **Kompatibilitas Start Production Cross-Platform *(Baru di v1.2.8.5)***:
+  - Skrip `npm start` memakai `cross-env NODE_ENV=production tsx backend/src/server.ts` agar berjalan seragam di Windows maupun Linux/Docker.
 - **Satu Model Data Kanonik Terpadu (`jenis → produk → tipe → item / stok_jumlah`) & Auto-Refresh Senyap 5 Menit**:
   - Seluruh menu (Dashboard, Katalog Data Barang, Input Barang Masuk, Output Barang Keluar, Request Teknisi, Riwayat Transaksi, & Laporan Mingguan) membaca satu sumber data kanonik, otomatis sinkron pasca-mutasi, serta menyegarkan data secara senyap setiap **5 menit** di latar belakang (`InventoryContext`).
 - **Katalog Terkelola, Hapus Massal + Konfirmasi `"delete"`, & Impor Excel / Google Spreadsheet**:
@@ -85,16 +92,16 @@ FieldOps IT adalah aplikasi web manajemen inventaris data barang, pencatatan mut
 
 Seluruh dokumen teknis dan operasional sistem tersedia di root proyek dan direktori [`docs/`](./docs/):
 
-- 📖 [**Dokumentasi Teknis Lengkap (`DOCUMENTATION.md`)**](./DOCUMENTATION.md) — Panduan setup `.env`, arsitektur modul frontend/backend, panduan API, dan pemeliharaan sistem.
+- 📖 [**Dokumentasi Teknis Lengkap (`DOCUMENTATION.md`)**](./DOCUMENTATION.md) — Panduan setup `.env`, arsitektur modul frontend/backend, anti-cache production, panduan API, dan pemeliharaan sistem.
 - 🧰 [**Panduan Skrip CLI & Setup Sistem (`docs/SKRIP_CLI.md`)**](./docs/SKRIP_CLI.md) — Daftar lengkap & penjelasan fungsi seluruh skrip NPM (`setup:db`, `setup:admin`, `setup:tunnel`, `setup:wa`, `setup:check`, `setup:help`, `sampah`, `test:backup`, `dev`, `build`, `lint`).
-- 📐 [**Arsitektur Sistem (`docs/ARCHITECTURE.md`)**](./docs/ARCHITECTURE.md) — Diagram arsitektur v1.2.8, layanan kanonik, zona waktu UTC/WIB, dan akses Cloudflare Tunnel.
+- 📐 [**Arsitektur Sistem (`docs/ARCHITECTURE.md`)**](./docs/ARCHITECTURE.md) — Diagram arsitektur v1.2.8.5, layanan kanonik, mekanisme auto-updater PWA, zona waktu UTC/WIB, dan akses Cloudflare Tunnel.
 - 🚀 [**Panduan Deployment & API (`docs/DEPLOY.md`)**](./docs/DEPLOY.md) — Langkah deployment Docker/Native (Linux/Windows), backup, troubleshooting, dan referensi endpoint API aktif.
-- 🗄️ [**Struktur & Kamus Data (`docs/DATA.md`)**](./docs/DATA.md) — Skema tabel MariaDB hingga migrasi `14_v128_rbac_wa2_and_features.sql`, relasi data, dan aturan mutasi stok.
-- 🔐 [**Peran & Hak Akses (`docs/PERAN_DAN_AKSES.md`)**](./docs/PERAN_DAN_AKSES.md) — Matriks RBAC 3 peran kanonis (`developer`, `admin`, `technician`), izin fitur slider ON/OFF per akun, sesi cookie 30 hari, & konfirmasi `"delete"`.
+- 🗄️ [**Struktur & Kamus Data (`docs/DATA.md`)**](./docs/DATA.md) — Skema tabel MariaDB hingga migrasi `14_v128_rbac_wa2_and_features.sql`, isolasi `USER_ACTIVITY_ACTIONS`, dan aturan mutasi stok.
+- 🔐 [**Peran & Hak Akses (`docs/PERAN_DAN_AKSES.md`)**](./docs/PERAN_DAN_AKSES.md) — Matriks RBAC 3 peran kanonis (`developer`, `admin`, `technician`), izin fitur slider ON/OFF per akun, `Log Aktivitas User`, sesi cookie 30 hari, & konfirmasi `"delete"`.
 - 🎨 [**Sistem Tema & Desain (`docs/TEMA_DAN_DESAIN.md`)**](./docs/TEMA_DAN_DESAIN.md) — Token warna light/dark, disiplin *zero-pill*, responsivitas mobile, dan isolasi cetak A4.
-- ✅ [**Status Sistem (`docs/STATUS.md`)**](./docs/STATUS.md) — Status rilis terkini, audit keamanan, dan hasil pengujian otomatis.
-- 📊 [**Matriks Progres (`docs/PROGRESS.md`)**](./docs/PROGRESS.md) — Pelacak status penyelesaian modul dari Tahap 0 hingga rilis `v1.2.8`.
-- 📜 [**Riwayat Versi (`CHANGELOG.md`)**](./CHANGELOG.md) — Catatan rilis lengkap proyek dari `v0.1.0` hingga `v1.2.8` (tersinkron dengan [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)).
+- ✅ [**Status Sistem (`docs/STATUS.md`)**](./docs/STATUS.md) — Status rilis terkini `v1.2.8.5`, audit keamanan, dan hasil pengujian otomatis.
+- 📊 [**Matriks Progres (`docs/PROGRESS.md`)**](./docs/PROGRESS.md) — Pelacak status penyelesaian modul dari Tahap 0 hingga rilis `v1.2.8.5`.
+- 📜 [**Riwayat Versi (`CHANGELOG.md`)**](./CHANGELOG.md) — Catatan rilis lengkap proyek dari `v0.1.0` hingga `v1.2.8.5` (tersinkron dengan [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)).
 - 🛠️ [**Aturan Developer (`AGENTS.md`)**](./AGENTS.md) — Invarian keamanan mutlak dan panduan pengkodian.
 
 ---

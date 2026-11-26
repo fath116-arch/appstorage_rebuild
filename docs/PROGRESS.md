@@ -1,12 +1,12 @@
 # PELACAK PROGRES FIELDOPS IT (PROGRESS.MD)
 **Aplikasi**: FieldOps IT Inventory  
 **Database**: MariaDB 11.4 LTS (Server Lokal, UTC)  
-**Status Versi**: v1.2.8 Selesai & Terverifikasi  
+**Status Versi**: v1.2.8.5 Selesai & Terverifikasi  
 **Format Status**: `belum` | `dikerjakan` | `selesai` | `terverifikasi`
 
 ---
 
-## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.8)
+## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.8.5)
 
 > *Catatan Arsitektur*: Modul legacy awal v1 (`/api/inventory`, `/api/transactions`) telah disatukan ke dalam **Model Kanonik Tunggal** (`CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`).
 
@@ -93,6 +93,17 @@
 | **Impor Excel & Google Spreadsheet Publik** | Template `.xlsx`, pratinjau file/link Google Sheet, & impor atomik Katalog + Box + Stok Awal | **terverifikasi** | `v128Updates.test.ts` | `ImportService`, `/api/import/{template,preview,commit}`, & `CatalogImportModal` |
 | **Istilah `"Suku Cadang"` → `"Data Barang"`** | Pembaruan label antarmuka, kolom ExcelJS, Dashboard, Tiket, & dokumen cetak | **terverifikasi** | `npm run lint` & `npm run build` | Konsisten di seluruh komponen frontend & layanan backend |
 
+## 🚀 Road Map v1.2.8.5 (Anti-Cache & Silent Production Auto-Update, Pemisahan Log User, & Start Production Cross-Platform)
+
+| Paket / Modul | Deskripsi Cakupan | Status | Pengujian Otomatis | Catatan Kunci |
+| :--- | :--- | :--- | :--- | :--- |
+| **Build Metadata & Workbox PWA** | `__APP_BUILD_ID__`, plugin `fieldops-build-meta` (`build-meta.json`), Workbox `skipWaiting`/`clientsClaim` | **terverifikasi** | `userLogsAndCache.test.ts` (24/24 Lulus) | `navigateFallbackDenylist` `/api/` & `/build-meta.json`; fix `devOptions.enabled: true` |
+| **Header Anti-Cache & `/api/health`** | Non-cache `no-store` pada HTML, SW, manifest, & `build-meta.json`; `buildId` di `/api/health` | **terverifikasi** | `userLogsAndCache.test.ts` | Aset `/assets/*` tetap ter-cache immutable 1 tahun tanpa menahan versi HTML baru |
+| **Auto-Updater Senyap Aman** | Cek `buildId` & SW saat buka halaman, `visibilitychange`, `focus`, & 5m; reload saat aman | **terverifikasi** | `userLogsAndCache.test.ts` | Tunda reload bila ada modal/dialog/input aktif + penjaga loop 30 detik `sessionStorage` |
+| **Pemisahan Log User dari Riwayat Barang** | Eksklusi `USER_ACTIVITY_ACTIONS` dari `GET /api/activities` & laporan mingguan | **terverifikasi** | `userLogsAndCache.test.ts`, `authMemory.ts` | *Riwayat Barang Masuk & Keluar* murni mutasi barang; paritas SQL & `authMemory` |
+| **Audit Siklus Akun & Tab `Log Aktivitas User`** | Audit penuh akun (`routes/auth.ts`), `GET /api/auth/user-logs`, & `UserActivityLogsTab.tsx` | **terverifikasi** | `userLogsAndCache.test.ts`, `v128Updates.test.ts` (41/41) | Di dalam kartu Kelola User (Admin & Developer `users_manage`); fix `feature_permissions` |
+| **Start Production `cross-env`** | Perbarui `"start"` di `package.json` dengan `cross-env NODE_ENV=production` | **terverifikasi** | `npm run lint` & `npm run build` | Kompatibel Windows PowerShell/CMD & Linux/Docker |
+
 ---
 
 ## 📈 Log Perubahan Status Terkini
@@ -107,3 +118,7 @@
 - **v1.2.8 (Login-Only & Tutup Registrasi Publik, Peleburan Role `admin`, Izin Fitur Slider ON/OFF, Dual WA Gateway, Hapus Massal + `"delete"`, Impor Excel/Spreadsheet, & `"Data Barang"`)**:
   - Menutup pendaftaran mandiri di halaman login dan `/api/auth/register` (`403`), melebur `admin` + `warehouse_admin` menjadi peran tunggal `admin` yang terbatas mengelola akun `admin` & `technician`, menambahkan panel **Atur Fitur** slider ON/OFF khusus `developer` (`feature_permissions`), menyediakan **Dual WhatsApp Gateway** ON/OFF khusus `developer`, melengkapi hapus massal multi-pilih dengan konfirmasi ketik **`delete`** di ke-5 target katalog/stok, menghadirkan fitur **Impor Excel/Google Spreadsheet Publik**, serta menyelaraskan istilah *"Suku Cadang"* → **"Data Barang"**.
   - Terverifikasi melalui `v128Updates.test.ts` bersama seluruh suite regresi, `npm run lint`, dan `npm run build`.
+- **v1.2.8.5 (Anti-Cache & Silent Production Auto-Update, Pemisahan Log User ke Kartu Kelola User, & Start Production `cross-env`)**:
+  - Menyelesaikan masalah browser yang tertahan di cache build lama pada server produksi dengan `__APP_BUILD_ID__` (`build-meta.json`), header anti-cache `no-store` pada shell/SW/manifest, Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, serta `appUpdater.ts` yang otomatis memuat ulang senyap saat halaman aman (tanpa modal/input aktif).
+  - Memisahkan seluruh log login/logout, pencabutan sesi, token reuse, dan manajemen akun (`USER_ACTIVITY_ACTIONS`) dari *Riwayat Barang Masuk & Keluar* (`GET /api/activities` & laporan mingguan) ke endpoint `GET /api/auth/user-logs` serta tab **`Log Aktivitas User`** di dalam kartu **Kelola User** (`UserRoleSwitcher.tsx`), disertai perbaikan kompatibilitas `feature_permissions` pada `PUT /api/auth/users/:id/features`, paritas `authMemory.ts`, dan skrip `npm start` berbasis `cross-env`.
+  - Terverifikasi melalui `userLogsAndCache.test.ts` (24/24 PASS), `v128Updates.test.ts` (41/41 PASS), `npm run lint`, dan `npm run build`.
