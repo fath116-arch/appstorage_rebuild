@@ -97,15 +97,24 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (isProduction) {
-    const distDir = path.resolve(frontendDir, 'dist');
-    app.use(express.static(distDir));
+  const distDir = path.resolve(frontendDir, 'dist');
 
-    app.use((req, res, next) => {
-      if (req.path.startsWith('/api')) {
-        return next();
+  app.use(express.static(distDir, {
+    setHeaders(res, filePath) {
+      if (/[\\/](index\.html|sw\.js|registerSW\.js|manifest\.webmanifest)$/.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
-      res.sendFile(path.resolve(distDir, 'index.html'));
-    });
+    },
+  }));
+
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    if (path.extname(req.path)) return res.status(404).end();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.resolve(distDir, 'index.html'));
+  });
   } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

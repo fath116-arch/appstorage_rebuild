@@ -6,8 +6,12 @@ import { registerSW } from 'virtual:pwa-register';
 // Register Service Worker with auto-update and offline caching support
 registerSW({
   immediate: true,
-  onNeedRefresh() {
-    console.log('FieldOps IT: New content available, updating service worker...');
+   onRegisteredSW(_url, reg) {
+    if (!reg) return;
+    setInterval(() => reg.update(), 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg.update();
+    });
   },
   onOfflineReady() {
     console.log('FieldOps IT: App is ready for offline operation.');
