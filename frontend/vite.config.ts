@@ -54,6 +54,10 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+           skipWaiting: true,
+           clientsClaim: true,
+           cleanupOutdatedCaches: true,
+           navigateFallbackDenylist: [/^\/api\//],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
@@ -88,7 +92,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true, // Enables service worker in development / AI Studio preview
+          enabled: 'true', // Enables service worker in development / AI Studio preview
           type: 'module',
         },
       }),
