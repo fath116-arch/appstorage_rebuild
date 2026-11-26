@@ -4,11 +4,34 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
+  const buildId =
+    command === 'build'
+      ? process.env.FIELDOPS_BUILD_ID || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      : 'dev';
+
   return {
+    define: {
+      __APP_BUILD_ID__: JSON.stringify(buildId),
+    },
     plugins: [
       react(),
       tailwindcss(),
+      {
+        name: 'fieldops-build-meta',
+        generateBundle() {
+          if (command === 'build') {
+            this.emitFile({
+              type: 'asset',
+              fileName: 'build-meta.json',
+              source: JSON.stringify({
+                buildId,
+                builtAt: new Date().toISOString(),
+              }),
+            });
+          }
+        },
+      },
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: [
@@ -24,7 +47,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'FieldOps IT Storage & Inventory',
           short_name: 'FieldOps IT',
-          description: 'Sistem manajemen inventori teknisi IT lapangan offline-first & pelacakan suku cadang',
+          description: 'Sistem manajemen inventori teknisi IT lapangan offline-first & pelacakan data barang',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',
@@ -54,10 +77,10 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-           skipWaiting: true,
-           clientsClaim: true,
-           cleanupOutdatedCaches: true,
-           navigateFallbackDenylist: [/^\/api\//],
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
+          navigateFallbackDenylist: [/^\/api\//, /^\/build-meta\.json$/],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
@@ -92,7 +115,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: 'true', // Enables service worker in development / AI Studio preview
+          enabled: true, // Enables service worker in development / AI Studio preview
           type: 'module',
         },
       }),

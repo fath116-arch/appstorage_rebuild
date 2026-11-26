@@ -9,7 +9,7 @@ import { AuthenticatedRequest, requireAuth, requireFeature, requireRole, parseCo
 import { SessionService } from '../services/sessionService';
 import { ConfirmationService } from '../services/confirmationService';
 import { SettingService } from '../services/settingService';
-import { ActivityLogService } from '../services/activityLogService';
+import { ActivityLogService, UserActivityCategory } from '../services/activityLogService';
 import { TrashService } from '../services/trashService';
 import { executeQuery } from '../db/database';
 import { createRateLimiter } from '../middleware/rateLimitMiddleware';
@@ -280,6 +280,7 @@ router.post('/users/:id/approve', requireAuth, requireFeature('users_manage'), a
     }
 
     const requestedRoleRaw = req.body?.role ? String(req.body.role).trim().toLowerCase() : null;
+    let finalRole = targetRole;
     if (requestedRoleRaw) {
       if ((requestedRoleRaw === 'developer' || requestedRoleRaw === 'superadmin') && !isDeveloperRole(req.user?.role)) {
         return res.status(403).json({
@@ -288,9 +289,20 @@ router.post('/users/:id/approve', requireAuth, requireFeature('users_manage'), a
         });
       }
       const nextRole = normalizeRole(requestedRoleRaw);
+      finalRole = nextRole;
       await executeQuery('UPDATE users SET status = ?, role = ? WHERE id = ?', ['ACTIVE', nextRole, userId]);
     } else {
       await executeQuery('UPDATE users SET status = ? WHERE id = ?', ['ACTIVE', userId]);
+    }
+
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'setujui_akun',
+        pelaku_id: req.user!.id,
+        catatan: `Menyetujui akun "@${targetUser.username}" (${targetUser.name}) menjadi AKTIF dengan peran ${finalRole}`
+      });
+    } catch {
+      // Non-blocking audit log
     }
 
     return res.json({
@@ -327,6 +339,16 @@ router.post('/users/:id/reject', requireAuth, requireFeature('users_manage'), as
     }
 
     await executeQuery('UPDATE users SET status = ? WHERE id = ?', ['REJECTED', userId]);
+
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'tolak_akun',
+        pelaku_id: req.user!.id,
+        catatan: `Menolak pendaftaran akun "@${targetUser.username}" (${targetUser.name})`
+      });
+    } catch {
+      // Non-blocking audit log
+    }
 
     return res.json({
       success: true,
@@ -372,6 +394,16 @@ router.post('/users/:id/status', requireAuth, requireFeature('users_manage'), as
 
     await executeQuery('UPDATE users SET status = ? WHERE id = ?', [status, userId]);
 
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'ubah_status_akun',
+        pelaku_id: req.user!.id,
+        catatan: `Mengubah status akun "@${target.username}" menjadi ${status}`
+      });
+    } catch {
+      // Non-blocking audit log
+    }
+
     return res.json({
       success: true,
       message: `Status pengguna berhasil diperbarui menjadi ${status}.`
@@ -395,7 +427,9 @@ router.put('/users/:id/features', requireAuth, requireRole(['developer']), async
     }
 
     const userId = String(req.params.id);
-    const { featurePermissions, resetToDefault } = req.body || {};
+    const { featurePermissions, feature_permissions, resetToDefault } = req.body || {};
+    const requestedMap = featurePermissions ?? feature_permissions;
+    const isReset = Boolean(resetToDefault) || requestedMap === null;
 
     const users = await executeQuery<Pick<AuthUserRow, 'id' | 'username' | 'name' | 'role'>>(
       'SELECT id, username, name, role FROM users WHERE id = ?',
@@ -414,10 +448,10 @@ router.put('/users/:id/features', requireAuth, requireRole(['developer']), async
     }
 
     let nextMap: FeaturePermissionsMap = {};
-    if (!resetToDefault && featurePermissions && typeof featurePermissions === 'object') {
+    if (!isReset && requestedMap && typeof requestedMap === 'object') {
       for (const def of FEATURE_CATALOG) {
-        if (typeof (featurePermissions as Record<string, unknown>)[def.key] === 'boolean') {
-          nextMap[def.key] = Boolean((featurePermissions as Record<string, boolean>)[def.key]);
+        if (typeof (requestedMap as Record<string, unknown>)[def.key] === 'boolean') {
+          nextMap[def.key] = Boolean((requestedMap as Record<string, boolean>)[def.key]);
         }
       }
     }
@@ -428,14 +462,14 @@ router.put('/users/:id/features', requireAuth, requireRole(['developer']), async
     await ActivityLogService.recordActivity({
       aksi: 'ubah_akses_fitur',
       pelaku_id: req.user!.id,
-      catatan: resetToDefault
+      catatan: isReset
         ? `Reset akses fitur akun "@${target.username}" ke bawaan peran (${normalizeUserRole(target.role)})`
         : `Memperbarui saklar akses fitur akun "@${target.username}" (${Object.keys(nextMap).length} penyesuaian)`
     });
 
     return res.json({
       success: true,
-      message: resetToDefault
+      message: isReset
         ? `Akses fitur akun "@${target.username}" berhasil direset ke bawaan peran.`
         : `Akses fitur akun "@${target.username}" berhasil disimpan.`,
       feature_permissions: nextMap
@@ -471,6 +505,16 @@ router.delete('/users/:id', requireAuth, requireFeature('users_manage'), async (
     }
 
     await executeQuery('DELETE FROM users WHERE id = ?', [userId]);
+
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'hapus_akun',
+        pelaku_id: req.user!.id,
+        catatan: `Menghapus permanen akun "@${target.username}" (peran: ${normalizeUserRole(target.role)})`
+      });
+    } catch {
+      // Non-blocking audit log
+    }
 
     return res.json({
       success: true,
@@ -532,6 +576,16 @@ router.post('/users', requireAuth, requireFeature('users_manage'), async (req: A
 
     if (Object.keys(parsedFeatures).length > 0) {
       await executeQuery('UPDATE users SET feature_permissions = ? WHERE id = ?', [JSON.stringify(parsedFeatures), userId]);
+    }
+
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'buat_akun',
+        pelaku_id: req.user!.id,
+        catatan: `Membuat akun baru "@${cleanUsername}" (${name.trim()}) dengan peran ${targetRole} dan status ${initialStatus}`
+      });
+    } catch {
+      // Non-blocking audit log
     }
 
     return res.json({
@@ -612,6 +666,16 @@ router.post('/reset-password', resetPasswordRateLimiter, async (req: express.Req
     // Hapus sesi aktif pengguna agar wajib login ulang dengan password baru
     await executeQuery('DELETE FROM sessions WHERE user_id = ?', [targetUser.id]);
 
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'reset_sandi',
+        pelaku_id: targetUser.id,
+        catatan: `Kata sandi akun "@${targetUser.username}" direset`
+      });
+    } catch {
+      // Non-blocking audit log
+    }
+
     return res.json({
       success: true,
       message: `Kata sandi akun "@${targetUser.username}" berhasil diperbarui! Silakan masuk menggunakan kata sandi baru Anda.`
@@ -657,6 +721,16 @@ router.post('/users/:id/reset-password', requireAuth, requireFeature('users_mana
     // Hapus sesi aktif pengguna agar wajib login ulang
     await executeQuery('DELETE FROM sessions WHERE user_id = ?', [userId]);
     await SessionService.revokeAllUserSessions(String(userId), req.user?.id || 'admin');
+
+    try {
+      await ActivityLogService.recordActivity({
+        aksi: 'reset_sandi',
+        pelaku_id: req.user!.id,
+        catatan: `Mereset kata sandi akun "@${target.username}" (${target.name}) melalui panel Kelola User`
+      });
+    } catch {
+      // Non-blocking audit log
+    }
 
     return res.json({
       success: true,
@@ -755,6 +829,39 @@ router.put('/settings/:key', requireAuth, requireFeature('security_audit'), asyn
     });
 
     return res.json({ success: true, message: `Pengaturan "${key}" berhasil diperbarui.` });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, message: getErrorMessage(err) });
+  }
+});
+
+/**
+ * GET /api/auth/user-logs
+ * Mengambil log aktivitas pengguna (login, logout, sesi, & manajemen akun)
+ * Akses: Admin & Developer yang memiliki izin users_manage
+ */
+router.get('/user-logs', requireAuth, requireFeature('users_manage'), async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const rawCat = String(req.query.category || 'all').toLowerCase();
+    const category: 'all' | UserActivityCategory =
+      rawCat === 'auth' || rawCat === 'session' || rawCat === 'account' ? rawCat : 'all';
+    const actorId = req.query.actorId ? String(req.query.actorId) : undefined;
+    const search = req.query.search ? String(req.query.search) : undefined;
+    const dateFrom = req.query.dateFrom ? String(req.query.dateFrom) : undefined;
+    const dateTo = req.query.dateTo ? String(req.query.dateTo) : undefined;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 100;
+    const offset = req.query.offset ? parseInt(String(req.query.offset), 10) : 0;
+
+    const logs = await ActivityLogService.getUserActivityLogs({
+      category,
+      actorId,
+      search,
+      dateFrom,
+      dateTo,
+      limit,
+      offset
+    });
+
+    return res.json({ success: true, logs });
   } catch (err: unknown) {
     return res.status(500).json({ success: false, message: getErrorMessage(err) });
   }

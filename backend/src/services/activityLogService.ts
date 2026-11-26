@@ -60,12 +60,48 @@ interface UserNameRow {
   role?: string;
 }
 
+export const USER_AUTH_ACTIONS = [
+  'login',
+  'logout'
+] as const;
+
+export const USER_SESSION_ACTIONS = [
+  'cabut_sesi_otomatis',
+  'deteksi_token_reuse',
+  'cabut_seluruh_sesi_admin'
+] as const;
+
+export const USER_ACCOUNT_ACTIONS = [
+  'buat_akun',
+  'setujui_akun',
+  'tolak_akun',
+  'ubah_status_akun',
+  'ubah_akses_fitur',
+  'reset_sandi',
+  'hapus_akun'
+] as const;
+
+export const USER_ACTIVITY_ACTIONS = [
+  ...USER_AUTH_ACTIONS,
+  ...USER_SESSION_ACTIONS,
+  ...USER_ACCOUNT_ACTIONS
+] as const;
+
+export type UserActivityCategory = 'auth' | 'session' | 'account';
+
+export function getUserActivityCategory(aksi: string): UserActivityCategory {
+  if ((USER_AUTH_ACTIONS as readonly string[]).includes(aksi)) return 'auth';
+  if ((USER_SESSION_ACTIONS as readonly string[]).includes(aksi)) return 'session';
+  return 'account';
+}
+
 export interface ActivityLogRow {
   id: string;
   id_aktivitas: string;
   aksi: string;
   pelaku_id: string;
   nama_pelaku?: string | null;
+  username_pelaku?: string | null;
   role_pelaku?: string | null;
   actor_id?: string | null;
   actor_nama?: string | null;
@@ -341,6 +377,8 @@ export class ActivityLogService {
   static async getLogs(filters: {
     search?: string;
     action?: string;
+    actions?: readonly string[];
+    excludeActions?: readonly string[];
     actorId?: string;
     requestId?: string;
     dateFrom?: string;
@@ -356,6 +394,7 @@ export class ActivityLogService {
              COALESCE(t.actor_id, t.pelaku_id) as actor_id,
              COALESCE(t.actor_nama, u.name, t.pelaku_id) as actor_nama,
              COALESCE(t.actor_nama, u.name, t.pelaku_id) as nama_pelaku,
+             u.username as username_pelaku,
              u.role as role_pelaku,
              COALESCE(t.recorded_by_id, t.pelaku_id) as recorded_by_id,
              COALESCE(t.recorded_by_nama, ur.name, t.pelaku_id) as recorded_by_nama,
@@ -386,6 +425,25 @@ export class ActivityLogService {
     if (filters.action) {
       sql += ' AND t.aksi = ?';
       params.push(filters.action);
+    }
+
+    if (filters.actions && filters.actions.length > 0) {
+      const placeholders = filters.actions.map(() => '?').join(', ');
+      sql += ` AND t.aksi IN (${placeholders})`;
+      params.push(...filters.actions);
+    }
+
+    if (filters.excludeActions && filters.excludeActions.length > 0) {
+      const placeholders = filters.excludeActions.map(() => '?').join(', ');
+      sql += ` AND t.aksi NOT IN (${placeholders})`;
+      params.push(...filters.excludeActions);
+    }
+
+    if (filters.search && filters.search.trim()) {
+      const q = `%${filters.search.trim().toLowerCase()}%`;
+      sql +=
+        " AND (LOWER(t.id_aktivitas) LIKE ? OR LOWER(t.aksi) LIKE ? OR LOWER(COALESCE(t.catatan, '')) LIKE ? OR LOWER(COALESCE(t.actor_nama, u.name, '')) LIKE ? OR LOWER(COALESCE(u.username, '')) LIKE ?)";
+      params.push(q, q, q, q, q);
     }
 
     if (filters.actorId) {
@@ -421,7 +479,53 @@ export class ActivityLogService {
   }
 
   /**
+   * Mengambil log aktivitas khusus pengguna (login, logout, sesi, & manajemen akun)
+   * Terpisah dari Riwayat Barang Masuk & Barang Keluar.
+   */
+  static async getUserActivityLogs(filters?: {
+    category?: 'all' | UserActivityCategory;
+    actorId?: string;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<Array<ActivityLogRow & { category: UserActivityCategory }>> {
+    const category = filters?.category || 'all';
+    let targetActions: readonly string[] = USER_ACTIVITY_ACTIONS;
+    if (category === 'auth') targetActions = USER_AUTH_ACTIONS;
+    else if (category === 'session') targetActions = USER_SESSION_ACTIONS;
+    else if (category === 'account') targetActions = USER_ACCOUNT_ACTIONS;
+
+    const safeLimit = Math.min(Math.max(Number(filters?.limit) || 100, 1), 500);
+    const safeOffset = Math.max(Number(filters?.offset) || 0, 0);
+
+    const rows = await this.getLogs({
+      actions: targetActions,
+      actorId: filters?.actorId,
+      search: filters?.search,
+      dateFrom: filters?.dateFrom,
+      dateTo: filters?.dateTo,
+      limit: safeLimit,
+      offset: safeOffset
+    });
+
+    return rows.map((row) => {
+      const occurredIso = normalizeDbDateToIso(row.occurred_at || row.waktu) || new Date().toISOString();
+      const recordedIso = normalizeDbDateToIso(row.recorded_at || row.waktu) || occurredIso;
+      return {
+        ...row,
+        occurred_at: occurredIso,
+        recorded_at: recordedIso,
+        waktu: occurredIso,
+        category: getUserActivityCategory(row.aksi)
+      };
+    });
+  }
+
+  /**
    * Unified Canonical Transaction Feed untuk Riwayat, Dashboard, dan Laporan
+   * Secara default mengecualikan aktivitas otentikasi/sesi/manajemen akun user.
    */
   static async getTransactionsFeed(filters?: {
     type?: 'IN' | 'OUT' | 'TRANSFER' | 'SYSTEM';
@@ -431,12 +535,14 @@ export class ActivityLogService {
     dateTo?: string;
     search?: string;
     limit?: number;
+    includeUserLogs?: boolean;
   }): Promise<CanonicalTransactionView[]> {
     const logs = await this.getLogs({
       actorId: filters?.actorId,
       requestId: filters?.requestId,
       dateFrom: filters?.dateFrom,
       dateTo: filters?.dateTo,
+      excludeActions: filters?.includeUserLogs ? undefined : USER_ACTIVITY_ACTIONS,
       limit: filters?.limit || 300
     });
 

@@ -6,6 +6,7 @@
 process.env.TZ = 'UTC';
 
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { PROJECT_ROOT_DIR, initDatabase, loadLayeredEnv } from './db/database';
 import { authenticate, requireAuth, requireFeature } from './middleware/authMiddleware';
@@ -51,12 +52,41 @@ async function startServer() {
   // Pasang Middleware Autentikasi Sesi Server
   app.use(authenticate);
 
-  // Health check endpoint
+  const frontendDir = path.resolve(PROJECT_ROOT_DIR, 'frontend');
+  const distDir = path.resolve(frontendDir, 'dist');
+  const bootFallbackBuildId = `boot-${Date.now().toString(36)}`;
+
+  const readBuildMeta = (): { buildId: string; builtAt?: string } => {
+    try {
+      const metaPath = path.resolve(distDir, 'build-meta.json');
+      if (fs.existsSync(metaPath)) {
+        const raw = fs.readFileSync(metaPath, 'utf-8');
+        const parsed = JSON.parse(raw) as { buildId?: string; builtAt?: string };
+        if (parsed && typeof parsed.buildId === 'string' && parsed.buildId.trim()) {
+          return {
+            buildId: parsed.buildId.trim(),
+            builtAt: parsed.builtAt,
+          };
+        }
+      }
+    } catch {
+      // Abaikan jika gagal membaca build-meta.json
+    }
+    return { buildId: process.env.NODE_ENV === 'production' ? bootFallbackBuildId : 'dev' };
+  };
+
+  // Health check endpoint (tanpa cache agar klien selalu mendapat buildId terbaru)
   app.get('/api/health', (_req, res) => {
+    const buildMeta = readBuildMeta();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.json({
       status: 'healthy',
       app: 'FieldOps IT Inventory',
       version: '1.2.8',
+      buildId: buildMeta.buildId,
+      builtAt: buildMeta.builtAt || null,
       database: 'MariaDB 11.x (Single Canonical Model, UTC)',
       tunnel: 'Cloudflare Tunnel Ready',
       timestamp: new Date().toISOString()
@@ -93,28 +123,31 @@ async function startServer() {
     res.status(404).json({ success: false, message: 'Endpoint API tidak ditemukan.' });
   });
 
-  const frontendDir = path.resolve(PROJECT_ROOT_DIR, 'frontend');
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (isProduction) {
-  const distDir = path.resolve(frontendDir, 'dist');
+    const applyNoCacheHeaders = (res: express.Response) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    };
 
-  app.use(express.static(distDir, {
-    setHeaders(res, filePath) {
-      if (/[\\/](index\.html|sw\.js|registerSW\.js|manifest\.webmanifest)$/.test(filePath)) {
-        res.setHeader('Cache-Control', 'no-cache');
-      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      }
-    },
-  }));
+    app.use(express.static(distDir, {
+      setHeaders(res, filePath) {
+        if (/[\\/](index\.html|sw\.js|registerSW\.js|manifest\.webmanifest|build-meta\.json|workbox-[^\\/]+\.js)$/.test(filePath)) {
+          applyNoCacheHeaders(res);
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    }));
 
-  app.use((req, res, next) => {
-    if (req.path.startsWith('/api')) return next();
-    if (path.extname(req.path)) return res.status(404).end();
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(path.resolve(distDir, 'index.html'));
-  });
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      if (path.extname(req.path)) return res.status(404).end();
+      applyNoCacheHeaders(res);
+      res.sendFile(path.resolve(distDir, 'index.html'));
+    });
   } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

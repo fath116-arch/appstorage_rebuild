@@ -320,6 +320,41 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
         const val = params[pIdx++];
         list = list.filter(t => t.aksi === val);
       }
+      const inMatch = upper.match(/AND T\.AKSI IN \(([^)]+)\)/);
+      if (inMatch) {
+        const count = inMatch[1].split('?').length - 1;
+        const allowed = new Set(params.slice(pIdx, pIdx + count).map(String));
+        pIdx += count;
+        list = list.filter(t => allowed.has(String(t.aksi)));
+      }
+      const notInMatch = upper.match(/AND T\.AKSI NOT IN \(([^)]+)\)/);
+      if (notInMatch) {
+        const count = notInMatch[1].split('?').length - 1;
+        const excluded = new Set(params.slice(pIdx, pIdx + count).map(String));
+        pIdx += count;
+        list = list.filter(t => !excluded.has(String(t.aksi)));
+      }
+      if (upper.includes('AND (LOWER(T.ID_AKTIVITAS) LIKE ?')) {
+        const rawPattern = String(params[pIdx++] || '').toLowerCase();
+        pIdx += 4;
+        const needle = rawPattern.replace(/^%|%$/g, '');
+        if (needle) {
+          list = list.filter(t => {
+            const uActor = memoryStore.users.get(t.actor_id || t.pelaku_id);
+            const uPelaku = memoryStore.users.get(t.pelaku_id);
+            const hay = [
+              t.id_aktivitas,
+              t.aksi,
+              t.catatan || '',
+              t.actor_nama || uActor?.name || uPelaku?.name || '',
+              uActor?.username || uPelaku?.username || ''
+            ]
+              .join(' ')
+              .toLowerCase();
+            return hay.includes(needle);
+          });
+        }
+      }
       if (upper.includes('AND (T.PELAKU_ID = ? OR T.ACTOR_ID = ?)')) {
         const val1 = params[pIdx++];
         pIdx++;
@@ -353,6 +388,7 @@ export function handleAuthMemoryQuery(cleanSql: string, upper: string, params: a
       return {
         ...t,
         nama_pelaku: t.actor_nama || uActor?.name || uPelaku?.name || t.pelaku_id,
+        username_pelaku: uActor?.username || uPelaku?.username || null,
         role_pelaku: uActor?.role || uPelaku?.role || null,
         actor_nama: t.actor_nama || uActor?.name || uPelaku?.name || t.pelaku_id,
         recorded_by_nama: t.recorded_by_nama || uRec?.name || t.recorded_by_id || t.pelaku_id,

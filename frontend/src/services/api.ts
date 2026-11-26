@@ -19,6 +19,25 @@ export interface UserProfile {
   feature_permissions?: Record<string, boolean> | null;
 }
 
+export type UserActivityCategory = 'all' | 'auth' | 'session' | 'account';
+
+export interface UserActivityLogEntry {
+  id: string;
+  id_aktivitas: string;
+  aksi: string;
+  category: 'auth' | 'session' | 'account';
+  pelaku_id: string;
+  nama_pelaku?: string | null;
+  username_pelaku?: string | null;
+  role_pelaku?: string | null;
+  actor_id?: string | null;
+  actor_nama?: string | null;
+  catatan?: string | null;
+  occurred_at?: string | null;
+  recorded_at?: string | null;
+  waktu: string;
+}
+
 export interface TrashEntry {
   id: string;
   jenis_objek: 'item' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
@@ -221,6 +240,28 @@ export const api = {
       body: JSON.stringify({ feature_permissions: featurePermissions })
     });
     return data;
+  },
+
+  async getUserActivityLogs(filters?: {
+    category?: UserActivityCategory;
+    actorId?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<UserActivityLogEntry[]> {
+    const params = new URLSearchParams();
+    if (filters?.category) params.append('category', filters.category);
+    if (filters?.actorId) params.append('actorId', filters.actorId);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.limit) params.append('limit', String(filters.limit));
+    if (filters?.offset) params.append('offset', String(filters.offset));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const data = await apiFetch<{ logs?: UserActivityLogEntry[] }>(
+      `/api/auth/user-logs${qs}`,
+      {},
+      'Gagal memuat log aktivitas pengguna.'
+    );
+    return data.logs || [];
   },
 
   // Trash (14-Day Retention)

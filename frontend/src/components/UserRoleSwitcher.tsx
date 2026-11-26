@@ -12,6 +12,7 @@ import { RoleMatrixTab } from './users/RoleMatrixTab';
 import { UserApprovalsTab } from './users/UserApprovalsTab';
 import { UserManagementTab } from './users/UserManagementTab';
 import { CreateUserTab } from './users/CreateUserTab';
+import { UserActivityLogsTab } from './users/UserActivityLogsTab';
 import {
   X,
   ShieldCheck,
@@ -22,7 +23,8 @@ import {
   Users,
   AlertCircle,
   Code2,
-  Clock
+  Clock,
+  Activity
 } from 'lucide-react';
 
 interface UserRoleSwitcherProps {
@@ -38,7 +40,8 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
 }) => {
   const { user, logout } = useAuth();
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
-  const [activeTab, setActiveTab] = useState<'matrix' | 'approvals' | 'users' | 'add'>('matrix');
+  const [activeTab, setActiveTab] = useState<'matrix' | 'approvals' | 'users' | 'add' | 'logs'>('matrix');
+  const [logsRefreshCounter, setLogsRefreshCounter] = useState(0);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [actionNotice, setActionNotice] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<{
@@ -63,6 +66,7 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
       .then(res => setUsersList(res))
       .catch(() => {})
       .finally(() => setIsLoadingUsers(false));
+    setLogsRefreshCounter((c) => c + 1);
   }, [hasAdminAccess]);
 
   useEffect(() => {
@@ -344,6 +348,18 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
                 <UserPlus className="w-4 h-4" />
                 <span>+ Buat Akun Server</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`pb-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                  activeTab === 'logs'
+                    ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+                <span>Log Aktivitas User</span>
+              </button>
             </>
           )}
         </div>
@@ -388,6 +404,10 @@ export const UserRoleSwitcher: React.FC<UserRoleSwitcherProps> = ({
                 setTimeout(() => setActiveTab('users'), 1000);
               }}
             />
+          )}
+
+          {activeTab === 'logs' && hasAdminAccess && (
+            <UserActivityLogsTab refreshTrigger={logsRefreshCounter} />
           )}
         </div>
 

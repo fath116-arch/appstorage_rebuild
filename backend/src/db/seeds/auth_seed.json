@@ -10,7 +10,7 @@
     "password_hash": "4a5af6f928233286ff52082bf48f1fd19f4f50ffabe3f4db05cc2b0581bbf32a",
     "salt": "salt_dev_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-admin-01",
@@ -23,7 +23,7 @@
     "password_hash": "5b33a6f24f21e02c31d7c118df482f273e19bb14d6d9510409e197a3a9fe3b3d",
     "salt": "salt_master_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-wh-01",
@@ -36,7 +36,7 @@
     "password_hash": "13b8afcff2144c70abd6fd6ca006db240fa7e626eaf47fc27de7279a1f096c62",
     "salt": "salt_gudang_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-tech-01",
@@ -49,7 +49,7 @@
     "password_hash": "c38362670918f0ca205fab85bed40ea45e41b251e0bd50ab803c6d2dcf599f92",
     "salt": "salt_tech_001",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "updated_at": "2026-11-06T03:38:25.901Z"
   },
   {
@@ -63,7 +63,7 @@
     "password_hash": "f7c2adac1bf263488d635f08cf3226497b2d5932b398ec6ca1b0f69c88af0b0a",
     "salt": "8a715c856c1dd342108e5173a12b53e2",
     "status": "PENDING_APPROVAL",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-1793936279680",
@@ -76,7 +76,7 @@
     "password_hash": "f0a33cdb2dc4f9b2979ac92220ba5dfc1a2b554280d66443d66495c169842673",
     "salt": "c85fa1073cc973a150fb4c5efe40610e",
     "status": "PENDING_APPROVAL",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "user-tester-1794110651003",
@@ -87,7 +87,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -99,7 +99,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -111,7 +111,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -123,7 +123,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -135,7 +135,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -147,7 +147,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -159,7 +159,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -171,7 +171,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -183,7 +183,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -195,7 +195,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -207,7 +207,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -219,7 +219,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -231,7 +231,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -243,7 +243,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -255,7 +255,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -267,7 +267,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -279,7 +279,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -291,7 +291,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -303,7 +303,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -315,7 +315,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -327,7 +327,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -339,7 +339,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -351,7 +351,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -363,7 +363,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -375,7 +375,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -387,7 +387,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -399,7 +399,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -412,7 +412,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "user-op-1794205395217",
@@ -423,7 +423,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -435,7 +435,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -447,7 +447,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -459,7 +459,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -471,7 +471,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -483,7 +483,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -495,7 +495,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -507,7 +507,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -519,7 +519,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -531,7 +531,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "role": "technician"
   },
   {
@@ -545,7 +545,7 @@
     "password_hash": "11cd8ae54d749ce276dff870c79af45fa6787e96ed45a39f1b482880c42203ad",
     "salt": "cebc854ec3ae1c132cb77784ea029515",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-adm-v128-688201",
@@ -558,7 +558,7 @@
     "password_hash": "11cd8ae54d749ce276dff870c79af45fa6787e96ed45a39f1b482880c42203ad",
     "salt": "cebc854ec3ae1c132cb77784ea029515",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-tek-v128-688201",
@@ -571,7 +571,7 @@
     "password_hash": "11cd8ae54d749ce276dff870c79af45fa6787e96ed45a39f1b482880c42203ad",
     "salt": "cebc854ec3ae1c132cb77784ea029515",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-wh-v128-688201",
@@ -584,7 +584,7 @@
     "password_hash": "11cd8ae54d749ce276dff870c79af45fa6787e96ed45a39f1b482880c42203ad",
     "salt": "cebc854ec3ae1c132cb77784ea029515",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-dev-v128-702852",
@@ -597,7 +597,7 @@
     "password_hash": "2fe4790221abbe79fd927222d3c64e7ccee3bb88128fc60ec38567d5c3835461",
     "salt": "1c20abdb0cf725575553a00fcad55fa0",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-adm-v128-702852",
@@ -610,7 +610,7 @@
     "password_hash": "2fe4790221abbe79fd927222d3c64e7ccee3bb88128fc60ec38567d5c3835461",
     "salt": "1c20abdb0cf725575553a00fcad55fa0",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:28:23.029Z"
   },
@@ -625,7 +625,7 @@
     "password_hash": "2fe4790221abbe79fd927222d3c64e7ccee3bb88128fc60ec38567d5c3835461",
     "salt": "1c20abdb0cf725575553a00fcad55fa0",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:28:23.032Z"
   },
@@ -640,7 +640,7 @@
     "password_hash": "2fe4790221abbe79fd927222d3c64e7ccee3bb88128fc60ec38567d5c3835461",
     "salt": "1c20abdb0cf725575553a00fcad55fa0",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-1795483702978",
@@ -653,7 +653,7 @@
     "password_hash": "a0241f8206283cea0e7a25e655b3a9920ec790b77a9ef6294b50ea6e6e4df7a0",
     "salt": "0fdd271e85157a717c538d69e1d5ec58",
     "status": "PENDING_APPROVAL",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-dev-v128-748465",
@@ -666,7 +666,7 @@
     "password_hash": "13b9a839edc0b4375d3788de480662e5192af32f101f1ec2a07b50d220905d38",
     "salt": "4d89b456a017f255ad5b89f00a7fa4e5",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-adm-v128-748465",
@@ -679,7 +679,7 @@
     "password_hash": "13b9a839edc0b4375d3788de480662e5192af32f101f1ec2a07b50d220905d38",
     "salt": "4d89b456a017f255ad5b89f00a7fa4e5",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:29:08.673Z"
   },
@@ -694,7 +694,7 @@
     "password_hash": "13b9a839edc0b4375d3788de480662e5192af32f101f1ec2a07b50d220905d38",
     "salt": "4d89b456a017f255ad5b89f00a7fa4e5",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.336Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:29:08.678Z"
   },
@@ -709,7 +709,7 @@
     "password_hash": "13b9a839edc0b4375d3788de480662e5192af32f101f1ec2a07b50d220905d38",
     "salt": "4d89b456a017f255ad5b89f00a7fa4e5",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.336Z"
   },
   {
     "id": "usr-1795483748604",
@@ -722,7 +722,7 @@
     "password_hash": "73f18f22ac972d6859d554c53be2c349d27b990b02b23e92017fc6985d473cf2",
     "salt": "50d564b42ae656c1d468a8860d9fbe4a",
     "status": "admin",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "updated_at": "2026-11-24T01:29:08.629Z"
   },
   {
@@ -734,7 +734,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "role": "technician"
   },
   {
@@ -748,7 +748,7 @@
     "password_hash": "7a186074f88cf04cea3bf34fe7e277825d587694025150d68246539583a34bc9",
     "salt": "57431ec0dc83fff814890cae8c67cde4",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.337Z"
   },
   {
     "id": "usr-adm-v128-785353",
@@ -761,7 +761,7 @@
     "password_hash": "7a186074f88cf04cea3bf34fe7e277825d587694025150d68246539583a34bc9",
     "salt": "57431ec0dc83fff814890cae8c67cde4",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:29:45.543Z"
   },
@@ -776,7 +776,7 @@
     "password_hash": "7a186074f88cf04cea3bf34fe7e277825d587694025150d68246539583a34bc9",
     "salt": "57431ec0dc83fff814890cae8c67cde4",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:29:45.546Z"
   },
@@ -791,7 +791,7 @@
     "password_hash": "7a186074f88cf04cea3bf34fe7e277825d587694025150d68246539583a34bc9",
     "salt": "57431ec0dc83fff814890cae8c67cde4",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z"
+    "created_at": "2026-11-26T04:53:52.337Z"
   },
   {
     "id": "usr-1795483785486",
@@ -804,7 +804,7 @@
     "password_hash": "d0124576328022b41c27923ce2497ee5d3859a0c48e62caf274838b11a2697cc",
     "salt": "e5a5fd745abd2d399d253758c814cae3",
     "status": "admin",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "updated_at": "2026-11-24T01:29:45.510Z"
   },
   {
@@ -816,7 +816,7 @@
     "phone": "",
     "salt": "",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.546Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "role": "technician"
   },
   {
@@ -830,7 +830,7 @@
     "password_hash": "8c58303028c5b215120bb9fcc0e133ef11afb589b2212d2e46a6ea15713c480e",
     "salt": "620cf5bf15b880319b23b6381b55b5cb",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.585Z"
+    "created_at": "2026-11-26T04:53:52.337Z"
   },
   {
     "id": "usr-adm-v128-847565",
@@ -843,7 +843,7 @@
     "password_hash": "8c58303028c5b215120bb9fcc0e133ef11afb589b2212d2e46a6ea15713c480e",
     "salt": "620cf5bf15b880319b23b6381b55b5cb",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.586Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:30:47.764Z"
   },
@@ -858,7 +858,7 @@
     "password_hash": "8c58303028c5b215120bb9fcc0e133ef11afb589b2212d2e46a6ea15713c480e",
     "salt": "620cf5bf15b880319b23b6381b55b5cb",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.586Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "feature_permissions": null,
     "updated_at": "2026-11-24T01:30:47.768Z"
   },
@@ -867,26 +867,174 @@
     "username": "wh128_847565",
     "name": "Legacy WH v128",
     "email": "wh128_847565@test.local",
-    "role": "warehouse_admin",
+    "role": "admin",
     "department": "Dev & Master System Engineering",
     "phone": "",
     "password_hash": "8c58303028c5b215120bb9fcc0e133ef11afb589b2212d2e46a6ea15713c480e",
     "salt": "620cf5bf15b880319b23b6381b55b5cb",
     "status": "ACTIVE",
-    "created_at": "2026-11-24T01:30:47.586Z"
+    "created_at": "2026-11-26T04:53:52.337Z"
   },
   {
     "id": "usr-1795483847703",
     "username": "newtek_847565",
     "name": "Teknisi Baru",
     "email": "newtek_847565@test.local",
-    "role": "ACTIVE",
+    "role": "technician",
     "department": "IT Operations",
     "phone": "",
     "password_hash": "bd51f797094a8e180515d49ec25b016e9ac7611c164415b202934f2f56104414",
     "salt": "7aa3d3b565021e43130e03a2fce16230",
     "status": "admin",
-    "created_at": "2026-11-24T01:30:47.721Z",
+    "created_at": "2026-11-26T04:53:52.337Z",
     "updated_at": "2026-11-24T01:30:47.726Z"
+  },
+  {
+    "id": "usr-dev-log-758697",
+    "username": "devlog_758697",
+    "name": "Dev Log Tester",
+    "email": "devlog_758697@test.local",
+    "role": "developer",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "323cbb106716a58010fdc58dea025cce002e481e706d309b9d3a65142f15dea1",
+    "salt": "8e60f9b57b99d74510cc89130bdc255d",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.337Z"
+  },
+  {
+    "id": "usr-adm-log-758697",
+    "username": "admlog_758697",
+    "name": "Admin Log Tester",
+    "email": "admlog_758697@test.local",
+    "role": "admin",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "323cbb106716a58010fdc58dea025cce002e481e706d309b9d3a65142f15dea1",
+    "salt": "8e60f9b57b99d74510cc89130bdc255d",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.337Z"
+  },
+  {
+    "id": "usr-tek-log-758697",
+    "username": "teklog_758697",
+    "name": "Teknisi Log Tester",
+    "email": "teklog_758697@test.local",
+    "role": "technician",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "323cbb106716a58010fdc58dea025cce002e481e706d309b9d3a65142f15dea1",
+    "salt": "8e60f9b57b99d74510cc89130bdc255d",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.337Z"
+  },
+  {
+    "id": "usr-dev-log-829948",
+    "username": "devlog_829948",
+    "name": "Dev Log Tester",
+    "email": "devlog_829948@test.local",
+    "role": "developer",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "088aa783d3517c4db01b1fdce3ff681d2d336b8a956c000c6c49561362b5978e",
+    "salt": "fefa0d1c233b30bde415f58f83056a41",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.337Z"
+  },
+  {
+    "id": "usr-adm-log-829948",
+    "username": "admlog_829948",
+    "name": "Admin Log Tester",
+    "email": "admlog_829948@test.local",
+    "role": "admin",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "088aa783d3517c4db01b1fdce3ff681d2d336b8a956c000c6c49561362b5978e",
+    "salt": "fefa0d1c233b30bde415f58f83056a41",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.337Z"
+  },
+  {
+    "id": "usr-tek-log-829948",
+    "username": "teklog_829948",
+    "name": "Teknisi Log Tester",
+    "email": "teklog_829948@test.local",
+    "role": "technician",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "088aa783d3517c4db01b1fdce3ff681d2d336b8a956c000c6c49561362b5978e",
+    "salt": "fefa0d1c233b30bde415f58f83056a41",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.337Z"
+  },
+  {
+    "id": "usr-dev-v128-832353",
+    "username": "dev128_832353",
+    "name": "Dev v128",
+    "email": "dev128_832353@test.local",
+    "role": "developer",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "5a09a3d1c3cc1a012d5c1ab0b348aad6a7dd162b1249e8c0f8c2c672eaac0c12",
+    "salt": "47a230ad44ac04903d63ded604785b65",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.373Z"
+  },
+  {
+    "id": "usr-adm-v128-832353",
+    "username": "adm128_832353",
+    "name": "Admin v128",
+    "email": "adm128_832353@test.local",
+    "role": "admin",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "5a09a3d1c3cc1a012d5c1ab0b348aad6a7dd162b1249e8c0f8c2c672eaac0c12",
+    "salt": "47a230ad44ac04903d63ded604785b65",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.373Z",
+    "feature_permissions": null,
+    "updated_at": "2026-11-26T04:53:52.558Z"
+  },
+  {
+    "id": "usr-tek-v128-832353",
+    "username": "tek128_832353",
+    "name": "Tek v128",
+    "email": "tek128_832353@test.local",
+    "role": "technician",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "5a09a3d1c3cc1a012d5c1ab0b348aad6a7dd162b1249e8c0f8c2c672eaac0c12",
+    "salt": "47a230ad44ac04903d63ded604785b65",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.374Z",
+    "feature_permissions": null,
+    "updated_at": "2026-11-26T04:53:52.562Z"
+  },
+  {
+    "id": "usr-wh-v128-832353",
+    "username": "wh128_832353",
+    "name": "Legacy WH v128",
+    "email": "wh128_832353@test.local",
+    "role": "warehouse_admin",
+    "department": "Dev & Master System Engineering",
+    "phone": "",
+    "password_hash": "5a09a3d1c3cc1a012d5c1ab0b348aad6a7dd162b1249e8c0f8c2c672eaac0c12",
+    "salt": "47a230ad44ac04903d63ded604785b65",
+    "status": "ACTIVE",
+    "created_at": "2026-11-26T04:53:52.374Z"
+  },
+  {
+    "id": "usr-1795668832491",
+    "username": "newtek_832353",
+    "name": "Teknisi Baru",
+    "email": "newtek_832353@test.local",
+    "role": "ACTIVE",
+    "department": "IT Operations",
+    "phone": "",
+    "password_hash": "8d971d274e308887d4b73d375a7397800009a1387974af6e852b42a6be6a59c0",
+    "salt": "ae0443166c9bff8a397910096bf90bb9",
+    "status": "admin",
+    "created_at": "2026-11-26T04:53:52.511Z",
+    "updated_at": "2026-11-26T04:53:52.518Z"
   }
 ]
