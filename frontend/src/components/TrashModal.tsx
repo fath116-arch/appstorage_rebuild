@@ -29,8 +29,14 @@ export const TrashModal: React.FC<TrashModalProps> = ({ isOpen, onClose }) => {
       } catch {
         snap = {};
       }
-      const label =
-        String(snap.nama || snap.kode_id || snap.name || snap.username || entry.objek_id);
+      let label = String(snap.nama || snap.kode_id || snap.name || snap.username || snap.nama_tipe || entry.objek_id);
+      if (entry.jenis_objek === 'stok_jumlah') {
+        const prodName = snap.nama_produk ? `${String(snap.nama_produk)} — ` : '';
+        const tipeName = String(snap.nama_tipe || `Tipe #${String(snap.tipe_id || '')}`);
+        const qtyLabel = snap.jumlah_dihapus ?? snap.jumlah ?? '';
+        const boxLabel = String(snap.box_kode || snap.box_id || '');
+        label = `${prodName}${tipeName}${qtyLabel !== '' ? ` (${qtyLabel} unit${boxLabel ? ` · ${boxLabel}` : ''})` : ''}`;
+      }
       return { entry, snap, label };
     });
   }, [trashItems]);

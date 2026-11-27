@@ -1,6 +1,6 @@
 # PANDUAN DEPLOYMENT & OPERASIONAL SERVER (DEPLOY.MD)
 
-**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.8.5)  
+**Aplikasi**: FieldOps IT Inventory (Rilis Versi 1.2.9)  
 **Infrastruktur**: Docker Container (Ubuntu Server / Windows Docker Desktop) / Native Node.js  
 **Database**: MariaDB 11.4 LTS (Container Terisolasi / Standalone)  
 **Akses Jarak Jauh**: Cloudflare Tunnel (HTTPS Tanpa Buka Port Router)
@@ -318,17 +318,17 @@ Jika PC atau server kantor **tidak dapat menjalankan Docker** (karena keterbatas
 
 ---
 
-## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.8.5)
+## 🌐 8. Daftar Endpoint API Kanonik Aktif (v1.2.9)
 
 | Prefix Route | Endpoint Terverifikasi | Keterangan |
 | :--- | :--- | :--- |
-| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.8.5`, `buildId` & `builtAt` sinkronisasi anti-cache production (`no-store`), & status UTC MariaDB |
+| `/api/health` | `GET /` | Status kesehatan server, versi `1.2.9`, `buildId` & `builtAt` sinkronisasi anti-cache production (`no-store`), & status UTC MariaDB |
 | `/api/setup` | `GET /status`, `POST /check`, `POST /database`, `POST /tunnel`, `POST /whatsapp`, `POST /test-login` | Diagnostik koneksi sistem (`.env`, DB, Admin, WA, Cloudflare Tunnel), tes login 6 tahap, simpan konfigurasi ke `.env`, reload pool DB, & katalog CLI (`developer` melalui `requireFeature`) |
 | `/api/auth` | `POST /login`, `/register` *(403 Closed)*, `/refresh`, `/logout`, `/reset-password`, `/confirm-token`; `GET /me`, `/actors`, `/user-logs` *(Admin/Developer `users_manage`)*; `GET/POST/DELETE /users`, `PUT /users/:id/features` *(Developer)*, `POST /users/:id/(approve\|reject\|status\|reset-password\|revoke-sessions)`; `GET /settings`, `PUT /settings/:key`; `GET /activity-logs`, `/activity-logs/:id/details`; `GET /trash`, `POST /trash/purge` | Autentikasi cookie HTTP-only 30 hari, registrasi publik ditutup (`403`), RBAC 3 peran + izin fitur per akun (`feature_permissions`/`featurePermissions`), log terpisah login/logout/sesi/manajemen akun, konfirmasi Tier 2/3 (`"delete"` untuk penghapusan), & tempat sampah 14 hari |
-| `/api/catalog` | `GET /jenis`, `/jenis/:id`, `POST/PUT/DELETE /jenis/:id`, `DELETE /jenis/bulk`; `GET /jenis/:id/attributes`, `POST/PUT/DELETE /attributes/:id`, `DELETE /attributes/bulk`, `POST /attributes/:id/options`; `GET /tipe-stok-suggestions`; `GET/POST/PUT/DELETE /products/:id`, `DELETE /products/bulk`; `GET /products/:id/types`, `POST /types`, `PUT /types/:id/id-rule`; `GET /labels` | Manajemen penuh & hapus massal Kategori, Atribut, Opsi, Produk, Varian Tipe, aturan ID (`id_dikunci`), proteksi stok aktif, & data cetak label A4 |
-| `/api/import` | `GET /template`, `POST /preview`, `POST /commit` | Unduh template `.xlsx`, pratinjau validasi dari file Excel/CSV atau URL Google Spreadsheet publik, & impor atomik Katalog + Box + Stok Awal (`catalog_import`) |
+| `/api/catalog` | `GET /jenis`, `/jenis/:id`, `POST/PUT/DELETE /jenis/:id` *(opsi `mode: move_products\|cascade`)*, `DELETE /jenis/bulk`; `GET /jenis/:id/attributes`, `POST/PUT/DELETE /attributes/:id`, `DELETE /attributes/bulk`, `POST /attributes/:id/options`; `GET /tipe-stok-suggestions`; `GET/POST/PUT/DELETE /products/:id`, `POST /products/move`, `DELETE /products/bulk`; `GET /products/:id/types`, `POST /types`, `PUT /types/:id/id-rule` *(rename tipe + aturan ID)*, `POST /types/:id/move`, `DELETE /types/:id`, `DELETE /types/bulk`; `GET /labels` | Manajemen penuh, pemindahan produk antar kategori & tipe antar produk, rename varian tipe, hapus kategori opsi pindah/cascade, hapus tunggal/massal terproteksi Kategori, Produk, & Tipe, aturan ID (`id_dikunci`), serta data cetak label A4 |
+| `/api/import` | `GET /template`, `POST /preview`, `POST /commit` | Unduh template `.xlsx` multi-tipe dengan kolom `Pola_ID` terpisah per tipe, pratinjau validasi dari file Excel/CSV atau URL Google Spreadsheet publik, & impor atomik Katalog + Box + Stok Awal (`catalog_import`) |
 | `/api/boxes` | `GET /`, `GET /:id`, `POST /`, `POST /move`, `DELETE /:id`, `DELETE /bulk` | Manajemen storage box campuran, relokasi antar box, & hapus tunggal/massal box kosong terproteksi |
-| `/api/stock` | `GET /search`, `GET /check-id/:kode_id`, `GET /types/:id/items`, `POST /single`, `/bulk`, `/quantity`, `/out`, `/out/bulk`, `GET /archive`, `POST /restore`, `PUT /items/:id/condition`, `DELETE /items/:id`, `DELETE /items/bulk` | Pencarian 300ms, input stok, keranjang keluar, arsip, restore, kondisi item, & hapus tunggal/massal item fisik ber-ID |
+| `/api/stock` | `GET /search`, `GET /check-id/:kode_id`, `GET /types/:id/items`, `POST /single`, `/bulk`, `/quantity`, `/out`, `/out/bulk`, `/move` *(pindah Box &/atau Tipe unit ber-ID / non-SN)*, `GET /archive`, `POST /restore`, `PUT /items/:id/condition`, `DELETE /items/:id`, `DELETE /items/bulk`, `DELETE /quantity`, `DELETE /quantity/bulk` | Pencarian 300ms, input stok, keranjang keluar, pindah unit antar Storage Box & Tipe kompatibel, arsip, restore, kondisi item, serta hapus tunggal/massal langsung item fisik ber-ID dan stok jumlah non-SN (`stok_jumlah`, menjaga `reserved_qty`) ke Kotak Sampah 14 hari |
 | `/api/activities` | `GET /`, `GET /:id/details`, `POST /:id/correct` | Feed transaksi barang kanonik (mengecualikan log login/logout/sesi/akun user) & koreksi audit append-only (`correction_of_id`) |
 | `/api/requests` | `POST /` (`ambil` / `kembalikan` / `beli`), `POST /bag`, `GET /`, `/held`, `/open-for-actor/:actorId`, `/:id`, `/:id/timeline`, `POST /:id/(approve\|pickup\|return\|complete\|reject\|cancel)` | Siklus lengkap permohonan satuan, pengajuan pembelian barang (katalog/baru + WA selektif), paket tas, pengajuan pengembalian 3 kondisi, barang di tangan teknisi, & penandaan selesai |
 | `/api/checklists` | `GET/POST/PUT/DELETE /bags`, `GET /`, `POST /` | Manajemen Multi-Tas Kerja Lapangan (`BAG_TEMPLATE`) & catatan inspeksi harian (`TOOLKIT_CHECK`) |

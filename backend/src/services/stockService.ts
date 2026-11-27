@@ -1499,4 +1499,484 @@ export class StockService {
       message: `${check.items.length} item fisik berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
     };
   }
+
+  // ============================================================================
+  // 6. HAPUS LANGSUNG STOK JUMLAH NON-SN (TANPA_ID) & PINDAH UNIT ANTAR BOX/TIPE
+  // ============================================================================
+
+  static async canDeleteStokJumlah(
+    tipeId: number,
+    boxId: string,
+    jumlah?: number
+  ): Promise<{
+    canDelete: boolean;
+    message?: string;
+    deleteQty?: number;
+    row?: {
+      tipe_id: number;
+      box_id: string;
+      jumlah: number;
+      reserved_qty: number;
+      kode_box: string;
+      nama_tipe: string;
+      nama_produk: string;
+    };
+  }> {
+    if (!Number.isFinite(tipeId) || tipeId <= 0 || !boxId) {
+      return { canDelete: false, message: 'Parameter tipe_id dan box_id tidak valid.' };
+    }
+
+    const rows = await executeQuery<{
+      tipe_id: number;
+      box_id: string;
+      jumlah: number;
+      reserved_qty: number;
+      kode_box: string;
+      nama_tipe: string;
+      nama_produk: string;
+    }>(
+      `SELECT sj.tipe_id, sj.box_id, sj.jumlah, COALESCE(sj.reserved_qty, 0) as reserved_qty,
+              b.kode as kode_box, t.nama_tipe, p.nama as nama_produk
+       FROM stok_jumlah sj
+       JOIN box b ON sj.box_id = b.id
+       JOIN tipe t ON sj.tipe_id = t.id
+       JOIN produk p ON t.produk_id = p.id
+       WHERE sj.tipe_id = ? AND sj.box_id = ?`,
+      [tipeId, boxId]
+    );
+
+    if (!rows || rows.length === 0) {
+      return { canDelete: false, message: 'Data stok jumlah tidak ditemukan di box tersebut.' };
+    }
+
+    const row = rows[0];
+    const totalQty = Number(row.jumlah || 0);
+    const reservedQty = Number(row.reserved_qty || 0);
+    const freeQty = Math.max(0, totalQty - reservedQty);
+
+    if (totalQty <= 0) {
+      return { canDelete: false, row, message: `Stok jumlah pada box ${row.kode_box} sudah kosong.` };
+    }
+
+    if (freeQty <= 0) {
+      return {
+        canDelete: false,
+        row,
+        message: `Seluruh ${totalQty} unit (${row.nama_produk} - ${row.nama_tipe}) di ${row.kode_box} sedang dipesan oleh request aktif sehingga tidak dapat dihapus.`
+      };
+    }
+
+    const targetQty = jumlah !== undefined ? Math.floor(Number(jumlah)) : freeQty;
+    if (!Number.isFinite(targetQty) || targetQty <= 0) {
+      return { canDelete: false, row, message: 'Jumlah unit yang akan dihapus harus minimal 1.' };
+    }
+    if (targetQty > freeQty) {
+      return {
+        canDelete: false,
+        row,
+        message: `Hanya ${freeQty} unit tersedia di ${row.kode_box} yang dapat dihapus (${reservedQty} unit sedang dipesan).`
+      };
+    }
+
+    return { canDelete: true, deleteQty: targetQty, row };
+  }
+
+  static async deleteStokJumlah(
+    tipeId: number,
+    boxId: string,
+    userId: string,
+    jumlah?: number
+  ): Promise<{ success: boolean; deletedQty: number; message: string }> {
+    const check = await this.canDeleteStokJumlah(tipeId, boxId, jumlah);
+    if (!check.canDelete || !check.row || !check.deleteQty) {
+      return { success: false, deletedQty: 0, message: check.message || 'Stok jumlah tidak dapat dihapus.' };
+    }
+
+    const { row, deleteQty } = check;
+    const totalQty = Number(row.jumlah || 0);
+    const reservedQty = Number(row.reserved_qty || 0);
+
+    await TrashService.moveToTrash({
+      jenis_objek: 'stok_jumlah',
+      objek_id: `${row.tipe_id}:${row.box_id}`,
+      snapshot: {
+        tipe_id: row.tipe_id,
+        box_id: row.box_id,
+        kode_box: row.kode_box,
+        nama_produk: row.nama_produk,
+        nama_tipe: row.nama_tipe,
+        jumlah: deleteQty,
+        name: `${row.nama_produk} - ${row.nama_tipe} (${deleteQty} unit @ ${row.kode_box})`
+      },
+      dihapus_oleh: userId,
+      catatan: `Hapus Langsung Stok Non-SN: ${deleteQty} unit "${row.nama_produk} - ${row.nama_tipe}" dari Box ${row.kode_box}`
+    });
+
+    if (totalQty - deleteQty <= 0 && reservedQty <= 0) {
+      await executeQuery('DELETE FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?', [row.tipe_id, row.box_id]);
+    } else {
+      await executeQuery('UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?', [
+        deleteQty,
+        row.tipe_id,
+        row.box_id
+      ]);
+    }
+
+    return {
+      success: true,
+      deletedQty: deleteQty,
+      message: `${deleteQty} unit stok jumlah "${row.nama_produk} - ${row.nama_tipe}" di ${row.kode_box} berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
+  static async canDeleteStokJumlahBulk(
+    entries: Array<{ tipe_id: number; box_id: string; jumlah?: number }>
+  ): Promise<{
+    canDelete: boolean;
+    message?: string;
+    validated: Array<{
+      tipe_id: number;
+      box_id: string;
+      deleteQty: number;
+      row: NonNullable<Awaited<ReturnType<typeof StockService.canDeleteStokJumlah>>['row']>;
+    }>;
+  }> {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 stok jumlah untuk dihapus.', validated: [] };
+    }
+
+    const dedupMap = new Map<string, { tipe_id: number; box_id: string; jumlah?: number }>();
+    for (const e of entries) {
+      const tId = Number(e.tipe_id);
+      const bId = String(e.box_id || '').trim();
+      if (!Number.isFinite(tId) || tId <= 0 || !bId) continue;
+      dedupMap.set(`${tId}:${bId}`, { tipe_id: tId, box_id: bId, jumlah: e.jumlah });
+    }
+
+    if (dedupMap.size === 0) {
+      return { canDelete: false, message: 'Daftar stok jumlah yang dipilih tidak valid.', validated: [] };
+    }
+
+    const validated: Array<{
+      tipe_id: number;
+      box_id: string;
+      deleteQty: number;
+      row: NonNullable<Awaited<ReturnType<typeof StockService.canDeleteStokJumlah>>['row']>;
+    }> = [];
+
+    for (const entry of dedupMap.values()) {
+      const check = await this.canDeleteStokJumlah(entry.tipe_id, entry.box_id, entry.jumlah);
+      if (!check.canDelete || !check.row || !check.deleteQty) {
+        return { canDelete: false, message: check.message || 'Terdapat entri stok jumlah yang tidak dapat dihapus.', validated: [] };
+      }
+      validated.push({
+        tipe_id: entry.tipe_id,
+        box_id: entry.box_id,
+        deleteQty: check.deleteQty,
+        row: check.row
+      });
+    }
+
+    return { canDelete: true, validated };
+  }
+
+  static async deleteStokJumlahBulk(
+    entries: Array<{ tipe_id: number; box_id: string; jumlah?: number }>,
+    userId: string
+  ): Promise<{ success: boolean; deletedEntries: number; deletedTotalQty: number; message: string }> {
+    const check = await this.canDeleteStokJumlahBulk(entries);
+    if (!check.canDelete) {
+      return {
+        success: false,
+        deletedEntries: 0,
+        deletedTotalQty: 0,
+        message: check.message || 'Stok jumlah terpilih tidak dapat dihapus.'
+      };
+    }
+
+    let totalUnits = 0;
+    for (const entry of check.validated) {
+      const { row, deleteQty } = entry;
+      const totalQty = Number(row.jumlah || 0);
+      const reservedQty = Number(row.reserved_qty || 0);
+
+      await TrashService.moveToTrash({
+        jenis_objek: 'stok_jumlah',
+        objek_id: `${row.tipe_id}:${row.box_id}`,
+        snapshot: {
+          tipe_id: row.tipe_id,
+          box_id: row.box_id,
+          kode_box: row.kode_box,
+          nama_produk: row.nama_produk,
+          nama_tipe: row.nama_tipe,
+          jumlah: deleteQty,
+          name: `${row.nama_produk} - ${row.nama_tipe} (${deleteQty} unit @ ${row.kode_box})`
+        },
+        dihapus_oleh: userId,
+        catatan: `Hapus Massal Stok Non-SN: ${deleteQty} unit "${row.nama_produk} - ${row.nama_tipe}" dari Box ${row.kode_box}`
+      });
+
+      if (totalQty - deleteQty <= 0 && reservedQty <= 0) {
+        await executeQuery('DELETE FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?', [row.tipe_id, row.box_id]);
+      } else {
+        await executeQuery('UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?', [
+          deleteQty,
+          row.tipe_id,
+          row.box_id
+        ]);
+      }
+      totalUnits += deleteQty;
+    }
+
+    return {
+      success: true,
+      deletedEntries: check.validated.length,
+      deletedTotalQty: totalUnits,
+      message: `${totalUnits} unit stok jumlah (${check.validated.length} entri) berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
+  /**
+   * Memindahkan unit fisik ber-ID (single/bulk) atau stok jumlah antar Box dan/atau antar Varian Tipe
+   */
+  static async pindahUnit(input: StockAttributionInput & {
+    itemIds?: string[];
+    tipeAsalId?: number;
+    boxAsalId?: string;
+    jumlah?: number;
+    boxTujuanId?: string;
+    tipeTujuanId?: number;
+    userId: string;
+    catatan?: string;
+  }) {
+    if (!input.boxTujuanId && !input.tipeTujuanId) {
+      throw new Error('Pilih minimal Box Tujuan atau Varian Tipe Tujuan.');
+    }
+
+    const boxTujuan = input.boxTujuanId ? await this.getBoxById(input.boxTujuanId) : null;
+    if (input.boxTujuanId && (!boxTujuan || !boxTujuan.aktif)) {
+      throw new Error('Storage Box tujuan tidak ditemukan atau tidak aktif.');
+    }
+
+    const tipeTujuan = input.tipeTujuanId ? await CatalogService.getTipeById(input.tipeTujuanId) : null;
+    if (input.tipeTujuanId && (!tipeTujuan || !tipeTujuan.aktif)) {
+      throw new Error('Varian Tipe tujuan tidak ditemukan atau tidak aktif.');
+    }
+
+    // Cabang 1: Item Fisik Ber-ID (Single / Bulk Multi-Select)
+    if (Array.isArray(input.itemIds) && input.itemIds.length > 0) {
+      const uniqueIds = Array.from(new Set(input.itemIds.map(s => String(s).trim()).filter(Boolean)));
+      if (tipeTujuan && tipeTujuan.mode_stok === 'jumlah') {
+        throw new Error(
+          `Item fisik ber-ID tidak dapat dipindahkan ke varian tipe "${tipeTujuan.nama_tipe}" karena bertipe Tanpa ID (stok jumlah).`
+        );
+      }
+
+      const targetItems: DuplicateItemRow[] = [];
+      for (const idOrKode of uniqueIds) {
+        const rows = await executeQuery<DuplicateItemRow>(
+          `SELECT i.*, b.kode as kode_box, t.nama_tipe, p.nama as nama_produk
+           FROM item i
+           JOIN box b ON i.box_id = b.id
+           JOIN tipe t ON i.tipe_id = t.id
+           JOIN produk p ON t.produk_id = p.id
+           WHERE i.id = ? OR UPPER(i.kode_id) = UPPER(?)`,
+          [idOrKode, idOrKode]
+        );
+        const it = rows[0];
+        if (!it || it.status !== 'aktif') {
+          throw new Error(`Item "${idOrKode}" tidak berstatus aktif di gudang dan tidak dapat dipindahkan.`);
+        }
+        targetItems.push(it);
+      }
+
+      return await runTransaction(async (conn) => {
+        const detailsPayload: ActivityDetailInput[] = [];
+        const boxAsalSet = new Set<string>();
+        const boxTujuanSet = new Set<string>();
+
+        for (const it of targetItems) {
+          const destBoxId = boxTujuan ? boxTujuan.id : it.box_id;
+          const destTipeId = tipeTujuan ? tipeTujuan.id : it.tipe_id;
+          const destBoxKode = boxTujuan ? boxTujuan.kode : it.kode_box;
+
+          boxAsalSet.add(it.kode_box);
+          boxTujuanSet.add(destBoxKode);
+
+          if (destBoxId !== it.box_id && destTipeId !== it.tipe_id) {
+            await conn.query('UPDATE item SET box_id = ?, tipe_id = ? WHERE id = ?', [destBoxId, destTipeId, it.id]);
+          } else if (destBoxId !== it.box_id) {
+            await conn.query('UPDATE item SET box_id = ? WHERE id = ?', [destBoxId, it.id]);
+          } else if (destTipeId !== it.tipe_id) {
+            await conn.query('UPDATE item SET tipe_id = ? WHERE id = ?', [destTipeId, it.id]);
+          }
+
+          detailsPayload.push({
+            tipe_id: destTipeId,
+            item_id: it.id,
+            kode_id: it.kode_id,
+            nama_snapshot: tipeTujuan
+              ? `${tipeTujuan.produk_nama} - ${tipeTujuan.nama_tipe}`
+              : `${it.nama_produk} - ${it.nama_tipe}`,
+            jumlah: 1,
+            status_sebelum: `${it.kode_box} / ${it.nama_tipe}`,
+            status_sesudah: `${destBoxKode} / ${tipeTujuan ? tipeTujuan.nama_tipe : it.nama_tipe}`
+          });
+        }
+
+        if (tipeTujuan) {
+          await conn.query('UPDATE tipe SET id_dikunci = 1 WHERE id = ?', [tipeTujuan.id]);
+        }
+
+        const boxAsalLabel = Array.from(boxAsalSet).join(', ');
+        const boxTujuanLabel = Array.from(boxTujuanSet).join(', ');
+        const aksi = tipeTujuan && !boxTujuan ? 'pindah_tipe' : 'pindah_box';
+
+        const txLog = await ActivityLogService.recordActivity(
+          {
+            aksi,
+            pelaku_id: input.actorId || input.userId,
+            actor_id: input.actorId || input.userId,
+            actor_nama: input.actorName,
+            recorded_by_id: input.recordedById || input.userId,
+            recorded_by_nama: input.recordedByName,
+            recorded_by_role: input.recordedByRole,
+            on_behalf_reason: input.onBehalfReason,
+            occurred_at: input.occurredAt,
+            tipe_mutasi: 'TRANSFER',
+            reference_type: tipeTujuan ? 'PINDAH_TIPE_UNIT' : 'PINDAH_BOX_MASSAL',
+            recipient_destination: boxTujuanLabel,
+            qty_total: targetItems.length,
+            box_asal: boxAsalLabel,
+            box_tujuan: boxTujuanLabel,
+            catatan:
+              input.catatan ||
+              `Pindah ${targetItems.length} item fisik${boxTujuan ? ` ke Box ${boxTujuan.kode}` : ''}${tipeTujuan ? ` ke Tipe "${tipeTujuan.produk_nama} - ${tipeTujuan.nama_tipe}"` : ''}`,
+            details: detailsPayload
+          },
+          conn
+        );
+
+        return {
+          success: true,
+          movedCount: targetItems.length,
+          activityId: txLog.idAktivitas,
+          message: `${targetItems.length} unit item berhasil dipindahkan${boxTujuan ? ` ke ${boxTujuan.kode}` : ''}${tipeTujuan ? ` (${tipeTujuan.produk_nama} - ${tipeTujuan.nama_tipe})` : ''}.`
+        };
+      });
+    }
+
+    // Cabang 2: Stok Jumlah (tanpa_id) antar Box dan/atau antar Tipe Tanpa ID
+    if (input.tipeAsalId && input.boxAsalId && input.jumlah && input.jumlah > 0) {
+      const boxAsal = await this.getBoxById(input.boxAsalId);
+      const tipeAsal = await CatalogService.getTipeById(input.tipeAsalId);
+      if (!boxAsal || !tipeAsal) {
+        throw new Error('Box asal atau varian tipe asal tidak ditemukan.');
+      }
+
+      if (tipeTujuan && tipeTujuan.mode_stok !== 'jumlah') {
+        throw new Error(
+          `Stok jumlah (Tanpa ID) hanya dapat dipindahkan ke varian tipe lain yang juga bertipe Tanpa ID (stok jumlah).`
+        );
+      }
+
+      const destBox = boxTujuan || boxAsal;
+      const destTipe = tipeTujuan || tipeAsal;
+      if (destBox.id === boxAsal.id && destTipe.id === tipeAsal.id) {
+        throw new Error('Lokasi box dan varian tipe tujuan sama dengan lokasi asal.');
+      }
+
+      const moveQty = Math.floor(Number(input.jumlah));
+
+      return await runTransaction(async (conn) => {
+        const sjRows = await conn.query(
+          'SELECT jumlah, COALESCE(reserved_qty, 0) as reserved_qty FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?',
+          [tipeAsal.id, boxAsal.id]
+        );
+        const total = sjRows && sjRows[0] ? Number(sjRows[0].jumlah || 0) : 0;
+        const reserved = sjRows && sjRows[0] ? Number(sjRows[0].reserved_qty || 0) : 0;
+        const available = Math.max(0, total - reserved);
+        if (available < moveQty) {
+          throw new Error(`Stok tersedia di ${boxAsal.kode} (${available}) tidak mencukupi untuk dipindahkan.`);
+        }
+
+        if (total - moveQty <= 0 && reserved <= 0) {
+          await conn.query('DELETE FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?', [tipeAsal.id, boxAsal.id]);
+        } else {
+          await conn.query('UPDATE stok_jumlah SET jumlah = jumlah - ? WHERE tipe_id = ? AND box_id = ?', [
+            moveQty,
+            tipeAsal.id,
+            boxAsal.id
+          ]);
+        }
+
+        const destRows = await conn.query('SELECT jumlah FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?', [
+          destTipe.id,
+          destBox.id
+        ]);
+        if (destRows && destRows.length > 0) {
+          await conn.query('UPDATE stok_jumlah SET jumlah = jumlah + ? WHERE tipe_id = ? AND box_id = ?', [
+            moveQty,
+            destTipe.id,
+            destBox.id
+          ]);
+        } else {
+          await conn.query('INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)', [
+            destTipe.id,
+            destBox.id,
+            moveQty
+          ]);
+        }
+
+        await conn.query('UPDATE tipe SET id_dikunci = 1 WHERE id = ?', [destTipe.id]);
+
+        const namaSnapshot = `${destTipe.produk_nama} - ${destTipe.nama_tipe}`;
+        const aksi = destTipe.id !== tipeAsal.id ? 'pindah_tipe' : 'pindah_box';
+
+        const txLog = await ActivityLogService.recordActivity(
+          {
+            aksi,
+            pelaku_id: input.actorId || input.userId,
+            actor_id: input.actorId || input.userId,
+            actor_nama: input.actorName,
+            recorded_by_id: input.recordedById || input.userId,
+            recorded_by_nama: input.recordedByName,
+            recorded_by_role: input.recordedByRole,
+            on_behalf_reason: input.onBehalfReason,
+            occurred_at: input.occurredAt,
+            tipe_mutasi: 'TRANSFER',
+            reference_type: destTipe.id !== tipeAsal.id ? 'PINDAH_TIPE_QTY' : 'PINDAH_BOX',
+            recipient_destination: destBox.kode,
+            qty_total: moveQty,
+            box_asal: boxAsal.kode,
+            box_tujuan: destBox.kode,
+            catatan:
+              input.catatan ||
+              `Pindah ${moveQty} unit dari ${boxAsal.kode} (${tipeAsal.nama_tipe}) ke ${destBox.kode} (${destTipe.nama_tipe})`,
+            details: [
+              {
+                tipe_id: destTipe.id,
+                item_id: null,
+                kode_id: null,
+                nama_snapshot: namaSnapshot,
+                jumlah: moveQty,
+                status_sebelum: `${boxAsal.kode} / ${tipeAsal.nama_tipe}`,
+                status_sesudah: `${destBox.kode} / ${destTipe.nama_tipe}`
+              }
+            ]
+          },
+          conn
+        );
+
+        return {
+          success: true,
+          movedCount: moveQty,
+          activityId: txLog.idAktivitas,
+          message: `Berhasil memindahkan ${moveQty} unit ke ${destBox.kode} (${namaSnapshot}).`
+        };
+      });
+    }
+
+    throw new Error('Parameter pemindahan unit tidak lengkap.');
+  }
 }

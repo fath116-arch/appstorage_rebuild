@@ -1,6 +1,6 @@
-# Peran, Hak Akses & Keamanan Sesi - FieldOps IT (v1.2.8.5)
+# Peran, Hak Akses & Keamanan Sesi - FieldOps IT (v1.2.9)
 
-Dokumen ini mendefinisikan **Role-Based Access Control (RBAC)** server-authoritative, sistem **Izin Fitur Per Akun** (`feature_permissions`), audit **Log Aktivitas User** terpisah (`GET /api/auth/user-logs`), alur autentikasi PBKDF2, manajemen sesi cookie server (`sesi`), serta mekanisme konfirmasi bertingkat (*Tier 0–3*) pada **FieldOps IT (`v1.2.8.5`)**.
+Dokumen ini mendefinisikan **Role-Based Access Control (RBAC)** server-authoritative, sistem **Izin Fitur Per Akun** (`feature_permissions`), audit **Log Aktivitas User** terpisah (`GET /api/auth/user-logs`), alur autentikasi PBKDF2, manajemen sesi cookie server (`sesi`), serta mekanisme konfirmasi bertingkat (*Tier 0–3*) pada **FieldOps IT (`v1.2.9`)**.
 
 ---
 
@@ -83,6 +83,6 @@ Untuk melindungi aksi berisiko tinggi dari eksekusi tidak sengaja atau pemanggil
 | **Tier 0** | Tanpa dialog tambahan | Pemindahan box tunggal (`stock_move_single`), pembaruan catatan (`notes_update`). |
 | **Tier 1** | Konfirmasi dialog UI standar | Output barang tunggal (`stock_out_single`), restore tunggal dari arsip (`restore_single`). |
 | **Tier 2** | Wajib mengetik kata **`approve`** | Persetujuan/penolakan request (`request_approve`, `request_reject`), input/output stok massal (`bulk_stock_in`, `bulk_stock_out`). |
-| **Tier 3 (Hapus)** | Wajib mengetik kata **`delete`** *(efisien untuk hapus tunggal maupun multi-pilih)* + **re-autentikasi kata sandi** jika login melewati `REAUTH_MENIT` (15 menit) | Hapus permanen (`permanent_delete`), hapus kategori (`delete_kind`), atribut (`delete_attribute`), produk (`delete_product`), tipe (`delete_type`), storage box (`delete_box`), dan item fisik ber-ID (`delete_item`). |
+| **Tier 3 (Hapus)** | Wajib mengetik kata **`delete`** *(efisien untuk hapus tunggal maupun multi-pilih)* + **re-autentikasi kata sandi** jika login melewati `REAUTH_MENIT` (15 menit) | Hapus permanen (`permanent_delete`), hapus kategori (`delete_kind`), atribut (`delete_attribute`), produk (`delete_product`), tipe (`delete_type`), storage box (`delete_box`), item fisik ber-ID (`delete_item`), dan stok jumlah non-SN (`delete_stok_jumlah`). |
 | **Tier 3 (Non-Hapus)** | Wajib mengetik **nilai target/konfirmasi** + **re-autentikasi kata sandi** jika login melewati `REAUTH_MENIT` (15 menit) | Koreksi aturan ID tipe yang sudah dikunci (`change_id_rule`), koreksi ID item (`correct_item_id`), perubahan peran (`change_role`). |
 

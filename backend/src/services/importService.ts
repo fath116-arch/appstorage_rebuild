@@ -21,6 +21,7 @@ export interface ParsedImportRow {
   tipeVarian: string;
   sumberId: 'tanpa_id' | 'manual' | 'otomatis' | 'scan_sn';
   prefixId: string | null;
+  polaId: string | null;
   kodeBox: string | null;
   stokAwal: number;
   serialNumbers: string[];
@@ -72,6 +73,10 @@ const HEADER_ALIASES: Record<string, string> = {
   mode_id: 'sumberId',
   prefix_id: 'prefixId',
   prefix: 'prefixId',
+  pola_id: 'polaId',
+  pola_regex: 'polaId',
+  regex_id: 'polaId',
+  regex: 'polaId',
   kode_box: 'kodeBox',
   box: 'kodeBox',
   lokasi_box: 'kodeBox',
@@ -222,9 +227,10 @@ export class ImportService {
       { header: 'Tipe_Varian', key: 'tipe_varian', width: 22 },
       { header: 'Sumber_ID', key: 'sumber_id', width: 14 },
       { header: 'Prefix_ID', key: 'prefix_id', width: 16 },
+      { header: 'Pola_ID', key: 'pola_id', width: 22 },
       { header: 'Kode_Box', key: 'kode_box', width: 14 },
       { header: 'Stok_Awal', key: 'stok_awal', width: 12 },
-      { header: 'Daftar_Serial_Number', key: 'daftar_sn', width: 38 }
+      { header: 'Daftar_Serial_Number', key: 'daftar_sn', width: 42 }
     ];
 
     const headerRow = sheet.getRow(1);
@@ -237,7 +243,7 @@ export class ImportService {
     headerRow.alignment = { vertical: 'middle', horizontal: 'left' };
     headerRow.height = 24;
 
-    // 2 example rows ready for user editing or Google Sheets upload
+    // Multi-type example rows: 1 baris per tipe dengan ID masing-masing per varian
     sheet.addRow({
       kategori: 'Router & Switch',
       produk: 'MikroTik RB750Gr3',
@@ -247,9 +253,25 @@ export class ImportService {
       tipe_varian: 'Standar 5-Port',
       sumber_id: 'scan_sn',
       prefix_id: 'MTK-750',
+      pola_id: '^SN-MTK-\\d{3,}$',
       kode_box: 'BOX-A-01',
       stok_awal: 2,
       daftar_sn: 'SN-MTK-001, SN-MTK-002'
+    });
+
+    sheet.addRow({
+      kategori: 'Router & Switch',
+      produk: 'MikroTik RB750Gr3',
+      kategori_barang: 'Alat',
+      perputaran: 'recycle',
+      satuan: 'unit',
+      tipe_varian: 'Versi PoE-Out',
+      sumber_id: 'otomatis',
+      prefix_id: 'MTK-POE',
+      pola_id: '',
+      kode_box: 'BOX-A-01',
+      stok_awal: 2,
+      daftar_sn: ''
     });
 
     sheet.addRow({
@@ -261,6 +283,7 @@ export class ImportService {
       tipe_varian: 'Standar',
       sumber_id: 'tanpa_id',
       prefix_id: '',
+      pola_id: '',
       kode_box: 'BOX-A-02',
       stok_awal: 50,
       daftar_sn: ''
@@ -270,7 +293,7 @@ export class ImportService {
     guideSheet.columns = [
       { header: 'Kolom', key: 'kolom', width: 24 },
       { header: 'Wajib', key: 'wajib', width: 12 },
-      { header: 'Aturan / Nilai yang Didukung', key: 'aturan', width: 70 }
+      { header: 'Aturan / Nilai yang Didukung', key: 'aturan', width: 78 }
     ];
     const gHeader = guideSheet.getRow(1);
     gHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -278,16 +301,17 @@ export class ImportService {
 
     const guideRows = [
       ['Kategori', 'Ya', 'Nama kategori utama barang (otomatis dibuat jika belum ada di katalog).'],
-      ['Produk', 'Ya', 'Nama produk barang (otomatis dibuat di bawah Kategori terkait jika belum ada).'],
+      ['Produk', 'Ya', 'Nama produk barang. Untuk membuat beberapa tipe pada produk yang sama, ulangi Kategori & Produk di baris baru.'],
       ['Kategori_Barang', 'Opsional', 'Isi: "Alat" atau "Barang Habis Pakai" (bawaan: Barang Habis Pakai).'],
       ['Perputaran', 'Opsional', 'Isi: "fast_moving" atau "recycle" (bawaan: fast_moving).'],
       ['Satuan', 'Opsional', 'Contoh: unit, pcs, roll, meter, box, pack, set (bawaan: unit).'],
-      ['Tipe_Varian', 'Opsional', 'Nama tipe/varian produk (bawaan: "Standar").'],
-      ['Sumber_ID', 'Opsional', 'Isi: "tanpa_id", "manual", "otomatis", atau "scan_sn" (bawaan: tanpa_id).'],
-      ['Prefix_ID', 'Opsional', 'Awalan kode otomatis jika Sumber_ID = otomatis (contoh: MTK-750).'],
-      ['Kode_Box', 'Jika stok > 0', 'Kode Box penyimpanan (misal BOX-A-01). Box baru otomatis dibuat jika belum ada.'],
-      ['Stok_Awal', 'Opsional', 'Angka bulat >= 0 untuk saldo awal yang dimasukkan saat impor.'],
-      ['Daftar_Serial_Number', 'Khusus Per-ID', 'Pisahkan serial number dengan koma (,) atau titik koma (;) untuk Sumber_ID scan_sn / manual.']
+      ['Tipe_Varian', 'Opsional', 'Nama tipe/varian produk (bawaan: "Standar"). Setiap baris mewakili 1 tipe beserta aturan ID dan stoknya masing-masing.'],
+      ['Sumber_ID', 'Opsional', 'Isi: "tanpa_id", "manual", "otomatis", atau "scan_sn" per masing-masing tipe (bawaan: tanpa_id).'],
+      ['Prefix_ID', 'Opsional', 'Awalan kode otomatis per tipe (contoh: MTK-750 pada varian 1, MTK-POE pada varian 2).'],
+      ['Pola_ID', 'Opsional', 'Pola validasi Regex Serial Number khusus untuk tipe pada baris ini (contoh: ^SN-MTK-\\d{3,}$).'],
+      ['Kode_Box', 'Jika stok > 0', 'Kode Box penyimpanan untuk tipe pada baris ini (misal BOX-A-01). Box baru otomatis dibuat jika belum ada.'],
+      ['Stok_Awal', 'Opsional', 'Angka bulat >= 0 untuk saldo awal tipe pada baris ini.'],
+      ['Daftar_Serial_Number', 'Khusus Per-ID', 'Daftar SN khusus tipe pada baris ini. Pisahkan dengan koma (,) atau titik koma (;) untuk Sumber_ID scan_sn / manual.']
     ];
     for (const r of guideRows) {
       guideSheet.addRow({ kolom: r[0], wajib: r[1], aturan: r[2] });
@@ -443,6 +467,17 @@ export class ImportService {
       const tipeVarian = getVal('tipeVarian') || 'Standar';
       const sumberId = normalizeSumberId(getVal('sumberId'));
       const prefixId = getVal('prefixId') ? getVal('prefixId').toUpperCase() : null;
+      const rawPolaId = getVal('polaId');
+      const polaId = rawPolaId ? rawPolaId.trim() : null;
+      let compiledPolaRegex: RegExp | null = null;
+      if (polaId) {
+        try {
+          compiledPolaRegex = new RegExp(polaId);
+        } catch {
+          messages.push(`Pola_ID "${polaId}" bukan pola Regex yang valid.`);
+        }
+      }
+
       const rawBox = getVal('kodeBox');
       let kodeBox = rawBox ? rawBox.toUpperCase() : null;
 
@@ -483,6 +518,9 @@ export class ImportService {
           }
 
           for (const sn of serialNumbers) {
+            if (compiledPolaRegex && !compiledPolaRegex.test(sn)) {
+              messages.push(`Serial Number "${sn}" tidak cocok dengan Pola_ID (${polaId}).`);
+            }
             const upperSn = sn.toUpperCase();
             if (seenSerialsInBatch.has(upperSn)) {
               messages.push(`Serial Number "${sn}" duplikat di dalam berkas impor.`);
@@ -514,7 +552,10 @@ export class ImportService {
           m.includes('membutuhkan') ||
           m.includes('tidak sama') ||
           m.includes('duplikat') ||
-          m.includes('sudah terdaftar')
+          m.includes('sudah terdaftar') ||
+          m.includes('tidak valid') ||
+          m.includes('bukan pola Regex') ||
+          m.includes('tidak cocok dengan Pola_ID')
       );
 
       let rowState: ParsedImportRow['rowState'] = 'new';
@@ -544,6 +585,7 @@ export class ImportService {
         tipeVarian,
         sumberId,
         prefixId,
+        polaId,
         kodeBox,
         stokAwal,
         serialNumbers,
@@ -677,10 +719,11 @@ export class ImportService {
         const modeStok = sumberId === 'tanpa_id' ? 'jumlah' : 'per_id';
         let tipeId = tipeCache.get(`${produkId}::${tipeClean.toLowerCase()}`);
         if (!tipeId) {
+          const cleanPola = row.polaId ? String(row.polaId).trim() : null;
           const tRes = (await conn.query(
             `INSERT INTO tipe (produk_id, nama_tipe, catatan, sumber_id, mode_stok, prefix_id, pola_id, id_dikunci, aktif)
              VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)`,
-            [produkId, tipeClean, 'Diimpor via Template Spreadsheet', sumberId, modeStok, row.prefixId || null, null]
+            [produkId, tipeClean, 'Diimpor via Template Spreadsheet', sumberId, modeStok, row.prefixId || null, cleanPola]
           )) as { insertId?: number; id?: number };
           tipeId = Number(tRes.insertId || tRes.id);
           tipeCache.set(`${produkId}::${tipeClean.toLowerCase()}`, tipeId);

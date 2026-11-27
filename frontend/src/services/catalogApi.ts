@@ -180,6 +180,26 @@ export const catalogApi = {
     );
   },
 
+  async deleteJenisWithOptions(
+    id: number,
+    confirmationToken?: string,
+    options?: { mode?: 'block' | 'move_products' | 'cascade'; target_jenis_id?: number }
+  ): Promise<{ success: boolean; message: string; deletedProducts?: number; movedProducts?: number }> {
+    return apiFetch<{ success: boolean; message: string; deletedProducts?: number; movedProducts?: number }>(
+      `/api/catalog/jenis/${id}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({
+          mode: options?.mode || 'block',
+          target_jenis_id: options?.target_jenis_id,
+          confirmation_token: confirmationToken
+        })
+      },
+      'Gagal menghapus kategori.'
+    );
+  },
+
   async deleteJenisBulk(ids: number[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
     return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
       '/api/catalog/jenis/bulk',
@@ -351,6 +371,20 @@ export const catalogApi = {
     );
   },
 
+  async moveProduk(
+    produkIds: number[],
+    targetJenisId: number
+  ): Promise<{ success: boolean; movedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; movedCount?: number; message: string }>(
+      '/api/catalog/products/move',
+      {
+        method: 'POST',
+        body: JSON.stringify({ produk_ids: produkIds, target_jenis_id: targetJenisId })
+      },
+      'Gagal memindahkan produk ke kategori tujuan.'
+    );
+  },
+
   // TIPE
   async listTipeByProduk(produkId: number): Promise<Tipe[]> {
     const data = await apiFetch<{ types?: Tipe[] }>(
@@ -363,11 +397,12 @@ export const catalogApi = {
 
   async createTipe(payload: {
     produk_id: number;
+    nama_tipe?: string;
     catatan?: string;
     sumber_id?: 'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id';
     prefix_id?: string;
     pola_id?: string;
-    nilai_atribut: Array<{
+    nilai_atribut?: Array<{
       atribut_id: number;
       nilai_angka?: number | null;
       opsi_id?: number | null;
@@ -384,6 +419,7 @@ export const catalogApi = {
   },
 
   async updateAturanId(tipeId: number, payload: {
+    nama_tipe?: string;
     sumber_id: 'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id';
     prefix_id?: string;
     pola_id?: string;
@@ -393,9 +429,43 @@ export const catalogApi = {
     const data = await apiFetch<{ type: Tipe }>(
       `/api/catalog/types/${tipeId}/id-rule`,
       { method: 'PUT', body: JSON.stringify(payload) },
-      'Gagal memperbarui aturan ID tipe.'
+      'Gagal memperbarui tipe dan aturan ID.'
     );
     return data.type;
+  },
+
+  async moveTipe(tipeId: number, targetProdukId: number): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/catalog/types/${tipeId}/move`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ target_produk_id: targetProdukId })
+      },
+      'Gagal memindahkan varian tipe ke produk tujuan.'
+    );
+  },
+
+  async deleteTipe(id: number, confirmationToken?: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(
+      `/api/catalog/types/${id}`,
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {}
+      },
+      'Gagal menghapus varian tipe.'
+    );
+  },
+
+  async deleteTipeBulk(ids: number[], confirmationToken?: string): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/catalog/types/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ ids, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus varian tipe terpilih.'
+    );
   },
 
   async getItemsByTipe(tipeId: number): Promise<{ items: Array<Record<string, unknown>>; stokJumlah: Array<Record<string, unknown>> }> {
@@ -454,6 +524,7 @@ export const catalogApi = {
       tipeVarian: string;
       sumberId: 'tanpa_id' | 'manual' | 'otomatis' | 'scan_sn';
       prefixId: string | null;
+      polaId: string | null;
       kodeBox: string | null;
       stokAwal: number;
       serialNumbers: string[];

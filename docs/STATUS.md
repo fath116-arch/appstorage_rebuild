@@ -1,4 +1,4 @@
-# STATUS.md — FieldOps IT Inventory (v1.2.8.5)
+# STATUS.md — FieldOps IT Inventory (v1.2.9)
 
 Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENTS.md` sebelum bekerja.
 
@@ -8,16 +8,19 @@ Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENT
 - [x] v1.2.6 — Unifikasi Model Data Tunggal, Output Keranjang, Request & Multi-Tas, Kontrol Katalog, & UTC/WIB Complete
 - [x] v1.2.7 — Pengajuan Pembelian Barang (`beli`), WA Selektif, 4 Slot WA ON/OFF, Auto-Refresh 5 Menit, Lembar Pengesahan Dinamis, & MariaDB Strict Auth Complete
 - [x] v1.2.8 — Login-Only & Tutup Registrasi Publik, Peleburan Role `admin`, Izin Fitur Slider ON/OFF (Developer), Dual WA Gateway, Hapus Massal + `"delete"`, Impor Excel/Google Sheet, & Istilah "Data Barang" Complete
-- [x] **v1.2.8.5 — Silent Production Auto-Update & Anti-Cache PWA/Proxy, Pemisahan Log Aktivitas User ke Kartu Kelola User, & Kompatibilitas Start Production** — Terverifikasi:
-  - `userLogsAndCache.test.ts`: **24/24 PASS** (`USER_ACTIVITY_ACTIONS` terpisah dari `/api/activities`, audit siklus hidup akun, `GET /api/auth/user-logs` RBAC & filter, header anti-cache `index.html`/`sw.js`/`build-meta.json`/`/api/health`, Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, & `appUpdater.ts` safe silent reload)
+- [x] v1.2.8.5 — Silent Production Auto-Update & Anti-Cache PWA/Proxy, Pemisahan Log Aktivitas User ke Kartu Kelola User, & Kompatibilitas Start Production Complete
+- [x] **v1.2.9 — Hapus Langsung Stok Non-SN, Rename & Penamaan Manual Tipe, Impor Multi-Tipe, Pindah Storage/Kategori/Tipe, 4-Kartu Pengaturan Katalog & Keanggotaan Kategori Manual, & Hapus Kategori Move/Cascade** — Terverifikasi:
+  - `v129CatalogAndStock.test.ts`: **17/17 PASS** (Varian manual tanpa atribut, hapus parsial/massal stok non-SN + proteksi `reserved_qty`, rename tipe terbuka & terkunci `change_id_rule`, pindah SN & non-SN antar Box/Tipe, pindah produk antar kategori, pindah tipe antar produk, hapus kategori `move_products` vs `cascade`, & impor multi-tipe dengan `Pola_ID` terpisah)
+  - `userLogsAndCache.test.ts`: **24/24 PASS** (`USER_ACTIVITY_ACTIONS` terpisah dari `/api/activities`, audit siklus hidup akun, `GET /api/auth/user-logs` RBAC & filter, anti-cache production & `appUpdater.ts`)
   - `v128Updates.test.ts`: **41/41 PASS** (Login-Only 403 Register, Role Merge & Batas Admin, Feature Sliders `PUT /api/auth/users/:id/features`, Dual WA Gateway Developer-Only, Multi-Select Bulk Delete + `"delete"`, & Impor `.xlsx`/CSV)
   - `purchaseWa4ReportConfig.test.ts`: 20/20 PASS | `authLoginMariaDbCompat.test.ts`: 22/22 PASS
   - `systemSetup.test.ts`: PASS | `canonicalSystem.test.ts`: 20/20 PASS | `tahap1Foundation.test.ts`: 19/19 PASS
-  - `catalogDeleteEditAndReturnRequest.test.ts`: PASS | `bagAndCompleteRequest.test.ts`: PASS | `v125Paket6WaAlert.test.ts`: PASS
+  - `catalogDeleteEditAndReturnRequest.test.ts`: PASS | `tahap2Catalog.test.ts`: 13/13 PASS | `tahap3Stock.test.ts`: 17/17 PASS | `tahap4CatalogView.test.ts`: 14/14 PASS
+  - `bagAndCompleteRequest.test.ts`: PASS | `v125Paket6WaAlert.test.ts`: PASS
   - `npm run lint` (`tsc --noEmit`) & `npm run build`: 0 Galat
 
 ## Sedang dikerjakan
-- Rilis **v1.2.8.5** selesai dan terverifikasi penuh. Seluruh perbaikan dan pembaruan 6 jam terakhir hingga rilis terbaru—meliputi **anti-cache build production + muat ulang otomatis senyap**, **pemisahan log login/logout/sesi/manajemen akun ke tab `Log Aktivitas User` dalam kartu Kelola User**, **perbaikan payload `feature_permissions` & audit akun lengkap**, serta **skrip `npm start` berbasis `cross-env`**—telah diuji dan disinkronkan beserta dokumentasinya.
+- Rilis **v1.2.9** selesai dan terverifikasi penuh. Seluruh fitur katalog dan stok v1.2.9—penghapusan langsung stok non-SN ke Kotak Sampah 14 hari, penamaan manual & rename varian Tipe bersama Atur ID, impor multi-tipe berkolom `Pola_ID` terpisah, pemindahan barang (Storage Box, Kategori Produk, & Tipe), restrukturisasi subtab `Kelola & Pengaturan` menjadi 4 kartu tab + keanggotaan kategori manual (menggantikan *Atur Atribut*), serta hapus kategori dengan opsi pindah produk atau hapus bersamaan (`cascade`)—telah teruji dan disinkronkan di seluruh dokumentasi.
 
 ## Keputusan penting
 - **Satu Model Data Kanonik Tunggal & Auto-Refresh Senyap 5 Menit**: Pemisahan v1/v2 dihilangkan sepenuhnya; Katalog, Input, Output, Request, Riwayat Transaksi, Dashboard, dan Laporan membaca sumber tunggal (`jenis → produk → tipe → item / stok_jumlah → transaksi / transaksi_detail → request`), dengan `InventoryContext.refreshData()` otomatis pasca-mutasi maupun sinkronisasi senyap latar belakang setiap 5 menit (`visibilitychange`-aware).
@@ -54,8 +57,8 @@ Perbarui di akhir setiap fitur atau rilis. Agent membaca file ini bersama `AGENT
 | **Log Aktivitas Append-Only** | Append-only, ID harian (`AKT-YYYYMMDD-NNNN`), koreksi via `correction_of_id` | `ActivityLogService` mencatat log & koreksi append-only tanpa endpoint hapus | **Sesuai** | Pertahankan |
 
 ## Masalah terbuka
-- Tidak ada. Seluruh rangkaian pengujian otomatis (`v1.2.0` s/d `v1.2.8.5`, termasuk `userLogsAndCache.test.ts` 24/24 PASS & `v128Updates.test.ts` 41/41 PASS), `npm run lint`, dan `npm run build` lulus 100%.
+- Tidak ada. Seluruh rangkaian pengujian otomatis (`v1.2.0` s/d `v1.2.9`, termasuk `v129CatalogAndStock.test.ts` 17/17 PASS, `userLogsAndCache.test.ts` 24/24 PASS, & `v128Updates.test.ts` 41/41 PASS), `npm run lint`, dan `npm run build` lulus 100%.
 
 ## Catatan kontributor
-- Seluruh rangkaian fitur dan dokumentasi hingga Versi **v1.2.8.5** telah disinkronkan di root (`README.md`, `DOCUMENTATION.md`, `CHANGELOG.md`, `package.json`) dan `docs/` (`ARCHITECTURE.md`, `DATA.md`, `DEPLOY.md`, `PERAN_DAN_AKSES.md`, `PROGRESS.md`, `STATUS.md`, `CHANGELOG.md`, `SKRIP_CLI.md`, `TEMA_DAN_DESAIN.md`).
+- Seluruh rangkaian fitur dan dokumentasi hingga Versi **v1.2.9** telah disinkronkan di root (`README.md`, `DOCUMENTATION.md`, `CHANGELOG.md`, `package.json`) dan `docs/` (`ARCHITECTURE.md`, `DATA.md`, `DEPLOY.md`, `PERAN_DAN_AKSES.md`, `PROGRESS.md`, `STATUS.md`, `CHANGELOG.md`, `SKRIP_CLI.md`, `TEMA_DAN_DESAIN.md`).
 - Dokumen historis di `docs/v1.2.0/`, `docs/LEGACY_AUDIT.md`, dan `AUDIT_REPORT.md` dipertahankan sebagai arsip perjalanan rilis terdahulu.

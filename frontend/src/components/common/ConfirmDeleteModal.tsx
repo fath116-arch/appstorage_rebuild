@@ -8,7 +8,7 @@ import { Trash2, AlertTriangle, Lock, X, RefreshCw } from 'lucide-react';
 import { api } from '../../services/api';
 
 export interface DeleteConfirmTarget {
-  actionType: 'delete_kind' | 'delete_product' | 'delete_box' | 'delete_attribute' | 'delete_item';
+  actionType: 'delete_kind' | 'delete_product' | 'delete_type' | 'delete_box' | 'delete_attribute' | 'delete_item' | 'delete_stok_jumlah';
   targetId: string;
   targetName: string;
   entityLabel: string;

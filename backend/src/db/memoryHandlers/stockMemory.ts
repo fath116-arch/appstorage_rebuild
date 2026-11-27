@@ -116,10 +116,29 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
     return { affectedRows: 0 };
   }
 
+  if (upper.startsWith('UPDATE ITEM SET BOX_ID = ?, TIPE_ID = ? WHERE ID = ?')) {
+    const it = memoryStore.item_v2.get(params[2]);
+    if (it) {
+      it.box_id = params[0];
+      it.tipe_id = parseInt(String(params[1]), 10);
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
   if (upper.startsWith('UPDATE ITEM SET BOX_ID = ? WHERE ID = ?')) {
     const it = memoryStore.item_v2.get(params[1]);
     if (it) {
       it.box_id = params[0];
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper.startsWith('UPDATE ITEM SET TIPE_ID = ? WHERE ID = ?')) {
+    const it = memoryStore.item_v2.get(params[1]);
+    if (it) {
+      it.tipe_id = parseInt(String(params[0]), 10);
       return { affectedRows: 1 };
     }
     return { affectedRows: 0 };
@@ -204,6 +223,29 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   }
 
   if (upper.startsWith('SELECT I.*') && upper.includes('FROM ITEM I')) {
+    if (upper.includes('WHERE I.ID = ? OR UPPER(I.KODE_ID) = UPPER(?)')) {
+      const idParam = String(params[0] || '');
+      const kodeParam = String(params[1] || params[0] || '').toUpperCase();
+      const match =
+        memoryStore.item_v2.get(idParam) ||
+        Array.from(memoryStore.item_v2.values()).find(
+          i => i.id === idParam || i.kode_id.toUpperCase() === kodeParam
+        );
+      if (!match) return [];
+      const b = memoryStore.box.get(match.box_id);
+      const t = memoryStore.tipe.get(match.tipe_id);
+      const p = t ? memoryStore.produk.get(t.produk_id) : null;
+      return [{
+        ...match,
+        kode_box: b ? b.kode : '',
+        nama_tipe: t ? t.nama_tipe : '',
+        nama_produk: p ? p.nama : '',
+        produk_id: p ? p.id : null,
+        kategori_barang: p ? (p.kategori_barang || 'Barang Habis Pakai') : 'Barang Habis Pakai',
+        tipe_stok: p ? (p.tipe_stok || 'unit') : 'unit'
+      }];
+    }
+
     if (upper.includes('WHERE UPPER(I.KODE_ID) = UPPER(?)') || upper.includes('WHERE I.ID = ?')) {
       const target = String(params[0]).toUpperCase();
       const match = upper.includes('WHERE I.ID = ?')
@@ -350,6 +392,12 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
 
   if (upper.includes('FROM ITEM') && (upper.includes('COUNT(') || upper.includes('COUNT ('))) {
     const tipeId = parseInt(String(params[0]), 10);
+    if (upper.includes("STATUS IN ('AKTIF', 'DIPESAN')") || upper.includes('STATUS IN ("AKTIF", "DIPESAN")')) {
+      const total = Array.from(memoryStore.item_v2.values()).filter(
+        i => i.tipe_id === tipeId && (i.status === 'aktif' || i.status === 'dipesan')
+      ).length;
+      return [{ total, count: total }];
+    }
     if (upper.includes("WHERE TIPE_ID = ? AND STATUS = 'DIPESAN'") || upper.includes('WHERE TIPE_ID = ? AND STATUS = "DIPESAN"')) {
       const reservedCount = Array.from(memoryStore.item_v2.values()).filter(
         i => i.tipe_id === tipeId && i.status === 'dipesan'
@@ -398,10 +446,26 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   }
 
   // STOK_JUMLAH
-  if (upper.includes('FROM STOK_JUMLAH') && upper.includes('WHERE TIPE_ID = ? AND BOX_ID = ?')) {
+  if (upper.startsWith('DELETE FROM STOK_JUMLAH WHERE TIPE_ID = ? AND BOX_ID = ?')) {
+    const key = `${params[0]}_${params[1]}`;
+    const deleted = memoryStore.stok_jumlah.delete(key);
+    return { affectedRows: deleted ? 1 : 0 };
+  }
+
+  if (upper.startsWith('SELECT') && upper.includes('FROM STOK_JUMLAH') && (upper.includes('WHERE TIPE_ID = ? AND BOX_ID = ?') || upper.includes('WHERE SJ.TIPE_ID = ? AND SJ.BOX_ID = ?'))) {
     const key = `${params[0]}_${params[1]}`;
     const sj = memoryStore.stok_jumlah.get(key);
-    return sj ? [{ ...sj, reserved_qty: sj.reserved_qty || 0 }] : [];
+    if (!sj) return [];
+    const b = memoryStore.box.get(sj.box_id);
+    const t = memoryStore.tipe.get(sj.tipe_id);
+    const p = t ? memoryStore.produk.get(t.produk_id) : null;
+    return [{
+      ...sj,
+      reserved_qty: sj.reserved_qty || 0,
+      kode_box: b ? b.kode : '',
+      nama_tipe: t ? t.nama_tipe : '',
+      nama_produk: p ? p.nama : ''
+    }];
   }
 
   if (upper.startsWith('UPDATE STOK_JUMLAH SET RESERVED_QTY')) {
@@ -462,7 +526,9 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   if (upper.includes('FROM STOK_JUMLAH') && (upper.includes('SUM(') || upper.includes('COALESCE'))) {
     const tipeId = parseInt(String(params[0]), 10);
     const rows = Array.from(memoryStore.stok_jumlah.values()).filter(s => s.tipe_id === tipeId);
-    const total = rows.reduce((acc, c) => acc + Math.max(0, (c.jumlah || 0) - (c.reserved_qty || 0)), 0);
+    const total = upper.includes('GREATEST(')
+      ? rows.reduce((acc, c) => acc + Math.max(0, (c.jumlah || 0) - (c.reserved_qty || 0)), 0)
+      : rows.reduce((acc, c) => acc + Number(c.jumlah || 0), 0);
     const reserved = rows.reduce((acc, c) => acc + (c.reserved_qty || 0), 0);
     return [{ total, reserved }];
   }
@@ -501,6 +567,15 @@ export function handleStockMemoryQuery(cleanSql: string, upper: string, params: 
   }
 
   // REQUEST
+  if (upper.includes('FROM REQUEST WHERE TIPE_ID = ?')) {
+    const tipeId = parseInt(String(params[0]), 10);
+    const openStatuses = new Set(['diajukan', 'menunggu', 'disetujui', 'diambil']);
+    const total = Array.from(memoryStore.request.values()).filter(
+      r => r.tipe_id === tipeId && openStatuses.has(r.status)
+    ).length;
+    return [{ total }];
+  }
+
   if (upper.startsWith('SELECT ID FROM REQUEST') && upper.includes('TRANSACTION_OUT_ID = ?')) {
     const originId = params[0];
     const list = Array.from(memoryStore.request.values()).filter(

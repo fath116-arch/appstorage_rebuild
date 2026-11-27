@@ -40,7 +40,7 @@ export interface UserActivityLogEntry {
 
 export interface TrashEntry {
   id: string;
-  jenis_objek: 'item' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
+  jenis_objek: 'item' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun' | 'stok_jumlah';
   objek_id: string;
   snapshot: string;
   dihapus_oleh: string;

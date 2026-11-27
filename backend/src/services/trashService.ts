@@ -12,7 +12,7 @@ import { parseToDate, toMysqlUtcSeconds } from '../utils/timezone';
 
 export interface TrashItem {
   id: string;
-  jenis_objek: 'item' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
+  jenis_objek: 'item' | 'stok_jumlah' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
   objek_id: string;
   snapshot: string;
   dihapus_oleh: string;
@@ -29,7 +29,7 @@ export class TrashService {
    * Memindahkan objek dan turunannya ke tempat sampah (Permanent Delete Lapis 2)
    */
   static async moveToTrash(input: {
-    jenis_objek: 'item' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
+    jenis_objek: 'item' | 'stok_jumlah' | 'produk' | 'tipe' | 'jenis' | 'box' | 'akun';
     objek_id: string;
     snapshot: any;
     dihapus_oleh: string;
@@ -191,6 +191,23 @@ export class TrashService {
             snapshotData.catatan_kondisi || null
           ]
         );
+      } else if (trash.jenis_objek === 'stok_jumlah') {
+        const sjRows = await conn.query(
+          'SELECT jumlah FROM stok_jumlah WHERE tipe_id = ? AND box_id = ?',
+          [snapshotData.tipe_id, snapshotData.box_id]
+        );
+        const qtyRestore = Number(snapshotData.jumlah || 0);
+        if (Array.isArray(sjRows) && sjRows.length > 0) {
+          await conn.query(
+            'UPDATE stok_jumlah SET jumlah = jumlah + ? WHERE tipe_id = ? AND box_id = ?',
+            [qtyRestore, snapshotData.tipe_id, snapshotData.box_id]
+          );
+        } else {
+          await conn.query(
+            'INSERT INTO stok_jumlah (tipe_id, box_id, jumlah) VALUES (?, ?, ?)',
+            [snapshotData.tipe_id, snapshotData.box_id, qtyRestore]
+          );
+        }
       } else if (trash.jenis_objek === 'akun') {
         await conn.query(
           `INSERT INTO users (id, username, name, email, role, department, phone, password_hash, salt, status)

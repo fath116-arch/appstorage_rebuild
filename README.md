@@ -1,6 +1,6 @@
 # FieldOps IT - Sistem Manajemen Inventaris & Operasional Teknisi Lapangan
 
-![Version](https://img.shields.io/badge/version-v1.2.8.5-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.9-emerald.svg)
 ![React](https://img.shields.io/badge/React-19.3.0-61DAFB?logo=react)
 ![Express](https://img.shields.io/badge/Express-5.0.0-000000?logo=express)
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.4_LTS-003545?logo=mariadb)
@@ -12,7 +12,13 @@ FieldOps IT adalah aplikasi web manajemen inventaris data barang, pencatatan mut
 
 ---
 
-## 🌟 Fitur Utama (v1.2.8.5)
+## 🌟 Fitur Utama (v1.2.9)
+
+- **Manajemen Katalog, Stok Non-SN, & Pemindahan Barang Lanjutan *(Baru di v1.2.9)***:
+  - **Hapus Langsung Stok Non-SN (`stok_jumlah`)**: Stok tanpa SN dapat dihapus langsung secara parsial, penuh, atau massal multi-pilih ke Kotak Sampah 14 hari dengan menjaga `reserved_qty` tanpa perlu transaksi keluar buatan.
+  - **Penamaan Manual & Rename Varian Tipe + Impor Multi-Tipe**: Varian Tipe dapat dibuat dengan nama manual langsung tanpa atribut kategori serta diubah namanya di modal *Atur ID*. Template Excel (`Data_Barang` & `Panduan_Isi`) mendukung banyak baris varian tipe per produk lengkap dengan kolom `Pola_ID` dan `Daftar_Serial_Number` masing-masing tipe.
+  - **Pindah Storage, Kategori Produk, & Varian Tipe**: Mendukung pemindahan item fisik (`per_id`) dan stok non-SN (`jumlah`) antar Storage Box maupun antar Tipe kompatibel, pemindahan produk antar kategori, dan pemindahan tipe antar produk.
+  - **4 Kartu `Kelola & Pengaturan` & Hapus Kategori (Pindah vs Cascade)**: Menggantikan *Atur Atribut* dengan 4 kartu pengaturan tab Katalog (termasuk pengisian keanggotaan produk per kategori secara manual & operasi massal) serta fitur hapus kategori dengan opsi memindahkan produk aktif atau menghapus kategori beserta produknya.
 
 - **Pembaruan Otomatis Senyap Production & Anti-Cache Browser/Proxy *(Baru di v1.2.8.5)***:
   - Build produksi menyertakan `build-meta.json` (`__APP_BUILD_ID__`), Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, serta header HTTP anti-cache ketat (`no-store, no-cache, must-revalidate`) pada HTML, manifest, dan skrip Service Worker (`GET /api/health` mengekspos `buildId`).
@@ -94,14 +100,14 @@ Seluruh dokumen teknis dan operasional sistem tersedia di root proyek dan direkt
 
 - 📖 [**Dokumentasi Teknis Lengkap (`DOCUMENTATION.md`)**](./DOCUMENTATION.md) — Panduan setup `.env`, arsitektur modul frontend/backend, anti-cache production, panduan API, dan pemeliharaan sistem.
 - 🧰 [**Panduan Skrip CLI & Setup Sistem (`docs/SKRIP_CLI.md`)**](./docs/SKRIP_CLI.md) — Daftar lengkap & penjelasan fungsi seluruh skrip NPM (`setup:db`, `setup:admin`, `setup:tunnel`, `setup:wa`, `setup:check`, `setup:help`, `sampah`, `test:backup`, `dev`, `build`, `lint`).
-- 📐 [**Arsitektur Sistem (`docs/ARCHITECTURE.md`)**](./docs/ARCHITECTURE.md) — Diagram arsitektur v1.2.8.5, layanan kanonik, mekanisme auto-updater PWA, zona waktu UTC/WIB, dan akses Cloudflare Tunnel.
+- 📐 [**Arsitektur Sistem (`docs/ARCHITECTURE.md`)**](./docs/ARCHITECTURE.md) — Diagram arsitektur v1.2.9, layanan kanonik, mekanisme auto-updater PWA, zona waktu UTC/WIB, dan akses Cloudflare Tunnel.
 - 🚀 [**Panduan Deployment & API (`docs/DEPLOY.md`)**](./docs/DEPLOY.md) — Langkah deployment Docker/Native (Linux/Windows), backup, troubleshooting, dan referensi endpoint API aktif.
 - 🗄️ [**Struktur & Kamus Data (`docs/DATA.md`)**](./docs/DATA.md) — Skema tabel MariaDB hingga migrasi `14_v128_rbac_wa2_and_features.sql`, isolasi `USER_ACTIVITY_ACTIONS`, dan aturan mutasi stok.
 - 🔐 [**Peran & Hak Akses (`docs/PERAN_DAN_AKSES.md`)**](./docs/PERAN_DAN_AKSES.md) — Matriks RBAC 3 peran kanonis (`developer`, `admin`, `technician`), izin fitur slider ON/OFF per akun, `Log Aktivitas User`, sesi cookie 30 hari, & konfirmasi `"delete"`.
 - 🎨 [**Sistem Tema & Desain (`docs/TEMA_DAN_DESAIN.md`)**](./docs/TEMA_DAN_DESAIN.md) — Token warna light/dark, disiplin *zero-pill*, responsivitas mobile, dan isolasi cetak A4.
-- ✅ [**Status Sistem (`docs/STATUS.md`)**](./docs/STATUS.md) — Status rilis terkini `v1.2.8.5`, audit keamanan, dan hasil pengujian otomatis.
-- 📊 [**Matriks Progres (`docs/PROGRESS.md`)**](./docs/PROGRESS.md) — Pelacak status penyelesaian modul dari Tahap 0 hingga rilis `v1.2.8.5`.
-- 📜 [**Riwayat Versi (`CHANGELOG.md`)**](./CHANGELOG.md) — Catatan rilis lengkap proyek dari `v0.1.0` hingga `v1.2.8.5` (tersinkron dengan [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)).
+- ✅ [**Status Sistem (`docs/STATUS.md`)**](./docs/STATUS.md) — Status rilis terkini `v1.2.9`, audit keamanan, dan hasil pengujian otomatis.
+- 📊 [**Matriks Progres (`docs/PROGRESS.md`)**](./docs/PROGRESS.md) — Pelacak status penyelesaian modul dari Tahap 0 hingga rilis `v1.2.9`.
+- 📜 [**Riwayat Versi (`CHANGELOG.md`)**](./CHANGELOG.md) — Catatan rilis lengkap proyek dari `v0.1.0` hingga `v1.2.9` (tersinkron dengan [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)).
 - 🛠️ [**Aturan Developer (`AGENTS.md`)**](./AGENTS.md) — Invarian keamanan mutlak dan panduan pengkodian.
 
 ---

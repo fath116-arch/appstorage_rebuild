@@ -1,12 +1,12 @@
 # PELACAK PROGRES FIELDOPS IT (PROGRESS.MD)
 **Aplikasi**: FieldOps IT Inventory  
 **Database**: MariaDB 11.4 LTS (Server Lokal, UTC)  
-**Status Versi**: v1.2.8.5 Selesai & Terverifikasi  
+**Status Versi**: v1.2.9 Selesai & Terverifikasi  
 **Format Status**: `belum` | `dikerjakan` | `selesai` | `terverifikasi`
 
 ---
 
-## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.8.5)
+## 📊 Matriks Progres Fondasi & Modul Inti (v1.0.0 – v1.2.9)
 
 > *Catatan Arsitektur*: Modul legacy awal v1 (`/api/inventory`, `/api/transactions`) telah disatukan ke dalam **Model Kanonik Tunggal** (`CatalogService`, `StockService`, `RequestService`, `BagService`, `ActivityLogService`).
 
@@ -104,6 +104,16 @@
 | **Audit Siklus Akun & Tab `Log Aktivitas User`** | Audit penuh akun (`routes/auth.ts`), `GET /api/auth/user-logs`, & `UserActivityLogsTab.tsx` | **terverifikasi** | `userLogsAndCache.test.ts`, `v128Updates.test.ts` (41/41) | Di dalam kartu Kelola User (Admin & Developer `users_manage`); fix `feature_permissions` |
 | **Start Production `cross-env`** | Perbarui `"start"` di `package.json` dengan `cross-env NODE_ENV=production` | **terverifikasi** | `npm run lint` & `npm run build` | Kompatibel Windows PowerShell/CMD & Linux/Docker |
 
+## 🚀 Road Map v1.2.9 (Hapus Stok Non-SN Langsung, Rename Tipe, Impor Multi-Tipe, Pindah Barang/Kategori/Tipe, 4-Kartu Pengaturan, & Hapus Kategori)
+
+| Paket / Modul | Deskripsi Cakupan | Status | Pengujian Otomatis | Catatan Kunci |
+| :--- | :--- | :--- | :--- | :--- |
+| **Hapus Stok Non-SN (`stok_jumlah`)** | `DELETE /api/stock/quantity` & `/quantity/bulk` tanpa kuras transaksi keluar | **terverifikasi** | `v129CatalogAndStock.test.ts` (17/17) | Proteksi `reserved_qty`, konfirmasi Tier 3 `"delete"`, & Kotak Sampah 14H (`stockMemory.ts` fix) |
+| **Penamaan & Rename Varian Tipe** | Input `nama_tipe` manual tanpa atribut + rename di `PUT /api/catalog/types/:id/id-rule` & hapus tipe | **terverifikasi** | `v129CatalogAndStock.test.ts`, `tahap2Catalog.test.ts` | Kompatibel mundur atribut lama; wajib token `change_id_rule` bila `id_dikunci = 1` |
+| **Impor Multi-Tipe & `Pola_ID`** | Template `.xlsx` multi-baris per produk dengan `Pola_ID` & `Daftar_Serial_Number` tiap tipe | **terverifikasi** | `v129CatalogAndStock.test.ts`, `v128Updates.test.ts` | Satu produk bisa langsung dibuat dengan banyak varian tipe dan aturan ID berbeda |
+| **Pindah Storage, Kategori, & Tipe** | `POST /api/catalog/products/move`, `/types/:id/move`, & `POST /api/stock/move` | **terverifikasi** | `v129CatalogAndStock.test.ts` | Pindah unit `per_id`/`jumlah` antar Box & Tipe kompatibel, produk antar kategori, tipe antar produk |
+| **4-Kartu Pengaturan & Hapus Kategori** | Ganti *Atur Atribut* dengan 4 kartu tab + keanggotaan kategori manual & hapus kategori Move/Cascade | **terverifikasi** | `v129CatalogAndStock.test.ts` | `DELETE /api/catalog/jenis/:id` mode `move_products` vs `cascade` (tolak jika ada stok aktif) |
+
 ---
 
 ## 📈 Log Perubahan Status Terkini
@@ -117,8 +127,8 @@
   - Membatasi penerima WA tepat **4 slot dengan saklar ON/OFF individual**, menerapkan **auto-refresh senyap 5 menit** (`InventoryContext.tsx`), menyediakan kustomisasi dinamis Kop Surat & Lembar Pengesahan produksi (`REPORT_APPROVAL_CONFIG`), serta menuntaskan perbaikan autentikasi MariaDB strict `TIMESTAMP` + diagnostik `setup:test-login`.
 - **v1.2.8 (Login-Only & Tutup Registrasi Publik, Peleburan Role `admin`, Izin Fitur Slider ON/OFF, Dual WA Gateway, Hapus Massal + `"delete"`, Impor Excel/Spreadsheet, & `"Data Barang"`)**:
   - Menutup pendaftaran mandiri di halaman login dan `/api/auth/register` (`403`), melebur `admin` + `warehouse_admin` menjadi peran tunggal `admin` yang terbatas mengelola akun `admin` & `technician`, menambahkan panel **Atur Fitur** slider ON/OFF khusus `developer` (`feature_permissions`), menyediakan **Dual WhatsApp Gateway** ON/OFF khusus `developer`, melengkapi hapus massal multi-pilih dengan konfirmasi ketik **`delete`** di ke-5 target katalog/stok, menghadirkan fitur **Impor Excel/Google Spreadsheet Publik**, serta menyelaraskan istilah *"Suku Cadang"* → **"Data Barang"**.
-  - Terverifikasi melalui `v128Updates.test.ts` bersama seluruh suite regresi, `npm run lint`, dan `npm run build`.
 - **v1.2.8.5 (Anti-Cache & Silent Production Auto-Update, Pemisahan Log User ke Kartu Kelola User, & Start Production `cross-env`)**:
-  - Menyelesaikan masalah browser yang tertahan di cache build lama pada server produksi dengan `__APP_BUILD_ID__` (`build-meta.json`), header anti-cache `no-store` pada shell/SW/manifest, Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, serta `appUpdater.ts` yang otomatis memuat ulang senyap saat halaman aman (tanpa modal/input aktif).
-  - Memisahkan seluruh log login/logout, pencabutan sesi, token reuse, dan manajemen akun (`USER_ACTIVITY_ACTIONS`) dari *Riwayat Barang Masuk & Keluar* (`GET /api/activities` & laporan mingguan) ke endpoint `GET /api/auth/user-logs` serta tab **`Log Aktivitas User`** di dalam kartu **Kelola User** (`UserRoleSwitcher.tsx`), disertai perbaikan kompatibilitas `feature_permissions` pada `PUT /api/auth/users/:id/features`, paritas `authMemory.ts`, dan skrip `npm start` berbasis `cross-env`.
-  - Terverifikasi melalui `userLogsAndCache.test.ts` (24/24 PASS), `v128Updates.test.ts` (41/41 PASS), `npm run lint`, dan `npm run build`.
+  - Menyelesaikan masalah browser tertahan di cache build lama (`__APP_BUILD_ID__`, `build-meta.json`, header `no-store`, Workbox `skipWaiting`, & `appUpdater.ts`), memisahkan seluruh log login/logout/sesi/akun (`USER_ACTIVITY_ACTIONS`) ke endpoint `GET /api/auth/user-logs` & tab **`Log Aktivitas User`** di kartu Kelola User, serta memperbarui `npm start` dengan `cross-env`.
+- **v1.2.9 (Hapus Stok Non-SN Langsung, Rename Tipe, Impor Multi-Tipe, Pindah Barang/Kategori/Tipe, 4-Kartu Pengaturan, & Hapus Kategori Move/Cascade)**:
+  - Memungkinkan hapus langsung parsial/penuh/massal stok non-SN (`DELETE /api/stock/quantity*`) ke Kotak Sampah 14 hari dengan proteksi `reserved_qty`, penamaan manual & rename varian Tipe di `Atur ID`, impor `.xlsx` multi-baris per produk lengkap dengan kolom `Pola_ID` terpisah per tipe, pemindahan produk antar kategori (`/products/move`), tipe antar produk (`/types/:id/move`), dan unit `per_id`/`jumlah` antar Box/Tipe (`/stock/move`).
+  - Mengganti *Atur Atribut* pada `Kelola & Pengaturan` dengan **4 kartu pengaturan** (termasuk keanggotaan kategori manual & operasi massal) sekaligus menghapus kategori dengan pilihan **pindah produk** atau **hapus cascade**, serta perbaikan handler `DELETE FROM STOK_JUMLAH` di `stockMemory.ts`. Terverifikasi melalui `v129CatalogAndStock.test.ts` (17/17 PASS), `userLogsAndCache.test.ts` (24/24 PASS), `v128Updates.test.ts` (41/41 PASS), `npm run lint`, dan `npm run build`.

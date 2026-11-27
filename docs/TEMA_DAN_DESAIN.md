@@ -1,6 +1,6 @@
-# Sistem Tema, Desain & Responsivitas - FieldOps IT (v1.2.8.5)
+# Sistem Tema, Desain & Responsivitas - FieldOps IT (v1.2.9)
 
-Dokumen ini memuat spesifikasi sistem desain, token warna CSS di `frontend/src/index.css`, disiplin *Dark Mode & Zero-Pill*, tipografi, responsivitas layout, serta isolasi cetak A4 pada **FieldOps IT (`v1.2.8.5`)**.
+Dokumen ini memuat spesifikasi sistem desain, token warna CSS di `frontend/src/index.css`, disiplin *Dark Mode & Zero-Pill*, tipografi, responsivitas layout, serta isolasi cetak A4 pada **FieldOps IT (`v1.2.9`)**.
 
 ---
 

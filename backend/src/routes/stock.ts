@@ -7,6 +7,7 @@ import express from 'express';
 import { AuthenticatedRequest, requireAuth, requireFeature } from '../middleware/authMiddleware';
 import { ConfirmationService } from '../services/confirmationService';
 import { StockService } from '../services/stockService';
+import { isFeatureEnabled } from '../utils/permissions';
 
 const router = express.Router();
 
@@ -436,6 +437,140 @@ router.delete(
       return res.json(result);
     } catch (err: any) {
       return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/quantity/bulk',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const rawEntries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+      const entries = rawEntries.map((e: any) => ({
+        tipe_id: Number(e.tipe_id),
+        box_id: String(e.box_id || '').trim(),
+        jumlah: e.jumlah !== undefined ? Number(e.jumlah) : undefined
+      }));
+
+      const preCheck = await StockService.canDeleteStokJumlahBulk(entries);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Stok jumlah terpilih tidak dapat dihapus.' });
+      }
+
+      const targetKeys = preCheck.validated.map(v => `${v.tipe_id}:${v.box_id}`).sort();
+      const targetId = `bulk:${targetKeys.join(',')}`;
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_stok_jumlah',
+        targetId
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_stok_jumlah',
+          targetId
+        });
+      }
+
+      const result = await StockService.deleteStokJumlahBulk(entries, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/quantity',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const tipeId = Number(req.body?.tipe_id);
+      const boxId = String(req.body?.box_id || '').trim();
+      const jumlah = req.body?.jumlah !== undefined ? Number(req.body.jumlah) : undefined;
+
+      const preCheck = await StockService.canDeleteStokJumlah(tipeId, boxId, jumlah);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Stok jumlah tidak dapat dihapus.' });
+      }
+
+      const targetId = `${tipeId}:${boxId}`;
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_stok_jumlah',
+        targetId
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_stok_jumlah',
+          targetId
+        });
+      }
+
+      const result = await StockService.deleteStokJumlah(tipeId, boxId, req.user!.id, jumlah);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/move',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      if (!isFeatureEnabled(req.user, 'catalog_manage') && !isFeatureEnabled(req.user, 'stock_in_out')) {
+        return res.status(403).json({
+          success: false,
+          message: 'Akses ditolak: Anda tidak memiliki izin memindahkan stok atau katalog.'
+        });
+      }
+
+      const {
+        item_ids,
+        tipe_asal_id,
+        box_asal_id,
+        jumlah,
+        box_tujuan_id,
+        tipe_tujuan_id,
+        catatan
+      } = req.body;
+
+      const result = await StockService.pindahUnit({
+        itemIds: Array.isArray(item_ids) ? item_ids.map(String) : undefined,
+        tipeAsalId: tipe_asal_id ? Number(tipe_asal_id) : undefined,
+        boxAsalId: box_asal_id ? String(box_asal_id) : undefined,
+        jumlah: jumlah ? Number(jumlah) : undefined,
+        boxTujuanId: box_tujuan_id ? String(box_tujuan_id) : undefined,
+        tipeTujuanId: tipe_tujuan_id ? Number(tipe_tujuan_id) : undefined,
+        userId: req.user!.id,
+        recordedById: req.user!.id,
+        recordedByName: req.user!.name,
+        recordedByRole: req.user!.role,
+        catatan: catatan ? String(catatan) : undefined
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
     }
   }
 );

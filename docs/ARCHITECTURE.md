@@ -1,10 +1,10 @@
 # DOKUMEN ARSITEKTUR SISTEM (ARCHITECTURE.MD)
-**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.8.5)  
+**Aplikasi**: FieldOps IT Inventory (Rilis v1.2.9)  
 **Database Mesin**: MariaDB 11.4 LTS (Server Lokal On-Premises, UTC)  
 **Arsitektur**: Decoupled Monorepo (`frontend/` React 19 SPA + `backend/` Express 5 REST API) dengan Model Data Kanonik Tunggal  
-**Status**: Rilis v1.2.8.5 Terverifikasi Penuh
+**Status**: Rilis v1.2.9 Terverifikasi Penuh
 
-> **Pembaruan Arsitektur v1.2.8.5**: Menambahkan mekanisme **Anti-Cache Production & Pembaruan Otomatis Senyap** (`vite.config.ts` `__APP_BUILD_ID__` + `dist/build-meta.json`, Workbox `skipWaiting`/`clientsClaim`/`cleanupOutdatedCaches`, header `no-store` di `server.ts`, `/api/health` `buildId`, & `appUpdater.ts` safe silent reload), memisahkan seluruh log **login/logout, sesi, dan manajemen akun (`USER_ACTIVITY_ACTIONS`)** dari feed transaksi barang (`GET /api/activities`) ke tab **`Log Aktivitas User`** di dalam kartu Kelola User (`GET /api/auth/user-logs`), memperbaiki payload `feature_permissions` dan audit lengkap rute akun (`routes/auth.ts` + `authMemory.ts`), serta menyelaraskan `npm start` dengan `cross-env` di atas fondasi RBAC & katalog **v1.2.8**.
+> **Pembaruan Arsitektur v1.2.9**: Memperluas `CatalogService`, `StockService`, & `ImportService` untuk mendukung penghapusan langsung stok non-SN (`DELETE /api/stock/quantity*` dengan proteksi `reserved_qty` & Kotak Sampah 14 hari), penamaan manual & rename varian Tipe di `PUT /api/catalog/types/:id/id-rule`, hapus varian tipe (`/types/:id`, `/types/bulk`), impor multi-tipe berkolom `Pola_ID` per baris, pemindahan Produk antar Kategori (`POST /api/catalog/products/move`), Tipe antar Produk (`POST /api/catalog/types/:id/move`), dan unit `per_id`/`jumlah` antar Box/Tipe kompatibel (`POST /api/stock/move`), merestrukturisasi subtab `Kelola & Pengaturan` menjadi 4 kartu tab + pengaturan keanggotaan produk ke kategori secara manual (menggantikan *Atur Atribut*), serta menghapus Kategori dengan pilihan `move_products` atau `cascade` (melanjutkan fondasi anti-cache, pemisahan log user, & RBAC `v1.2.8.5`).
 
 ---
 
@@ -85,7 +85,7 @@ Sesuai prinsip pemisahan keamanan repositori, data autentikasi/kredensial akun d
    - `api_keys` untuk integrasi helpdesk (`/api/tickets/consume`).
    - `wa_config` (termasuk `recipient_slots_json` 4 slot bersaklar ON/OFF serta `gateways_json` & `gateway_mode` Dual Gateway khusus `developer`), `wa_thresholds`, `wa_alert_status`, `wa_delivery_logs` untuk notifikasi stok otomatis & pengajuan pembelian barang (selektif `beli`).
    - `audit_logs` untuk catatan jejak perubahan administratif.
-   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.8.5).*
+   *(Skema awal `categories`, `items`, `transactions`, `sessions`, `whatsapp_config`, `whatsapp_logs` dipertahankan hanya untuk kompatibilitas migrasi historis dan tidak lagi menjadi sumber baca utama di v1.2.9).*
 
 ---
 
@@ -95,7 +95,7 @@ Sesuai prinsip pemisahan keamanan repositori, data autentikasi/kredensial akun d
    - `POST /api/auth/login` memverifikasi kata sandi PBKDF2 SHA-256 (100.000 iterasi) dan menerbitkan cookie `fieldops_access`, `fieldops_refresh`, `fieldops_device`, dan `fieldops_session` (`HttpOnly; SameSite=Lax`, ditambah `Secure` di produksi).
    - `authenticate` di Express memvalidasi sesi langsung dari database setiap request—peran tidak pernah dipercaya dari klien maupun `localStorage`.
 2. **Penegakan Konfirmasi Bertingkat & Proteksi Hapus**:
-   - Operasi destruktif pada Katalog (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`) menolak penghapusan di backend apabila masih ada produk aktif, varian aktif, stok aktif/dipesan, atau request terbuka, lalu mewajibkan token konfirmasi Tingkat 3.
+   - Operasi destruktif pada Katalog & Stok (`delete_kind`, `delete_product`, `delete_type`, `delete_box`, `delete_item`, `delete_stok_jumlah`) menolak penghapusan di backend apabila masih ada stok aktif/dipesan/rusak atau request terbuka (kecuali hapus kategori mode `move_products` yang memindahkan produknya lebih dulu), lalu mewajibkan token konfirmasi Tingkat 3.
 3. **Kebijakan Zona Waktu (UTC Penyimpanan ↔ WIB Tampilan & Laporan)**:
    - Backend selalu mengunci `process.env.TZ = 'UTC'` dan menyimpan kolom datetime dalam UTC.
    - Seluruh tampilan aplikasi, penomoran harian `AKT-YYYYMMDD-NNNN`, batasan minggu laporan (**Senin 00:00:00.000 WIB – Minggu 23:59:59.999 WIB**), dan serial wall-clock ekspor ExcelJS dikonversi secara deterministik melalui utilitas `timezone.ts` ke `Asia/Jakarta` (WIB).

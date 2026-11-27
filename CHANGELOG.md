@@ -1,8 +1,27 @@
 # CHANGELOG.md - Riwayat Versi & Perubahan FieldOps IT
 
-![Version](https://img.shields.io/badge/version-v1.2.8.5-emerald.svg)
+![Version](https://img.shields.io/badge/version-v1.2.9-emerald.svg)
 
 Semua perubahan penting dan riwayat rilis proyek **FieldOps IT** dicatat secara kronologis dalam file ini.
+
+## 🚀 [v1.2.9] - Hapus Langsung Stok Non-SN, Rename & Penamaan Manual Tipe, Impor Multi-Tipe, Pindah Storage/Kategori/Tipe, 4-Kartu Pengaturan Katalog, & Hapus Kategori Move/Cascade - 2026-11-26
+- **1. Hapus Langsung Stok Non-SN (`stok_jumlah` / Tanpa ID) Tanpa Transaksi Keluar**:
+  - **Backend (`stockService.ts`, `routes/stock.ts`, `settingService.ts`, `trashService.ts`, `stockMemory.ts`)**: Menambahkan `canDeleteStokJumlah`, `deleteStokJumlah`, `canDeleteStokJumlahBulk`, `deleteStokJumlahBulk` beserta endpoint `DELETE /api/stock/quantity` dan `DELETE /api/stock/quantity/bulk` yang dilindungi konfirmasi Tier 3 (`delete_stok_jumlah`, ketik `"delete"`) dan retensi **Kotak Sampah 14 hari**. Sistem menjaga `reserved_qty` agar stok yang sedang dipesan oleh request aktif tidak ikut terhapus, dan memperbaiki urutan handler `DELETE FROM STOK_JUMLAH` pada `stockMemory.ts`.
+  - **Frontend (`CatalogV2Manager.tsx`, `BoxContentModal.tsx`, `TrashModal.tsx`, `stockApi.ts`)**: Menambahkan aksi hapus parsial/penuh dan hapus massal multi-pilih untuk stok jumlah non-SN langsung dari modal rincian tipe maupun isi Box, serta pemulihan penuh dari Kotak Sampah.
+- **2. Penamaan Manual & Rename Varian Tipe Sekaligus Aturan ID**:
+  - **Backend & Frontend (`catalogService.ts`, `routes/catalog.ts`, `CatalogV2Manager.tsx`)**: Menghapus ketergantungan wajib atribut kategori saat membuat varian Tipe (`POST /api/catalog/types`, `CreateTipe` menerima `nama_tipe` manual langsung) dan menambahkan penyuntingan `nama_tipe` di `PUT /api/catalog/types/:id/id-rule` beserta `DELETE /api/catalog/types/:id` & `/types/bulk` (`delete_type`, terproteksi stok/request terbuka). Untuk tipe dengan `id_dikunci = 1`, perubahan aturan ID maupun rename tetap melewati konfirmasi Tier 3 `change_id_rule`.
+- **3. Impor Template Multi-Tipe & Pemisahan Pola ID / SN Per Tipe**:
+  - **`ImportService`, `CatalogImportModal.tsx`**: Memperbarui template Excel resmi (`Data_Barang` & `Panduan_Isi`) agar mendukung **banyak baris varian Tipe untuk 1 produk** dengan kolom `Tipe_Varian`, `Sumber_ID`, `Prefix_ID`, **`Pola_ID`**, `Kode_Box`, `Stok_Awal`, dan `Daftar_Serial_Number` tersendiri pada setiap baris tipe. Validasi regex `Pola_ID` dan penyimpanan stok/SN dieksekusi terpisah untuk masing-masing tipe.
+- **4. Fitur Pindah Barang (Storage Box, Kategori Produk, & Varian Tipe)**:
+  - **Pindah Kategori Produk & Varian Tipe (`CatalogService.moveProdukToCategory`, `CatalogService.moveTipeToProduk`)**: Menambahkan `POST /api/catalog/products/move` untuk memindahkan satu atau banyak produk antar kategori dan `POST /api/catalog/types/:id/move` untuk memindahkan varian tipe antar produk beserta seluruh item fisik/stoknya.
+  - **Pindah Storage Box & Varian Tipe Kompatibel (`StockService.pindahUnit`, `POST /api/stock/move`)**: Memindahkan item fisik ber-ID (`per_id`, tunggal/massal) maupun stok non-SN (`jumlah`, parsial/penuh) ke Box tujuan dan/atau Tipe tujuan yang kompatibel secara atomik dengan log mutasi `TRANSFER`.
+- **5. Restrukturisasi Subtab `Kelola & Pengaturan` Menjadi 4 Kartu Tab & Hapus Kategori (Pindah vs Cascade)**:
+  - **Penghapusan `Atur Atribut` Tidak Sinkron & 4 Kartu Pengaturan Katalog (`CatalogManageTab.tsx`)**: Menggantikan fitur *Atur Atribut* yang desinkron dengan **4 kartu pengaturan** yang mencerminkan tab Katalog (**1. Produk & Varian**, **2. Kategori & Keanggotaan Barang**, **3. Storage Box**, **4. Impor, Label, Pola SN & Sampah**). Aksi tunggal harian (pindah kategori/tipe/storage, edit nama tipe & ID, hapus satuan) tersedia langsung di tab operasional masing-masing, sementara pengelolaan massal & keanggotaan produk ke kategori secara manual dipusatkan di `Kelola & Pengaturan`.
+  - **Hapus Kategori dengan Pilihan Produk Aktif (`CatalogService.deleteJenis`, `DELETE /api/catalog/jenis/:id`)**: Jika kategori yang dihapus masih memiliki produk aktif, modal konfirmasi menawarkan pilihan **Pindahkan seluruh produk ke kategori lain** (`mode: 'move_products'`, `target_jenis_id`) atau **Hapus kategori beserta seluruh produknya** (`mode: 'cascade'`, ditolak aman oleh server bila masih terdapat stok aktif/dipesan/rusak atau request terbuka).
+- **6. Verifikasi Regresi & Suite Uji Baru**:
+  - Menambahkan suite pengujian `backend/src/tests/v129CatalogAndStock.test.ts` (**17/17 LULUS**) dan memverifikasi ulang seluruh suite regresi (`userLogsAndCache.test.ts` 24/24, `v128Updates.test.ts` 41/41, `catalogDeleteEditAndReturnRequest.test.ts`, `tahap2Catalog.test.ts`, `tahap3Stock.test.ts`, `tahap4CatalogView.test.ts`), `npm run lint`, serta `npm run build`.
+
+---
 
 ## 🚀 [v1.2.8.5] - Pembaruan Otomatis Senyap Production, Anti-Cache PWA/Proxy, Pemisahan Log Aktivitas User ke Kartu Kelola User, & Kompatibilitas Start Production - 2026-11-26
 Fokus rilis pemeliharaan & penyempurnaan dari pembaruan 6 jam terakhir hingga rilis terbaru:

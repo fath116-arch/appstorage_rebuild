@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const APP_VERSION = '1.2.8.5';
-export const APP_VERSION_TAG = 'v1.2.8.5';
-export const APP_RELEASE_NAME = 'v1.2.8.5 (Silent Production Auto-Update & Anti-Cache, Pemisahan Log Aktivitas User ke Kelola User, & Kompatibilitas Start Production)';
+export const APP_VERSION = '1.2.9';
+export const APP_VERSION_TAG = 'v1.2.9';
+export const APP_RELEASE_NAME = 'v1.2.9 (Hapus Stok Non-SN Langsung, Rename & Penamaan Manual Tipe, Impor Multi-Tipe, Pindah Storage/Kategori/Tipe, 4-Kartu Pengaturan Katalog, & Hapus Kategori Move/Cascade)';
 export const APP_BUILD_DATE = '2026-11-26';
 
 export const SYSTEM_METADATA = {

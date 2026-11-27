@@ -41,7 +41,7 @@ export interface BoxContentsResponse {
     };
   };
   raw_items: BoxContentItem[];
-  raw_stok_jumlah: Array<{ tipe_id: number; box_id: string; jumlah: number; nama_tipe?: string; nama_produk?: string }>;
+  raw_stok_jumlah: Array<{ tipe_id: number; box_id: string; jumlah: number; reserved_qty?: number; nama_tipe?: string; nama_produk?: string }>;
 }
 
 export interface SearchStockItemResult {
@@ -165,6 +165,59 @@ export const stockApi = {
       '/api/boxes/move',
       { method: 'POST', body: JSON.stringify(payload) },
       'Gagal memindahkan barang antar box.'
+    );
+  },
+
+  async deleteStokJumlah(
+    tipeId: number,
+    boxId: string,
+    jumlah?: number,
+    confirmationToken?: string
+  ): Promise<{ success: boolean; message: string; deletedQty?: number }> {
+    return apiFetch<{ success: boolean; message: string; deletedQty?: number }>(
+      '/api/stock/quantity',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({
+          tipe_id: tipeId,
+          box_id: boxId,
+          jumlah,
+          confirmation_token: confirmationToken
+        })
+      },
+      'Gagal menghapus stok jumlah.'
+    );
+  },
+
+  async deleteStokJumlahBulk(
+    entries: Array<{ tipe_id: number; box_id: string; jumlah?: number }>,
+    confirmationToken?: string
+  ): Promise<{ success: boolean; deletedCount?: number; message: string }> {
+    return apiFetch<{ success: boolean; deletedCount?: number; message: string }>(
+      '/api/stock/quantity/bulk',
+      {
+        method: 'DELETE',
+        headers: confirmationToken ? { 'X-Confirmation-Token': confirmationToken } : {},
+        body: JSON.stringify({ entries, confirmation_token: confirmationToken })
+      },
+      'Gagal menghapus stok jumlah terpilih.'
+    );
+  },
+
+  async moveUnit(payload: {
+    item_ids?: string[];
+    tipe_asal_id?: number;
+    box_asal_id?: string;
+    jumlah?: number;
+    box_tujuan_id?: string;
+    tipe_tujuan_id?: number;
+    catatan?: string;
+  }): Promise<{ success: boolean; message: string; activityId: string }> {
+    return apiFetch<{ success: boolean; message: string; activityId: string }>(
+      '/api/stock/move',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Gagal memindahkan barang/unit ke box atau tipe tujuan.'
     );
   },
 

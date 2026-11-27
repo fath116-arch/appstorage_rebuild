@@ -1,6 +1,6 @@
 {
   "name": "fieldops-backend",
-  "version": "1.2.8.5",
+  "version": "1.2.9",
   "private": true,
   "type": "module",
   "scripts": {

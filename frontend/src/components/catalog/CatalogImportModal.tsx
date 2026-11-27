@@ -216,7 +216,7 @@ export const CatalogImportModal: React.FC<CatalogImportModalProps> = ({
                 <span>Unduh Template Resmi Terlebih Dahulu</span>
               </div>
               <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                Template berisi sheet <strong>Template_Impor</strong> (kolom standar + baris contoh) dan sheet <strong>Panduan_Kolom</strong> agar struktur sesuai program. File ini juga bisa langsung diimpor ke Google Sheets.
+                Template berisi sheet <strong>Data_Barang</strong> (kolom standar + contoh multi-varian dalam 1 produk + kolom <strong>Pola_ID</strong>) dan sheet <strong>Panduan_Isi</strong>. Isi <strong>satu baris per varian tipe</strong> lengkap dengan <code>Daftar_Serial_Number</code> terpisah per tipe, lalu unggah Excel/CSV atau tautkan Google Sheets.
               </p>
             </div>
 
@@ -470,8 +470,15 @@ export const CatalogImportModal: React.FC<CatalogImportModalProps> = ({
                               </div>
                             </td>
                             <td className="p-2.5 font-mono text-slate-600 dark:text-slate-300">
-                              {row.sumberId}
-                              {row.prefixId ? ` (${row.prefixId})` : ''}
+                              <div>
+                                {row.sumberId}
+                                {row.prefixId ? ` (${row.prefixId})` : ''}
+                              </div>
+                              {row.polaId && (
+                                <div className="text-[10px] text-emerald-600 dark:text-emerald-400 truncate max-w-[160px]" title={row.polaId}>
+                                  Regex: {row.polaId}
+                                </div>
+                              )}
                             </td>
                             <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
                               {row.kodeBox || '-'}

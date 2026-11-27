@@ -241,6 +241,27 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
     return { insertId: nextId, id: nextId, affectedRows: 1 };
   }
 
+  if (upper.startsWith('UPDATE PRODUK SET JENIS_ID = ? WHERE ID = ?')) {
+    const targetJenisId = parseInt(String(params[0]), 10);
+    const id = parseInt(String(params[1]), 10);
+    const p = memoryStore.produk.get(id);
+    if (p) {
+      p.jenis_id = targetJenisId;
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper === 'UPDATE PRODUK SET NAMA = ? WHERE ID = ?') {
+    const id = parseInt(String(params[1]), 10);
+    const p = memoryStore.produk.get(id);
+    if (p) {
+      p.nama = params[0];
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
   if (upper.startsWith('UPDATE PRODUK SET NAMA =')) {
     const id = parseInt(String(params[params.length - 1]), 10);
     const p = memoryStore.produk.get(id);
@@ -277,11 +298,11 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
     return [{ ...p, jenis_nama: j ? j.nama : '', kategori_barang: p.kategori_barang || 'Barang Habis Pakai', tipe_stok: p.tipe_stok || 'unit' }];
   }
 
-  if (upper.includes('SELECT ID FROM PRODUK WHERE JENIS_ID = ? AND AKTIF = 1')) {
+  if (upper.includes('FROM PRODUK WHERE JENIS_ID = ? AND AKTIF = 1')) {
     const jenisId = parseInt(String(params[0]), 10);
     const prods = Array.from(memoryStore.produk.values())
       .filter(p => p.jenis_id === jenisId && (p.aktif === 1 || p.aktif === true));
-    return prods.map(p => ({ id: p.id }));
+    return prods.map(p => ({ id: p.id, nama: p.nama }));
   }
 
   if (upper.includes('SELECT DISTINCT TIPE_STOK FROM PRODUK')) {
@@ -335,6 +356,21 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
   }
 
   if (upper.includes('FROM PRODUK') && upper.includes('LOWER(NAMA) = LOWER(?)')) {
+    if (upper.includes('WHERE JENIS_ID = ? AND LOWER(NAMA) = LOWER(?)')) {
+      const jId = parseInt(String(params[0]), 10);
+      const targetName = String(params[1] || '').toLowerCase().trim();
+      const excludeId = upper.includes('ID != ?') ? parseInt(String(params[2]), 10) : null;
+      const filterActive = upper.includes('AKTIF = 1') ? 1 : upper.includes('AKTIF = 0') ? 0 : null;
+      const matches = Array.from(memoryStore.produk.values()).filter(p => {
+        if (p.jenis_id !== jId) return false;
+        if (p.nama.toLowerCase().trim() !== targetName) return false;
+        if (excludeId !== null && p.id === excludeId) return false;
+        if (filterActive === 1 && p.aktif !== 1 && p.aktif !== true) return false;
+        if (filterActive === 0 && (p.aktif === 1 || p.aktif === true)) return false;
+        return true;
+      });
+      return matches.map(m => ({ id: m.id, nama: m.nama }));
+    }
     const targetName = String(params[0] || '').toLowerCase().trim();
     const jId = params[1] ? parseInt(String(params[1]), 10) : null;
     const match = Array.from(memoryStore.produk.values()).find(p => {
@@ -370,6 +406,41 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
     return { insertId: nextId, id: nextId, affectedRows: 1 };
   }
 
+  if (upper === 'UPDATE TIPE SET PRODUK_ID = ? WHERE ID = ?') {
+    const targetProdId = parseInt(String(params[0]), 10);
+    const id = parseInt(String(params[1]), 10);
+    const t = memoryStore.tipe.get(id);
+    if (t) {
+      t.produk_id = targetProdId;
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper === 'UPDATE TIPE SET NAMA_TIPE = ? WHERE ID = ?') {
+    const id = parseInt(String(params[1]), 10);
+    const t = memoryStore.tipe.get(id);
+    if (t) {
+      t.nama_tipe = params[0];
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper.startsWith('UPDATE TIPE SET NAMA_TIPE = ?, SUMBER_ID =')) {
+    const id = parseInt(String(params[5]), 10);
+    const t = memoryStore.tipe.get(id);
+    if (t) {
+      t.nama_tipe = params[0];
+      t.sumber_id = params[1];
+      t.mode_stok = params[2];
+      t.prefix_id = params[3] || null;
+      t.pola_id = params[4] || null;
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
   if (upper.startsWith('UPDATE TIPE SET SUMBER_ID =')) {
     const id = parseInt(String(params[params.length - 1]), 10);
     const t = memoryStore.tipe.get(id);
@@ -381,6 +452,32 @@ export function handleCatalogMemoryQuery(_cleanSql: string, upper: string, param
       return { affectedRows: 1 };
     }
     return { affectedRows: 0 };
+  }
+
+  if (upper.startsWith('UPDATE TIPE SET AKTIF = 0 WHERE ID = ?')) {
+    const id = parseInt(String(params[0]), 10);
+    const t = memoryStore.tipe.get(id);
+    if (t) {
+      t.aktif = 0;
+      return { affectedRows: 1 };
+    }
+    return { affectedRows: 0 };
+  }
+
+  if (upper.includes('FROM TIPE WHERE PRODUK_ID = ? AND LOWER(NAMA_TIPE) = LOWER(?)')) {
+    const prodId = parseInt(String(params[0]), 10);
+    const targetName = String(params[1] || '').toLowerCase().trim();
+    const excludeId = upper.includes('ID != ?') ? parseInt(String(params[2]), 10) : null;
+    const filterActive = upper.includes('AKTIF = 1') ? 1 : upper.includes('AKTIF = 0') ? 0 : null;
+    const matches = Array.from(memoryStore.tipe.values()).filter(t => {
+      if (t.produk_id !== prodId) return false;
+      if ((t.nama_tipe || '').toLowerCase().trim() !== targetName) return false;
+      if (excludeId !== null && t.id === excludeId) return false;
+      if (filterActive === 1 && t.aktif !== 1 && t.aktif !== true) return false;
+      if (filterActive === 0 && (t.aktif === 1 || t.aktif === true)) return false;
+      return true;
+    });
+    return matches.map(m => ({ id: m.id, nama_tipe: m.nama_tipe }));
   }
 
   if (upper.includes('SELECT ID FROM TIPE WHERE PRODUK_ID = ? AND NAMA_TIPE = ? AND AKTIF = 1')) {

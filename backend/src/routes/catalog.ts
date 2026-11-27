@@ -130,9 +130,23 @@ router.delete(
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const id = parseInt(String(req.params.id), 10);
-      const preCheck = await CatalogService.canDeleteJenis(id);
+      const rawMode = String(req.body?.mode || req.query?.mode || 'block').trim();
+      const mode = (rawMode === 'move_products' || rawMode === 'cascade') ? rawMode : 'block';
+      const targetJenisId = req.body?.target_jenis_id || req.query?.target_jenis_id
+        ? parseInt(String(req.body?.target_jenis_id || req.query?.target_jenis_id), 10)
+        : undefined;
+
+      const preCheck = await CatalogService.canDeleteJenisWithOptions(id, {
+        mode,
+        target_jenis_id: targetJenisId
+      });
       if (!preCheck.canDelete) {
-        return res.status(400).json({ success: false, message: preCheck.message || 'Kategori tidak dapat dihapus.' });
+        return res.status(400).json({
+          success: false,
+          message: preCheck.message || 'Kategori tidak dapat dihapus.',
+          activeProductCount: preCheck.activeProductCount,
+          blockingProducts: preCheck.blockingProducts
+        });
       }
 
       const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
@@ -152,7 +166,10 @@ router.delete(
         });
       }
 
-      const result = await CatalogService.deleteJenis(id, req.user!.id);
+      const result = await CatalogService.deleteJenisWithOptions(id, req.user!.id, {
+        mode,
+        target_jenis_id: targetJenisId
+      });
       if (!result.success) {
         return res.status(400).json(result);
       }
@@ -432,6 +449,32 @@ router.put(
   }
 );
 
+router.post(
+  '/products/move',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const rawIds = Array.isArray(req.body?.produk_ids)
+        ? req.body.produk_ids
+        : req.body?.produk_id
+          ? [req.body.produk_id]
+          : [];
+      const produkIds = rawIds.map((x: unknown) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n) && n > 0);
+      const targetJenisId = parseInt(String(req.body?.target_jenis_id || 0), 10);
+
+      if (produkIds.length === 0 || !Number.isFinite(targetJenisId) || targetJenisId <= 0) {
+        return res.status(400).json({ success: false, message: 'produk_ids dan target_jenis_id wajib diisi.' });
+      }
+
+      const result = await CatalogService.moveProdukToCategory(produkIds, targetJenisId, req.user!.id);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
 router.delete(
   '/products/bulk',
   requireAuth,
@@ -532,19 +575,22 @@ router.post(
   requireFeature('catalog_manage'),
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
-      const { produk_id, catatan, sumber_id, prefix_id, pola_id, nilai_atribut } = req.body;
-      if (!produk_id || !nilai_atribut || !Array.isArray(nilai_atribut)) {
-        return res.status(400).json({ success: false, message: 'produk_id dan nilai_atribut wajib disertakan.' });
+      const { produk_id, nama_tipe, catatan, sumber_id, prefix_id, pola_id, nilai_atribut } = req.body;
+      const hasNamaTipe = typeof nama_tipe === 'string' && nama_tipe.trim().length > 0;
+      const hasNilaiAtribut = Array.isArray(nilai_atribut) && nilai_atribut.length > 0;
+      if (!produk_id || (!hasNamaTipe && !hasNilaiAtribut)) {
+        return res.status(400).json({ success: false, message: 'produk_id dan nama_tipe wajib disertakan.' });
       }
 
       const created = await CatalogService.createTipe(
         {
           produk_id: parseInt(String(produk_id), 10),
+          nama_tipe: hasNamaTipe ? String(nama_tipe).trim() : undefined,
           catatan,
           sumber_id,
           prefix_id,
           pola_id,
-          nilai_atribut
+          nilai_atribut: Array.isArray(nilai_atribut) ? nilai_atribut : []
         },
         req.user!.id
       );
@@ -563,10 +609,10 @@ router.put(
   async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       const tipeId = parseInt(String(req.params.id), 10);
-      const { sumber_id, prefix_id, pola_id, alasan, confirmation_token } = req.body;
+      const { nama_tipe, sumber_id, prefix_id, pola_id, alasan, confirmation_token } = req.body;
 
       if (!alasan || String(alasan).trim().length === 0) {
-        return res.status(400).json({ success: false, message: 'Alasan koreksi ID wajib diisi.' });
+        return res.status(400).json({ success: false, message: 'Alasan koreksi wajib diisi.' });
       }
 
       const tipe = await CatalogService.getTipeById(tipeId);
@@ -574,7 +620,6 @@ router.put(
 
       // Jika id_dikunci = 1, wajibkan token konfirmasi tingkat 3!
       if (tipe.id_dikunci) {
-        const { ConfirmationService } = await import('../services/confirmationService');
         const validation = await ConfirmationService.consumeConfirmationToken(
           confirmation_token,
           req.user!.id,
@@ -594,11 +639,119 @@ router.put(
 
       const updated = await CatalogService.updateAturanId(
         tipeId,
-        { sumber_id, prefix_id, pola_id, alasan },
+        {
+          nama_tipe: typeof nama_tipe === 'string' ? nama_tipe : undefined,
+          sumber_id,
+          prefix_id,
+          pola_id,
+          alasan
+        },
         req.user!.id
       );
 
-      return res.json({ success: true, message: 'Aturan ID tipe berhasil diperbarui.', type: updated });
+      return res.json({ success: true, message: 'Tipe & aturan ID berhasil diperbarui.', type: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.post(
+  '/types/:id/move',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const tipeId = parseInt(String(req.params.id), 10);
+      const targetProdukId = parseInt(String(req.body?.target_produk_id || 0), 10);
+      if (!Number.isFinite(tipeId) || tipeId <= 0 || !Number.isFinite(targetProdukId) || targetProdukId <= 0) {
+        return res.status(400).json({ success: false, message: 'Parameter tipeId dan target_produk_id wajib diisi.' });
+      }
+
+      const result = await CatalogService.moveTipeToProduk(tipeId, targetProdukId, req.user!.id);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/types/bulk',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const ids = Array.from(new Set(rawIds.map((x: unknown) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n) && n > 0))) as number[];
+      const preCheck = await CatalogService.canDeleteTipeBulk(ids);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Varian tipe terpilih tidak dapat dihapus.' });
+      }
+
+      const targetId = `bulk:${ids.map(String).sort().join(',')}`;
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_type',
+        targetId
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_type',
+          targetId
+        });
+      }
+
+      const result = await CatalogService.deleteTipeBulk(ids, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/types/:id',
+  requireAuth,
+  requireFeature('catalog_manage'),
+  async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      const preCheck = await CatalogService.canDeleteTipe(id);
+      if (!preCheck.canDelete) {
+        return res.status(400).json({ success: false, message: preCheck.message || 'Varian tipe tidak dapat dihapus.' });
+      }
+
+      const confirmationToken = (req.headers['x-confirmation-token'] as string) || req.body?.confirmation_token;
+      const validation = await ConfirmationService.consumeConfirmationToken(
+        confirmationToken,
+        req.user!.id,
+        'delete_type',
+        String(id)
+      );
+      if (!validation.valid) {
+        return res.status(403).json({
+          success: false,
+          message: validation.message,
+          requiresConfirmation: true,
+          actionType: 'delete_type',
+          targetId: String(id)
+        });
+      }
+
+      const result = await CatalogService.deleteTipe(id, req.user!.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
     } catch (err: any) {
       return res.status(500).json({ success: false, message: err.message });
     }

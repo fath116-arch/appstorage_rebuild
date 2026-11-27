@@ -1,6 +1,6 @@
-# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.8.5)
+# Struktur Data & Skema Database MariaDB 11.x - FieldOps IT (v1.2.9)
 
-Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `14_v128_rbac_wa2_and_features.sql`, isolasi log aktivitas user (`USER_ACTIVITY_ACTIONS`) dari feed mutasi barang, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, **Izin Fitur Per Akun**, **Dual WA Gateway**, aturan mutasi stok atomik, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.8.5`)**.
+Dokumen ini menjelaskan model data relasional **tunggal (kanonik)**, seluruh skema tabel MariaDB 11.4 LTS hingga migrasi `14_v128_rbac_wa2_and_features.sql`, isolasi log aktivitas user (`USER_ACTIVITY_ACTIONS`) dari feed mutasi barang, mekanisme **Reservasi, Pengembalian, Pengajuan Pembelian, Multi-Tas & Status Selesai**, **Izin Fitur Per Akun**, **Dual WA Gateway**, aturan mutasi stok atomik, penghapusan langsung stok non-SN, pemindahan Box/Kategori/Tipe, kebijakan **UTC ↔ WIB**, dan proteksi data pada **FieldOps IT (`v1.2.9`)**.
 
 ---
 
@@ -32,7 +32,7 @@ Menyimpan akun pengguna internal kantor dengan **3 peran kanonis** (`developer`,
 
 ### B. Skema Checklist Inspeksi, Multi-Tas Lapangan, & API Keys (`02_inventory_schema.sql`)
 
-> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.8.5 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
+> **Catatan Unifikasi Model Tunggal (v1.2.6+)**: Tabel awal `categories`, `items`, `transactions` (dari `02_inventory_schema.sql` + migrasi transisi `10`/`11`), `sessions` (`01`), `whatsapp_config`, dan `whatsapp_logs` hanya dipertahankan pada skema migrasi historis demi kompatibilitas upgrade. Seluruh operasional produksi v1.2.9 membaca dan menulis **hanya** ke model kanonik tunggal (`jenis`, `produk`, `tipe`, `box`, `item`, `stok_jumlah`, `transaksi`, `transaksi_detail`, `request`, `sesi`, `wa_*`).
 
 #### 1. Tabel `checklists` (Inspeksi Harian & Template Multi-Tas Kerja Lapangan)
 Tabel `checklists` menjalankan dua peran melalui kolom `inspection_type`:
@@ -90,7 +90,7 @@ Menyimpan parameter konfigurasi sistem serta daftar pola ekstraksi SN (`SN_PATTE
 - `ABSOLUTE_TIMEOUT_JAM = '720'` *(30 hari)*
 - `MAX_SESI_PER_AKUN = '50'` *(multi-perangkat diizinkan tanpa saling memutus)*
 - `REAUTH_MENIT = '15'`, `RETENSI_SAMPAH_HARI = '14'`, `CONFIRMATION_TOKEN_TTL_DETIK = '120'`
-- `CONFIRMATION_TIERS`: Pemetaan JSON Tier 0–3 (`delete_kind`, `delete_attribute`, `delete_product`, `delete_box`, `delete_item`, `request_approve`, `change_id_rule`, dsb.) *(diperbarui di migrasi `14`)*
+- `CONFIRMATION_TIERS`: Pemetaan JSON Tier 0–3 (`delete_kind`, `delete_attribute`, `delete_product`, `delete_type`, `delete_box`, `delete_item`, `delete_stok_jumlah`, `request_approve`, `change_id_rule`, dsb.) *(diperbarui di migrasi `14` & v1.2.9)*
 - `SN_PATTERNS`: Array JSON `SNPatternRecord[]` untuk manajemen aturan regex & normalisasi `SCAN_SN` via `/api/sn-patterns`.
 - `REPORT_APPROVAL_CONFIG`: JSON konfigurasi Kop Surat (`companyName`, `divisionName`, `companyAddress`) dan 3 penandatangan **Lembar Pengesahan** (`signers` dengan `roleLabel`, `name`, `title`, dan opsi `useCurrentUser`) yang dikelola via `/api/reports/approval-config`.
 
@@ -117,7 +117,7 @@ Mencatat seluruh mutasi dan aktivitas audit secara append-only (`04` & `12_unify
 | `waktu` | `TIMESTAMP` | Timestamp kompatibilitas (selaras `occurred_at` UTC) |
 
 #### 4. Tabel `sampah_hapus` (Retensi 14 Hari)
-Menyimpan snapshot data terhapus permanen (`jenis_objek`: `'item'`, `'produk'`, `'jenis'`, `'tipe'`, `'box'`, `'akun'`) beserta `snapshot` JSON, `dihapus_oleh`, `aktivitas_id`, `purge_setelah` (+14 hari), dan `status` (`'menunggu'`, `'dipulihkan'`, `'dibersihkan'`).
+Menyimpan snapshot data terhapus permanen (`jenis_objek`: `'item'`, `'stok_jumlah'`, `'produk'`, `'jenis'`, `'tipe'`, `'box'`, `'akun'`) beserta `snapshot` JSON, `dihapus_oleh`, `aktivitas_id`, `purge_setelah` (+14 hari), dan `status` (`'menunggu'`, `'dipulihkan'`, `'dibersihkan'`).
 
 #### 5. Tabel `token_konfirmasi` (Konfirmasi Sensitif Bertingkat)
 Menyimpan token verifikasi sekali pakai (*single-use*, TTL 120 detik) berisi `token_hash`, `user_id`, `action_type`, `target_id`, `tier` (`2` atau `3`), `expires_at`, dan `used_at`.
@@ -128,14 +128,14 @@ Menyimpan token verifikasi sekali pakai (*single-use*, TTL 120 detik) berisi `to
 
 Hierarki kanonik: **`jenis` (Kategori)** → **`atribut` / `atribut_opsi`** → **`produk`** → **`tipe` / `tipe_nilai`** → **`item` / `stok_jumlah`**.
 
-1. **`jenis`** *(Kategori Katalog)*: `id`, `nama`, `sumber_id_bawaan` (`scan_sn`, `otomatis`, `manual`, `tanpa_id`), `prefix_id_bawaan`, `aktif`, `dibuat_pada`. Dapat diubah via `PUT /api/catalog/jenis/:id` dan dihapus terproteksi ke Kotak Sampah via `DELETE /api/catalog/jenis/:id` (ditolak jika masih ada produk aktif).
-2. **`atribut` & `atribut_opsi`**: `id`, `jenis_id`, `kode`, `nama`, `tipe_isian` (`angka`, `pilihan`, `teks`), `satuan`, `wajib`, `urutan`, `masuk_nama`, dan `atribut_opsi` (`id`, `atribut_id`, `nilai`, `urutan`). Dapat diubah/dihapus terproteksi (ditolak bila dipakai varian tipe aktif).
+1. **`jenis`** *(Kategori Katalog)*: `id`, `nama`, `sumber_id_bawaan` (`scan_sn`, `otomatis`, `manual`, `tanpa_id`), `prefix_id_bawaan`, `aktif`, `dibuat_pada`. Dapat diubah via `PUT /api/catalog/jenis/:id` dan dihapus ke Kotak Sampah via `DELETE /api/catalog/jenis/:id` dengan pilihan `mode: 'move_products'` (memindahkan produk aktif ke kategori tujuan) atau `mode: 'cascade'` (ditolak bila masih terdapat stok aktif/dipesan/rusak atau request terbuka).
+2. **`atribut` & `atribut_opsi`**: Dipertahankan pada skema DB untuk kompatibilitas mundur (`tipe_nilai`), sementara pembuatan varian sejak `v1.2.9` mendukung penamaan manual penuh tanpa atribut dan keanggotaan produk per kategori dikelola manual di subtab `Kelola & Pengaturan`.
 3. **`produk`**:
 
 | Nama Kolom | Tipe Data | Deskripsi |
 | :--- | :--- | :--- |
 | `id` | `INT UNSIGNED AUTO_INCREMENT` | Primary Key unik produk |
-| `jenis_id` | `INT UNSIGNED` | Foreign Key ke `jenis(id)` |
+| `jenis_id` | `INT UNSIGNED` | Foreign Key ke `jenis(id)` (dapat dipindahkan antar kategori via `POST /api/catalog/products/move`) |
 | `nama` | `VARCHAR(120)` | Nama produk (unik per kategori) |
 | `kategori` | `VARCHAR(32)` | Kategori perputaran: `'fast_moving'` atau `'recycle'` |
 | `kategori_barang` | `VARCHAR(40)` | Klasifikasi fungsi (`08` & `12`): `'Alat'` (wajib kembali) atau `'Barang Habis Pakai'` (bisa selesai terpakai pelanggan) |
@@ -143,16 +143,16 @@ Hierarki kanonik: **`jenis` (Kategori)** → **`atribut` / `atribut_opsi`** → 
 | `catatan`, `aktif`, `dibuat_oleh`, `dibuat_pada` | Metadata produk & status soft-delete (`aktif = 0`) |
 
 4. **`tipe` & `tipe_nilai`**:
-   - `tipe`: `id`, `produk_id`, `nama_tipe` (auto-generated dari atribut `masuk_nama = 1`), `catatan`, `sumber_id`, `mode_stok` (`per_id` / `jumlah`), `prefix_id`, `pola_id`, `id_dikunci`, `aktif`.
-   - `tipe_nilai`: Nilai EAV (`tipe_id`, `atribut_id`, `nilai_angka`, `opsi_id`, `nilai_teks`).
+   - `tipe`: `id`, `produk_id` (dapat dipindahkan antar produk via `POST /api/catalog/types/:id/move`), `nama_tipe` (input manual maupun rename langsung via `PUT /api/catalog/types/:id/id-rule`), `catatan`, `sumber_id`, `mode_stok` (`per_id` / `jumlah`), `prefix_id`, `pola_id`, `id_dikunci`, `aktif`. Dapat dihapus ke Kotak Sampah (`DELETE /api/catalog/types/:id` & `/types/bulk`) saat kosong stok/request.
+   - `tipe_nilai`: Nilai EAV opsional (`tipe_id`, `atribut_id`, `nilai_angka`, `opsi_id`, `nilai_teks`).
 
 ---
 
 ### E. Skema Box, Item Fisik & Stok Jumlah (`06_v2_stock_schema.sql`, `08`, `12`)
 
 1. **`box`**: `id`, `kode` (misal `BOX-A-01`), `keterangan`, `aktif`, `dibuat_pada`. Penghapusan (`DELETE /api/boxes/:id`) ditolak jika masih berisi stok aktif/dipesan atau request terbuka.
-2. **`item`** (Unit Fisik Ber-ID Unik): `id`, `kode_id` (unik global), `tipe_id`, `box_id`, `status` (`'aktif'`, `'dipesan'`, `'keluar'`), `kondisi` (`'Baru'`, `'Baik'`, `'Perlu Perbaikan'`, `'Rusak'`), `catatan_kondisi`, `reserved_for_request_id`, `reserved_for_user_id`, `dibuat_pada` (UTC). Item berkondisi `Rusak` tidak masuk stok tersedia.
-3. **`stok_jumlah`** (Mode `tanpa_id`): Composite PK (`tipe_id`, `box_id`), `jumlah`, `reserved_qty`.
+2. **`item`** (Unit Fisik Ber-ID Unik): `id`, `kode_id` (unik global), `tipe_id`, `box_id`, `status` (`'aktif'`, `'dipesan'`, `'keluar'`), `kondisi` (`'Baru'`, `'Baik'`, `'Perlu Perbaikan'`, `'Rusak'`), `catatan_kondisi`, `reserved_for_request_id`, `reserved_for_user_id`, `dibuat_pada` (UTC). Item berkondisi `Rusak` tidak masuk stok tersedia; item berstatus `aktif` dapat dipindahkan antar Box dan/atau Tipe ber-ID (`POST /api/stock/move`).
+3. **`stok_jumlah`** (Mode `tanpa_id`): Composite PK (`tipe_id`, `box_id`), `jumlah`, `reserved_qty`. Sejak `v1.2.9` mendukung hapus langsung parsial/penuh/massal (`DELETE /api/stock/quantity` & `/quantity/bulk` dengan menjaga `reserved_qty` -> `sampah_hapus`) dan pemindahan antar Box dan/atau Tipe `jumlah` (`POST /api/stock/move`).
 
 ---
 

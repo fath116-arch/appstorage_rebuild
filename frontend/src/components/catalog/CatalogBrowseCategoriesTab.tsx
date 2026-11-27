@@ -1,37 +1,45 @@
 /**
  * Catalog Browse Categories Tab (Jelajah Kategori & Pakai untuk Tiket)
- * FieldOps IT - Sub-tab Kategori (Default View untuk Teknisi)
- * Pola jelajah kategori yang cepat, visual, dan ramah sentuhan.
+ * FieldOps IT - Sub-tab Kategori
+ * Menyediakan penelusuran visual kategori, stok varian, serta aksi cepat admin (pindah produk / hapus kategori).
  */
 
 import React, { useState, useMemo } from 'react';
 import {
   Folder,
-  Layers,
   Search,
   ChevronRight,
-  PackageCheck,
-  Box as BoxIcon,
   Ticket,
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  ArrowLeft
+  ArrowLeft,
+  Trash2,
+  ArrowRightLeft,
+  Sliders
 } from 'lucide-react';
 import { Jenis, Produk, Tipe } from '../../services/catalogApi';
 
 interface CatalogBrowseCategoriesTabProps {
   categories: Jenis[];
   products: Produk[];
+  canManageCatalog?: boolean;
   onOpenTypeDetail: (tipe: Tipe) => void;
   onOpenStockOut?: (tipe: Tipe) => void;
+  onDeleteCategory?: (cat: Jenis) => void;
+  onMoveProduct?: (prod: Produk) => void;
+  onOpenManageCategoryMembers?: (cat: Jenis) => void;
 }
 
 export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProps> = ({
   categories,
   products,
+  canManageCatalog = false,
   onOpenTypeDetail,
   onOpenStockOut,
+  onDeleteCategory,
+  onMoveProduct,
+  onOpenManageCategoryMembers,
 }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,6 +120,7 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-1"
               >
@@ -122,6 +131,7 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
 
           {selectedCategoryId !== null && (
             <button
+              type="button"
               onClick={() => setSelectedCategoryId(null)}
               className="px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1.5 self-start sm:self-auto shrink-0"
             >
@@ -132,11 +142,11 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
         </div>
       </div>
 
-      {/* View 1: Grid Kategori (Pola Jelajah Shopee) */}
+      {/* View 1: Grid Kategori */}
       {selectedCategoryId === null ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-1">
-            <span>Pilih kategori untuk menjelajahi produk & ketersediaan stok:</span>
+            <span>Pilih kategori untuk menjelajahi produk &amp; ketersediaan stok:</span>
             <span className="font-mono tabular-nums">{filteredCategories.length} Kategori</span>
           </div>
 
@@ -158,19 +168,26 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
                 );
 
               return (
-                <button
+                <div
                   key={cat.id}
-                  type="button"
                   onClick={() => setSelectedCategoryId(cat.id)}
-                  className="p-4 rounded-xl text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 hover:shadow-xs transition-all flex flex-col justify-between group"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedCategoryId(cat.id);
+                    }
+                  }}
+                  className="p-4 rounded-xl text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 hover:shadow-xs transition-all flex flex-col justify-between group cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0 group-hover:bg-slate-200 dark:group-hover:bg-slate-700 transition-colors">
                         <Folder className="w-4 h-4 text-emerald-500" />
                       </div>
-                      <div>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
                           {cat.nama}
                         </h4>
                         <span className="text-[11px] text-slate-500 font-mono">
@@ -178,7 +195,24 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
                         </span>
                       </div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {canManageCatalog && onDeleteCategory && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteCategory(cat);
+                          }}
+                          className="p-1.5 text-rose-500 hover:text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors"
+                          title={`Hapus Kategori ${cat.nama}`}
+                          aria-label={`Hapus Kategori ${cat.nama}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
@@ -196,7 +230,7 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
 
                     <div>{statusBadge}</div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -211,7 +245,7 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
       ) : (
         /* View 2: Produk di dalam Kategori Terpilih */
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
             <div>
               <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
                 <span>Kategori</span>
@@ -221,17 +255,41 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Folder className="w-4 h-4 text-emerald-500" />
                 <span>{activeCategory?.nama}</span>
-                <span className="text-xs font-normal text-slate-500 font-mono">
+                <span className="text-xs font-normal text-slate-500 font-mono tabular-nums">
                   ({activeCategoryProducts.length} Produk)
                 </span>
               </h3>
             </div>
 
-            <div className="text-right">
-              <span className="text-xs text-slate-500 block">Total Stok Fisik:</span>
-              <span className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
-                {activeCategory?.totalStock} unit
-              </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="text-right">
+                <span className="text-xs text-slate-500 block">Total Stok Fisik:</span>
+                <span className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                  {activeCategory?.totalStock} unit
+                </span>
+              </div>
+
+              {canManageCatalog && activeCategory && onOpenManageCategoryMembers && (
+                <button
+                  type="button"
+                  onClick={() => onOpenManageCategoryMembers(activeCategory)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Atur Produk Kategori</span>
+                </button>
+              )}
+
+              {canManageCatalog && activeCategory && onDeleteCategory && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteCategory(activeCategory)}
+                  className="px-3 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-200 dark:border-rose-800 rounded-lg flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Kategori</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -244,12 +302,12 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                      <span>{prod.nama}</span>
-                      <span className="text-[11px] font-normal px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                        {prod.kategori_barang || 'Barang Habis Pakai'}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">{prod.nama}</h4>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        · {prod.kategori_barang || 'Barang Habis Pakai'}
                       </span>
-                    </h4>
+                    </div>
                     {prod.catatan && (
                       <p className="text-xs text-slate-500 mt-0.5">{prod.catatan}</p>
                     )}
@@ -257,8 +315,19 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
 
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-slate-500">
-                      Total: <strong className="font-mono text-slate-900 dark:text-white">{prod.total_stok ?? 0} {prod.tipe_stok || 'unit'}</strong>
+                      Total: <strong className="font-mono tabular-nums text-slate-900 dark:text-white">{prod.total_stok ?? 0} {prod.tipe_stok || 'unit'}</strong>
                     </span>
+                    {canManageCatalog && onMoveProduct && (
+                      <button
+                        type="button"
+                        onClick={() => onMoveProduct(prod)}
+                        className="px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md flex items-center gap-1 whitespace-nowrap"
+                        title={`Pindahkan ${prod.nama} ke kategori lain`}
+                      >
+                        <ArrowRightLeft className="w-3 h-3" />
+                        <span>Pindah Kategori</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -280,21 +349,21 @@ export const CatalogBrowseCategoriesTab: React.FC<CatalogBrowseCategoriesTabProp
                             className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2 text-xs"
                           >
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
-                                <span className="truncate">{tipe.nama_tipe}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{tipe.nama_tipe}</span>
                                 {isOut ? (
-                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 shrink-0">
-                                    Habis
+                                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 shrink-0">
+                                    · Habis
                                   </span>
                                 ) : isLow ? (
-                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 shrink-0">
-                                    Menipis
+                                  <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 shrink-0">
+                                    · Menipis
                                   </span>
                                 ) : null}
                               </div>
 
                               <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                                <span className="font-mono">
+                                <span className="font-mono tabular-nums">
                                   Tersedia: <strong className="text-slate-800 dark:text-slate-200 font-bold">{tipe.stok_tersedia ?? 0}</strong>
                                 </span>
                                 {tipe.sebaran_box && tipe.sebaran_box.length > 0 && (

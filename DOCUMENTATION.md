@@ -1,6 +1,6 @@
 # DOCUMENTATION.md - Dokumentasi Teknis & Panduan Operasional FieldOps IT
 
-![System Version](https://img.shields.io/badge/System_Version-v1.2.8.5-emerald.svg)
+![System Version](https://img.shields.io/badge/System_Version-v1.2.9-emerald.svg)
 ![React](https://img.shields.io/badge/React-19.3.0-61DAFB?logo=react)
 ![Express](https://img.shields.io/badge/Express-5.0.0-000000?logo=express)
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.4_LTS-003545?logo=mariadb)
@@ -9,7 +9,7 @@
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.3.3-38BDF8?logo=tailwindcss)
 ![Node](https://img.shields.io/badge/Node.js-22+_LTS-339933?logo=node.js)
 
-Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, pembaruan otomatis produksi anti-cache, pemisahan log aktivitas user, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.8.5`)**.
+Dokumen ini memuat panduan lengkap setup lingkungan, penjelasan arsitektur modul `frontend/` + `backend/` berbasis **MariaDB 11.4 LTS**, keamanan sesi server-authoritative, pembaruan otomatis produksi anti-cache, pemisahan log aktivitas user, pengelolaan katalog & pemindahan stok v1.2.9, penggunaan REST API, serta prosedur pemeliharaan sistem **FieldOps IT (`v1.2.9`)**.
 
 ---
 
@@ -169,7 +169,7 @@ CLOUDFLARE_PUBLIC_URL=
    - `ThemeContext` mengelola preferensi `light`, `dark`, dan `system` melalui kelas `.dark` dan token CSS di `frontend/src/index.css`.
 5. **Komponen Operasional Utama**:
    - **Manajemen Pengguna & Log Aktivitas User**: `UserRoleSwitcher.tsx` memuat kartu **Kelola User** lengkap dengan saklar **Atur Fitur** (`developer`) dan tab baru **`Log Aktivitas User`** (`UserActivityLogsTab.tsx`, akses Admin & Developer) untuk memantau login, logout, pencabutan sesi, token reuse, dan manajemen akun terpisah dari riwayat barang.
-   - **Katalog, Box, Hapus Massal, & Impor**: `CatalogV2Manager.tsx` (subtab `Produk`, `Kategori`, `Storage Box`, `Kelola`, hapus massal multi-pilih untuk Produk/Kategori/Atribut/Box), `BoxContentModal.tsx` (termasuk hapus massal Item Fisik Ber-ID), `CatalogImportModal.tsx` (Template Excel & Impor `.xlsx`/`.csv`/Google Spreadsheet publik), dan `BatchLabelPrintModal.tsx`.
+   - **Katalog, Box, Pemindahan, Hapus Non-SN, & Impor Multi-Tipe**: `CatalogV2Manager.tsx` (subtab `Produk`, `Kategori`, `Storage Box`, serta `Kelola & Pengaturan` dengan **4 kartu pengaturan** menggantikan *Atur Atribut* beserta keanggotaan kategori manual; mendukung rename/penamaan manual varian Tipe, pindah kategori/produk/tipe/box, hapus kategori dengan opsi pindah atau cascade, hapus massal multi-pilih Produk/Kategori/Tipe/Box), `BoxContentModal.tsx` (hapus & pindah item ber-ID maupun stok non-SN), `CatalogImportModal.tsx` (Template Excel multi-tipe berkolom `Pola_ID` terpisah per tipe & Impor `.xlsx`/`.csv`/Google Spreadsheet publik), dan `BatchLabelPrintModal.tsx`.
    - **Mutasi & Scanner**: `StockInputModal.tsx` (`SCAN_SN` ketat + Uji Regex + `useBarcodeScanner.ts`), `StockInOutModal.tsx` (Keranjang Keluar multi-item + Hubungkan ke Request).
    - **Request & Tas Kerja**: `TechnicianRequestsView.tsx` (Ambil Satuan, Pilih Paket Tas, Kembalikan dengan 3 kondisi, Pengajuan Pembelian Barang `beli` + WA selektif, Selesai Terpakai/Sudah Dibeli), `FieldTripChecklistModal.tsx` (Inspeksi Harian + Manajemen Multi-Tas Kerja Kantor).
    - **Laporan & Audit**: `TransactionHistory.tsx` (Ledger append-only khusus mutasi barang + Catat Koreksi Audit), `WeeklyReport.tsx` (Senin–Minggu WIB, ekspor `.xlsx` ExcelJS tersanitasi CWE-1236, `PrintReportModal.tsx`, `PrintDocumentModal.tsx`, serta editor Kop Surat & Lembar Pengesahan `REPORT_APPROVAL_CONFIG`).
@@ -180,7 +180,7 @@ CLOUDFLARE_PUBLIC_URL=
    - Kata sandi di-hash dengan **PBKDF2 SHA-256** (100.000 iterasi, 16-byte random salt).
    - Token sesi (`fieldops_access`, `fieldops_refresh`, `fieldops_device`, `fieldops_session`) disimpan sebagai cookie **HttpOnly**, divalidasi di tabel `sesi` dengan rotasi refresh token anti-replay.
    - Aksi sensitif ditegakkan di server oleh `ConfirmationService` (`token_konfirmasi` sekali pakai, TTL 120 detik, Tingkat 0–3).
-   - `server.ts` menyajikan `GET /api/health` (`buildId`, `builtAt`, `version: '1.2.8.5'`) serta file `index.html`, `sw.js`, `registerSW.js`, `manifest.webmanifest`, `build-meta.json`, dan `workbox-*.js` dengan header `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`, sedangkan `/assets/*` memakai cache `max-age=31536000, immutable`.
+   - `server.ts` menyajikan `GET /api/health` (`buildId`, `builtAt`, `version: '1.2.9'`) serta file `index.html`, `sw.js`, `registerSW.js`, `manifest.webmanifest`, `build-meta.json`, dan `workbox-*.js` dengan header `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`, sedangkan `/assets/*` memakai cache `max-age=31536000, immutable`.
 2. **Transaksi Atomik, Isolasi Log User, & Zona Waktu (`timezone.ts`)**:
    - Server mengunci `process.env.TZ = 'UTC'` untuk penyimpanan konsisten di MariaDB, sementara seluruh tampilan UI, perhitungan ID Aktivitas (`AKT-YYYYMMDD-NNNN`), dan rekap laporan menggunakan zona waktu **WIB (`Asia/Jakarta`)**.
    - `ActivityLogService` & `authMemory.ts` mengecualikan `USER_ACTIVITY_ACTIONS` dari feed barang (`GET /api/activities` & `GET /api/reports/weekly`) dan menyediakannya melalui `getUserActivityLogs()` (`GET /api/auth/user-logs`), sementara `routes/auth.ts` mencatat penuh aktivitas akun (`buat_akun`, `setujui_akun`, `tolak_akun`, `ubah_status_akun`, `ubah_akses_fitur`, `reset_sandi`, `hapus_akun`).
@@ -193,8 +193,8 @@ CLOUDFLARE_PUBLIC_URL=
 Seluruh endpoint REST berada di bawah prefix `/api/*` dengan autentikasi cookie sesi server (`requireAuth` & `requireFeature`), kecuali `/api/health`, `/api/auth/login`, `/api/auth/reset-password`, dan webhook `/api/tickets/consume` (menggunakan `X-API-Key` atau `Bearer <api_key>`). Endpoint `POST /api/auth/register` mengembalikan `HTTP 403 Forbidden`:
 
 - **Autentikasi, Log User, & Administrasi (`/api/auth`)**: Login/refresh/logout, profil `/me`, daftar `/actors`, **`GET /user-logs`** (log login/logout/sesi/akun untuk Admin & Developer dengan `users_manage`), manajemen `/users` (`admin` terbatas `admin`/`technician`), `/users/:id/features` (izin fitur slider khusus `developer`, mendukung `feature_permissions` & `featurePermissions`), `/confirm-token` (ketik `"delete"` untuk penghapusan), `/settings`, dan `/trash`.
-- **Katalog, Impor, & Storage Box (`/api/catalog`, `/api/import`, `/api/boxes`)**: CRUD & hapus massal (`/bulk`) Kategori (`jenis`), Atribut & Opsi, Produk, Varian Tipe, aturan ID (`/types/:id/id-rule`), label cetak A4 (`/labels`), impor Excel/Google Sheet (`/api/import/{template,preview,commit}`), serta manajemen Storage Box (`/boxes/bulk` & `/boxes/move`).
-- **Stok & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), arsip & restore, kondisi item, hapus tunggal/massal item fisik ber-ID (`/items/:id`, `/items/bulk`), serta feed mutasi barang (tanpa log login/logout/akun) & koreksi append-only (`/activities/:id/correct`).
+- **Katalog, Impor Multi-Tipe, & Storage Box (`/api/catalog`, `/api/import`, `/api/boxes`)**: CRUD, pindah produk (`/products/move`) & pindah tipe (`/types/:id/move`), hapus kategori dengan opsi `move_products`/`cascade`, rename varian tipe & aturan ID (`/types/:id/id-rule`), hapus tunggal/massal Kategori, Produk, Tipe (`/types/:id`, `/types/bulk`), label cetak A4 (`/labels`), impor Excel/Google Sheet multi-tipe berkolom `Pola_ID` (`/api/import/{template,preview,commit}`), serta manajemen Storage Box (`/boxes/bulk` & `/boxes/move`).
+- **Stok, Pindah Unit, Hapus Non-SN, & Ledger Aktivitas (`/api/stock`, `/api/activities`)**: Pencarian terpadu, cek duplikasi ID, input single/bulk/quantity, output single/keranjang keluar (`/out/bulk`), pindah unit `per_id` & `jumlah` antar Box/Tipe kompatibel (`/stock/move`), arsip & restore, kondisi item, hapus tunggal/massal item fisik ber-ID (`/items/:id`, `/items/bulk`) maupun stok jumlah non-SN (`/quantity`, `/quantity/bulk`), serta feed mutasi barang (tanpa log login/logout/akun) & koreksi append-only (`/activities/:id/correct`).
 - **Request & Multi-Tas (`/api/requests`, `/api/checklists`)**: Permohonan ambil satuan, paket tas (`/requests/bag`), pengembalian (`request_type: 'kembalikan'`), pengajuan pembelian barang (`request_type: 'beli'` dengan WA selektif), persetujuan, serah terima (`/pickup`), verifikasi kembali (`/return`), selesai pemakaian/pembelian (`/complete`), barang di tangan teknisi (`/held`), dan CRUD Multi-Tas (`/checklists/bags`).
 - **Laporan, Pola SN, Dual WA Gateway, Setting & Diagnostik, Tiket & Backup**: `/api/reports/weekly`, `/debug-clock`, & `/approval-config`, `/api/sn-patterns`, `/api/whatsapp/*` (4 slot ON/OFF + **Dual Gateway** & `/test-gateway` khusus `developer`), `/api/setup/*` (`SystemSetupService` + `test-login`), `/api/tickets/consume` & `/keys`, serta `/api/backup/inventory/download`.
 

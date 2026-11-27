@@ -84,7 +84,7 @@ async function startServer() {
     res.json({
       status: 'healthy',
       app: 'FieldOps IT Inventory',
-      version: '1.2.8.5',
+      version: '1.2.9',
       buildId: buildMeta.buildId,
       builtAt: buildMeta.builtAt || null,
       database: 'MariaDB 11.x (Single Canonical Model, UTC)',

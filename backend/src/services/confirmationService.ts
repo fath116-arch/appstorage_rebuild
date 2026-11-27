@@ -22,6 +22,16 @@ export interface ConfirmationRequestInput {
 
 export class ConfirmationService {
   /**
+   * Menormalkan targetId agar token bulk besar tetap masuk VARCHAR(64) secara deterministik
+   */
+  static normalizeTargetId(rawTargetId: string): string {
+    const clean = String(rawTargetId || '').trim();
+    if (clean.length <= 60) return clean;
+    const digest = crypto.createHash('sha256').update(clean).digest('hex').slice(0, 48);
+    return `h:${digest}`;
+  }
+
+  /**
    * Menentukan tingkat konfirmasi untuk aksi tertentu
    */
   static async getActionTier(actionType: string): Promise<number> {
@@ -125,10 +135,12 @@ export class ConfirmationService {
     const ttlSeconds = await SettingService.getInt('CONFIRMATION_TOKEN_TTL_DETIK');
     const expiresAtSql = toMysqlUtcSeconds(new Date(Date.now() + ttlSeconds * 1000));
 
+    const normalizedTargetId = this.normalizeTargetId(input.targetId);
+
     await executeQuery(
       `INSERT INTO token_konfirmasi (id, token_hash, user_id, action_type, target_id, tier, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tokenId, tokenHash, input.userId, input.actionType, input.targetId, tier, expiresAtSql]
+      [tokenId, tokenHash, input.userId, input.actionType, normalizedTargetId, tier, expiresAtSql]
     );
 
     return {
@@ -192,7 +204,8 @@ export class ConfirmationService {
         return { valid: false, message: 'Token konfirmasi tidak cocok dengan akun yang sedang aktif.' };
       }
 
-      if (tokenRecord.action_type !== actionType || tokenRecord.target_id !== targetId) {
+      const normalizedTargetId = this.normalizeTargetId(targetId);
+      if (tokenRecord.action_type !== actionType || tokenRecord.target_id !== normalizedTargetId) {
         return { valid: false, message: 'Token konfirmasi tidak sesuai dengan jenis aksi atau objek target.' };
       }
 

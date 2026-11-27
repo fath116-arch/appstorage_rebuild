@@ -465,6 +465,160 @@ export class CatalogService {
     };
   }
 
+  static async canDeleteJenisWithOptions(
+    id: number,
+    options?: { mode?: 'block' | 'move_products' | 'cascade'; target_jenis_id?: number }
+  ): Promise<{
+    canDelete: boolean;
+    message?: string;
+    existing?: Jenis;
+    activeProductCount?: number;
+    blockingProducts?: string[];
+  }> {
+    const mode = options?.mode || 'block';
+    if (mode === 'block') {
+      const base = await this.canDeleteJenis(id);
+      return { ...base, activeProductCount: base.canDelete ? 0 : undefined };
+    }
+
+    const existing = await this.getJenisById(id);
+    if (!existing || !existing.aktif) {
+      return { canDelete: false, message: 'Kategori tidak ditemukan.' };
+    }
+
+    const prods = await executeQuery<{ id: number; nama: string }>(
+      'SELECT id, nama FROM produk WHERE jenis_id = ? AND aktif = 1',
+      [id]
+    );
+
+    if (mode === 'move_products') {
+      const targetId = Number(options?.target_jenis_id || 0);
+      if (!Number.isFinite(targetId) || targetId <= 0 || targetId === id) {
+        return {
+          canDelete: false,
+          existing,
+          activeProductCount: prods.length,
+          message: 'Pilih kategori tujuan yang valid untuk menampung produk sebelum menghapus kategori ini.'
+        };
+      }
+      const targetJenis = await this.getJenisById(targetId);
+      if (!targetJenis || !targetJenis.aktif) {
+        return { canDelete: false, existing, message: 'Kategori tujuan tidak ditemukan atau tidak aktif.' };
+      }
+
+      const collisions: string[] = [];
+      for (const p of prods) {
+        const dup = await executeQuery<{ id: number }>(
+          'SELECT id FROM produk WHERE jenis_id = ? AND LOWER(nama) = LOWER(?) AND aktif = 1',
+          [targetId, p.nama]
+        );
+        if (dup && dup.length > 0) {
+          collisions.push(p.nama);
+        }
+      }
+      if (collisions.length > 0) {
+        return {
+          canDelete: false,
+          existing,
+          activeProductCount: prods.length,
+          blockingProducts: collisions,
+          message: `Kategori tujuan "${targetJenis.nama}" sudah memiliki produk dengan nama sama: ${collisions.join(', ')}.`
+        };
+      }
+
+      return { canDelete: true, existing, activeProductCount: prods.length };
+    }
+
+    // mode === 'cascade'
+    const blockers: string[] = [];
+    for (const p of prods) {
+      const prodCheck = await this.canDeleteProduk(p.id);
+      if (!prodCheck.canDelete) {
+        blockers.push(prodCheck.message || `Produk "${p.nama}" masih memiliki stok atau request aktif.`);
+      }
+    }
+    if (blockers.length > 0) {
+      return {
+        canDelete: false,
+        existing,
+        activeProductCount: prods.length,
+        blockingProducts: blockers,
+        message: `Tidak dapat ikut menghapus semua isi kategori "${existing.nama}": ${blockers.slice(0, 3).join(' ')}${blockers.length > 3 ? ` (+${blockers.length - 3} produk lainnya)` : ''}`
+      };
+    }
+
+    return { canDelete: true, existing, activeProductCount: prods.length };
+  }
+
+  static async deleteJenisWithOptions(
+    id: number,
+    userId: string,
+    options?: { mode?: 'block' | 'move_products' | 'cascade'; target_jenis_id?: number }
+  ): Promise<{ success: boolean; message: string; movedCount?: number; deletedProductsCount?: number }> {
+    const mode = options?.mode || 'block';
+    if (mode === 'block') {
+      return await this.deleteJenis(id, userId);
+    }
+
+    const check = await this.canDeleteJenisWithOptions(id, options);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Kategori tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
+
+    if (mode === 'move_products') {
+      const targetId = Number(options!.target_jenis_id);
+      const prods = await executeQuery<{ id: number; nama: string }>(
+        'SELECT id, nama FROM produk WHERE jenis_id = ? AND aktif = 1',
+        [id]
+      );
+      const movedIds = prods.map(p => p.id);
+      if (movedIds.length > 0) {
+        await this.moveProdukToCategory(movedIds, targetId, userId);
+      }
+
+      await TrashService.moveToTrash({
+        jenis_objek: 'jenis',
+        objek_id: String(id),
+        snapshot: existing,
+        dihapus_oleh: userId,
+        catatan: `Hapus Kategori "${existing.nama}" (${movedIds.length} produk dipindahkan ke Kategori #${targetId})`
+      });
+      await executeQuery('UPDATE jenis SET aktif = 0 WHERE id = ?', [id]);
+
+      return {
+        success: true,
+        movedCount: movedIds.length,
+        message: `Kategori "${existing.nama}" berhasil dihapus dan ${movedIds.length} produk dipindahkan ke kategori tujuan.`
+      };
+    }
+
+    // mode === 'cascade'
+    const prods = await executeQuery<{ id: number; nama: string }>(
+      'SELECT id, nama FROM produk WHERE jenis_id = ? AND aktif = 1',
+      [id]
+    );
+
+    for (const p of prods) {
+      await this.deleteProduk(p.id, userId);
+    }
+
+    await TrashService.moveToTrash({
+      jenis_objek: 'jenis',
+      objek_id: String(id),
+      snapshot: existing,
+      dihapus_oleh: userId,
+      catatan: `Hapus Cascade Kategori "${existing.nama}" beserta ${prods.length} produk tanpa stok`
+    });
+    await executeQuery('UPDATE jenis SET aktif = 0 WHERE id = ?', [id]);
+
+    return {
+      success: true,
+      deletedProductsCount: prods.length,
+      message: `Kategori "${existing.nama}" beserta ${prods.length} produk kosong di dalamnya berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
   // ============================================================================
   // 2. ATRIBUT & OPSI
   // ============================================================================
@@ -1185,6 +1339,89 @@ export class CatalogService {
     };
   }
 
+  /**
+   * Memindahkan satu atau banyak Produk ke Kategori (Jenis) lain
+   */
+  static async moveProdukToCategory(
+    produkIds: number[],
+    targetJenisId: number,
+    userId: string
+  ): Promise<{ success: boolean; movedCount: number; message: string }> {
+    const uniqueIds = Array.from(new Set(produkIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0)));
+    if (uniqueIds.length === 0) {
+      throw new Error('Pilih minimal 1 produk untuk dipindahkan.');
+    }
+
+    const targetJenis = await this.getJenisById(targetJenisId);
+    if (!targetJenis || !targetJenis.aktif) {
+      throw new Error(`Kategori tujuan #${targetJenisId} tidak ditemukan atau tidak aktif.`);
+    }
+
+    const productsToMove: Produk[] = [];
+    for (const pid of uniqueIds) {
+      const prod = await this.getProdukById(pid);
+      if (!prod || !prod.aktif) {
+        throw new Error(`Produk #${pid} tidak ditemukan atau sudah tidak aktif.`);
+      }
+      if (prod.jenis_id === targetJenisId) {
+        continue;
+      }
+
+      const activeDup = await executeQuery<{ id: number }>(
+        'SELECT id FROM produk WHERE jenis_id = ? AND LOWER(nama) = LOWER(?) AND id != ? AND aktif = 1',
+        [targetJenisId, prod.nama, prod.id]
+      );
+      if (activeDup && activeDup.length > 0) {
+        throw new Error(
+          `Produk dengan nama "${prod.nama}" sudah ada di kategori "${targetJenis.nama}".`
+        );
+      }
+      productsToMove.push(prod);
+    }
+
+    if (productsToMove.length === 0) {
+      return {
+        success: true,
+        movedCount: 0,
+        message: `Seluruh produk terpilih sudah berada di kategori "${targetJenis.nama}".`
+      };
+    }
+
+    await runTransaction(async (conn) => {
+      for (const prod of productsToMove) {
+        const inactiveDup = (await conn.query(
+          'SELECT id, nama FROM produk WHERE jenis_id = ? AND LOWER(nama) = LOWER(?) AND aktif = 0',
+          [targetJenisId, prod.nama]
+        )) as Array<{ id: number; nama: string }>;
+        if (Array.isArray(inactiveDup) && inactiveDup.length > 0) {
+          for (const arch of inactiveDup) {
+            await conn.query('UPDATE produk SET nama = ? WHERE id = ?', [
+              `${arch.nama} [arsip-${arch.id}-${Date.now().toString().slice(-4)}]`,
+              arch.id
+            ]);
+          }
+        }
+
+        await conn.query('UPDATE produk SET jenis_id = ? WHERE id = ?', [targetJenisId, prod.id]);
+      }
+
+      await ActivityLogService.recordActivity(
+        {
+          aksi: 'pindah_produk_kategori',
+          pelaku_id: userId,
+          catatan: `Memindahkan ${productsToMove.length} produk (${productsToMove.map(p => p.nama).join(', ')}) ke kategori "${targetJenis.nama}"`
+        },
+        conn
+      );
+    });
+
+    return {
+      success: true,
+      movedCount: productsToMove.length,
+      message: `${productsToMove.length} produk berhasil dipindahkan ke kategori "${targetJenis.nama}".`
+    };
+  }
+
   // ============================================================================
   // 4. TIPE (Varian Produk & Otomatisasi Nama Tipe)
   // ============================================================================
@@ -1369,76 +1606,102 @@ export class CatalogService {
 
   static async createTipe(input: {
     produk_id: number;
+    nama_tipe?: string;
     catatan?: string;
     sumber_id?: 'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id';
     prefix_id?: string;
     pola_id?: string;
-    nilai_atribut: NilaiAtributInput[];
+    nilai_atribut?: NilaiAtributInput[];
   }, userId: string): Promise<Tipe> {
     const prod = await this.getProdukById(input.produk_id);
-    if (!prod) {
+    if (!prod || !prod.aktif) {
       throw new Error(`Produk #${input.produk_id} tidak ditemukan.`);
     }
 
-    const atributs = await this.listAtributByJenis(prod.jenis_id);
+    const manualName = input.nama_tipe ? input.nama_tipe.trim() : '';
+    const nilaiAtributList = Array.isArray(input.nilai_atribut) ? input.nilai_atribut : [];
 
-    // Validasi atribut wajib
-    for (const a of atributs) {
-      if (a.wajib) {
-        const val = input.nilai_atribut.find(v => v.atribut_id === a.id);
-        const hasVal = val && (
-          val.nilai_angka !== undefined ||
-          val.opsi_id !== undefined ||
-          (val.opsi_baru && val.opsi_baru.trim().length > 0) ||
-          (val.nilai_teks && val.nilai_teks.trim().length > 0)
-        );
-        if (!hasVal) {
-          throw new Error(`Atribut wajib "${a.nama}" belum diisi.`);
+    let finalTipeName = manualName;
+    if (!finalTipeName) {
+      const atributs = await this.listAtributByJenis(prod.jenis_id);
+      if (atributs.length > 0 && Array.isArray(input.nilai_atribut)) {
+        for (const a of atributs) {
+          if (a.wajib) {
+            const val = nilaiAtributList.find(v => v.atribut_id === a.id);
+            const hasVal = val && (
+              val.nilai_angka !== undefined ||
+              val.opsi_id !== undefined ||
+              (val.opsi_baru && val.opsi_baru.trim().length > 0) ||
+              (val.nilai_teks && val.nilai_teks.trim().length > 0)
+            );
+            if (!hasVal) {
+              throw new Error(`Atribut wajib "${a.nama}" belum diisi.`);
+            }
+          }
         }
+        for (const v of nilaiAtributList) {
+          if (v.opsi_baru && v.opsi_baru.trim().length > 0) {
+            const added = await this.addAtributOpsi(v.atribut_id, v.opsi_baru.trim());
+            v.opsi_id = added.id;
+          }
+        }
+        finalTipeName = this.generateTipeName(atributs, nilaiAtributList);
+      } else {
+        throw new Error('Nama varian tipe wajib diisi.');
       }
     }
 
-    // Jika ada opsi_baru, tambahkan ke tabel atribut_opsi dulu
-    for (const v of input.nilai_atribut) {
-      if (v.opsi_baru && v.opsi_baru.trim().length > 0) {
-        const added = await this.addAtributOpsi(v.atribut_id, v.opsi_baru.trim());
-        v.opsi_id = added.id;
+    if (input.pola_id && input.pola_id.trim().length > 0) {
+      try {
+        new RegExp(input.pola_id.trim());
+      } catch {
+        throw new Error(`Pola Regex "${input.pola_id.trim()}" tidak valid.`);
       }
     }
 
-    // Bentuk nama tipe otomatis
-    const autoName = this.generateTipeName(atributs, input.nilai_atribut);
-
-    // Cek duplikasi nama tipe di produk yang sama
+    // Cek duplikasi nama tipe di produk yang sama (case-insensitive)
     const duplicate = await executeQuery<{ id: number }>(
-      'SELECT id FROM tipe WHERE produk_id = ? AND nama_tipe = ? AND aktif = 1',
-      [input.produk_id, autoName]
+      'SELECT id FROM tipe WHERE produk_id = ? AND LOWER(nama_tipe) = LOWER(?) AND aktif = 1',
+      [input.produk_id, finalTipeName]
     );
     if (duplicate && duplicate.length > 0) {
-      throw new Error(`Tipe "${autoName}" sudah terdaftar untuk produk "${prod.nama}".`);
+      throw new Error(`Tipe "${finalTipeName}" sudah terdaftar untuk produk "${prod.nama}".`);
     }
 
     const sumberId = input.sumber_id || 'manual';
     const modeStok = sumberId === 'tanpa_id' ? 'jumlah' : 'per_id';
 
     return await runTransaction(async (conn) => {
+      const inactiveDup = (await conn.query(
+        'SELECT id, nama_tipe FROM tipe WHERE produk_id = ? AND LOWER(nama_tipe) = LOWER(?) AND aktif = 0',
+        [input.produk_id, finalTipeName]
+      )) as Array<{ id: number; nama_tipe: string }>;
+      if (Array.isArray(inactiveDup) && inactiveDup.length > 0) {
+        for (const arch of inactiveDup) {
+          await conn.query('UPDATE tipe SET nama_tipe = ? WHERE id = ?', [
+            `${arch.nama_tipe} [arsip-${arch.id}-${Date.now().toString().slice(-4)}]`,
+            arch.id
+          ]);
+        }
+      }
+
       const res = (await conn.query(
         `INSERT INTO tipe (produk_id, nama_tipe, catatan, sumber_id, mode_stok, prefix_id, pola_id, id_dikunci, aktif)
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)`,
         [
           input.produk_id,
-          autoName,
+          finalTipeName,
           input.catatan || null,
           sumberId,
           modeStok,
           input.prefix_id || null,
-          input.pola_id || null
+          input.pola_id ? input.pola_id.trim() : null
         ]
       )) as InsertResultRow;
 
       const tipeId = Number(res.insertId || res.id);
 
-      for (const v of input.nilai_atribut) {
+      for (const v of nilaiAtributList) {
         await conn.query(
           `INSERT INTO tipe_nilai (tipe_id, atribut_id, nilai_angka, opsi_id, nilai_teks)
            VALUES (?, ?, ?, ?, ?)`,
@@ -1455,8 +1718,8 @@ export class CatalogService {
       await ActivityLogService.recordActivity({
         aksi: 'tambah_tipe',
         pelaku_id: userId,
-        catatan: `Menambahkan Tipe varian baru "${autoName}" pada produk "${prod.nama}"`
-      });
+        catatan: `Menambahkan Tipe varian baru "${finalTipeName}" pada produk "${prod.nama}"`
+      }, conn);
 
       const created = await this.getTipeById(tipeId);
       return created!;
@@ -1464,9 +1727,10 @@ export class CatalogService {
   }
 
   /**
-   * Koreksi Aturan ID Tipe (Koreksi ID jika id_dikunci = 1)
+   * Koreksi Aturan ID & Rename Nama Varian Tipe (Sekaligus pada modal Atur ID)
    */
   static async updateAturanId(tipeId: number, input: {
+    nama_tipe?: string;
     sumber_id: 'scan_sn' | 'otomatis' | 'manual' | 'tanpa_id';
     prefix_id?: string;
     pola_id?: string;
@@ -1477,21 +1741,233 @@ export class CatalogService {
       throw new Error(`Tipe #${tipeId} tidak ditemukan.`);
     }
 
+    const nextNamaTipe = input.nama_tipe !== undefined ? input.nama_tipe.trim() : existing.nama_tipe;
+    if (!nextNamaTipe) {
+      throw new Error('Nama varian tipe tidak boleh kosong.');
+    }
+
+    if (input.pola_id && input.pola_id.trim().length > 0) {
+      try {
+        new RegExp(input.pola_id.trim());
+      } catch {
+        throw new Error(`Pola Regex "${input.pola_id.trim()}" tidak valid.`);
+      }
+    }
+
+    const isRenamed = nextNamaTipe.toLowerCase() !== existing.nama_tipe.toLowerCase();
+    if (isRenamed || nextNamaTipe !== existing.nama_tipe) {
+      const dup = await executeQuery<{ id: number }>(
+        'SELECT id FROM tipe WHERE produk_id = ? AND LOWER(nama_tipe) = LOWER(?) AND id != ? AND aktif = 1',
+        [existing.produk_id, nextNamaTipe, tipeId]
+      );
+      if (dup && dup.length > 0) {
+        throw new Error(`Nama tipe "${nextNamaTipe}" sudah digunakan varian lain pada produk ini.`);
+      }
+    }
+
     const modeStok = input.sumber_id === 'tanpa_id' ? 'jumlah' : 'per_id';
 
-    await executeQuery(
-      `UPDATE tipe SET sumber_id = ?, mode_stok = ?, prefix_id = ?, pola_id = ? WHERE id = ?`,
-      [input.sumber_id, modeStok, input.prefix_id || null, input.pola_id || null, tipeId]
-    );
+    await runTransaction(async (conn) => {
+      if (nextNamaTipe !== existing.nama_tipe) {
+        const inactiveDup = (await conn.query(
+          'SELECT id, nama_tipe FROM tipe WHERE produk_id = ? AND LOWER(nama_tipe) = LOWER(?) AND id != ? AND aktif = 0',
+          [existing.produk_id, nextNamaTipe, tipeId]
+        )) as Array<{ id: number; nama_tipe: string }>;
+        if (Array.isArray(inactiveDup) && inactiveDup.length > 0) {
+          for (const arch of inactiveDup) {
+            await conn.query('UPDATE tipe SET nama_tipe = ? WHERE id = ?', [
+              `${arch.nama_tipe} [arsip-${arch.id}-${Date.now().toString().slice(-4)}]`,
+              arch.id
+            ]);
+          }
+        }
+      }
 
-    await ActivityLogService.recordActivity({
-      aksi: 'koreksi_aturan_id',
-      pelaku_id: userId,
-      catatan: `Koreksi Aturan ID pada tipe "${existing.nama_tipe}": ${input.alasan} (Sumber: ${existing.sumber_id} -> ${input.sumber_id})`
+      await conn.query(
+        `UPDATE tipe SET nama_tipe = ?, sumber_id = ?, mode_stok = ?, prefix_id = ?, pola_id = ? WHERE id = ?`,
+        [nextNamaTipe, input.sumber_id, modeStok, input.prefix_id || null, input.pola_id ? input.pola_id.trim() : null, tipeId]
+      );
+
+      const renameNote = nextNamaTipe !== existing.nama_tipe ? `Nama: "${existing.nama_tipe}" -> "${nextNamaTipe}", ` : '';
+      await ActivityLogService.recordActivity({
+        aksi: 'koreksi_aturan_id',
+        pelaku_id: userId,
+        catatan: `Koreksi Tipe & Aturan ID (${renameNote}Sumber: ${existing.sumber_id} -> ${input.sumber_id}): ${input.alasan}`
+      }, conn);
     });
 
     const updated = await this.getTipeById(tipeId);
     return updated!;
+  }
+
+  /**
+   * Memindahkan Varian Tipe ke Produk lain (tetap mempertahankan item fisik, stok jumlah, & riwayat)
+   */
+  static async moveTipeToProduk(
+    tipeId: number,
+    targetProdukId: number,
+    userId: string
+  ): Promise<{ success: boolean; message: string; type: Tipe }> {
+    const existing = await this.getTipeById(tipeId);
+    if (!existing || !existing.aktif) {
+      throw new Error(`Varian tipe #${tipeId} tidak ditemukan atau tidak aktif.`);
+    }
+
+    const targetProduk = await this.getProdukById(targetProdukId);
+    if (!targetProduk || !targetProduk.aktif) {
+      throw new Error(`Produk tujuan #${targetProdukId} tidak ditemukan atau tidak aktif.`);
+    }
+
+    if (existing.produk_id === targetProdukId) {
+      return {
+        success: true,
+        message: `Tipe "${existing.nama_tipe}" sudah berada di produk "${targetProduk.nama}".`,
+        type: existing
+      };
+    }
+
+    const activeDup = await executeQuery<{ id: number }>(
+      'SELECT id FROM tipe WHERE produk_id = ? AND LOWER(nama_tipe) = LOWER(?) AND id != ? AND aktif = 1',
+      [targetProdukId, existing.nama_tipe, tipeId]
+    );
+    if (activeDup && activeDup.length > 0) {
+      throw new Error(
+        `Produk tujuan "${targetProduk.nama}" sudah memiliki tipe bernama "${existing.nama_tipe}". Ubah nama tipe terlebih dahulu sebelum memindahkan.`
+      );
+    }
+
+    await runTransaction(async (conn) => {
+      const inactiveDup = (await conn.query(
+        'SELECT id, nama_tipe FROM tipe WHERE produk_id = ? AND LOWER(nama_tipe) = LOWER(?) AND id != ? AND aktif = 0',
+        [targetProdukId, existing.nama_tipe, tipeId]
+      )) as Array<{ id: number; nama_tipe: string }>;
+      if (Array.isArray(inactiveDup) && inactiveDup.length > 0) {
+        for (const arch of inactiveDup) {
+          await conn.query('UPDATE tipe SET nama_tipe = ? WHERE id = ?', [
+            `${arch.nama_tipe} [arsip-${arch.id}-${Date.now().toString().slice(-4)}]`,
+            arch.id
+          ]);
+        }
+      }
+
+      await conn.query('UPDATE tipe SET produk_id = ? WHERE id = ?', [targetProdukId, tipeId]);
+
+      await ActivityLogService.recordActivity({
+        aksi: 'pindah_tipe_produk',
+        pelaku_id: userId,
+        catatan: `Memindahkan varian tipe "${existing.nama_tipe}" dari produk "${existing.produk_nama || existing.produk_id}" ke "${targetProduk.nama}"`
+      }, conn);
+    });
+
+    const updated = await this.getTipeById(tipeId);
+    return {
+      success: true,
+      message: `Varian tipe "${existing.nama_tipe}" berhasil dipindahkan ke produk "${targetProduk.nama}".`,
+      type: updated!
+    };
+  }
+
+  static async canDeleteTipe(id: number): Promise<{ canDelete: boolean; message?: string; existing?: Tipe }> {
+    const existing = await this.getTipeById(id);
+    if (!existing || !existing.aktif) {
+      return { canDelete: false, message: 'Varian tipe tidak ditemukan.' };
+    }
+
+    const itemRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total FROM item WHERE tipe_id = ? AND status IN ('aktif', 'dipesan')`,
+      [id]
+    );
+    const activeItems = Number(itemRows[0]?.total || 0);
+
+    const sjRows = await executeQuery<{ total: number | string; reserved: number | string }>(
+      `SELECT COALESCE(SUM(jumlah), 0) as total, COALESCE(SUM(COALESCE(reserved_qty, 0)), 0) as reserved FROM stok_jumlah WHERE tipe_id = ?`,
+      [id]
+    );
+    const activeSj = Number(sjRows[0]?.total || 0);
+    const reservedSj = Number(sjRows[0]?.reserved || 0);
+
+    if (activeItems > 0 || activeSj > 0 || reservedSj > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Tipe "${existing.nama_tipe}" karena masih memiliki stok aktif atau dipesan (${activeItems} item ber-ID, ${activeSj} stok jumlah).`
+      };
+    }
+
+    const reqRows = await executeQuery<TotalCountRow>(
+      `SELECT COUNT(*) as total FROM request WHERE tipe_id = ? AND status IN ('diajukan', 'menunggu', 'disetujui', 'diambil')`,
+      [id]
+    );
+    const openReqs = Number(reqRows[0]?.total || 0);
+    if (openReqs > 0) {
+      return {
+        canDelete: false,
+        existing,
+        message: `Tidak dapat menghapus Tipe "${existing.nama_tipe}" karena masih memiliki ${openReqs} request aktif.`
+      };
+    }
+
+    return { canDelete: true, existing };
+  }
+
+  static async deleteTipe(id: number, userId: string): Promise<{ success: boolean; message: string }> {
+    const check = await this.canDeleteTipe(id);
+    if (!check.canDelete || !check.existing) {
+      return { success: false, message: check.message || 'Varian tipe tidak dapat dihapus.' };
+    }
+    const existing = check.existing;
+
+    await TrashService.moveToTrash({
+      jenis_objek: 'tipe',
+      objek_id: String(id),
+      snapshot: { ...existing, name: `${existing.produk_nama || ''} - ${existing.nama_tipe}` },
+      dihapus_oleh: userId,
+      catatan: `Hapus Varian Tipe "${existing.nama_tipe}" (${existing.produk_nama || ''})`
+    });
+
+    await executeQuery('UPDATE tipe SET aktif = 0 WHERE id = ?', [id]);
+    return {
+      success: true,
+      message: `Varian tipe "${existing.nama_tipe}" berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
+  }
+
+  static async canDeleteTipeBulk(ids: number[]): Promise<{ canDelete: boolean; message?: string; items: Tipe[] }> {
+    const uniqueIds = Array.from(new Set(ids.filter(id => Number.isFinite(id) && id > 0)));
+    if (uniqueIds.length === 0) {
+      return { canDelete: false, message: 'Pilih minimal 1 varian tipe untuk dihapus.', items: [] };
+    }
+    const items: Tipe[] = [];
+    for (const id of uniqueIds) {
+      const check = await this.canDeleteTipe(id);
+      if (!check.canDelete || !check.existing) {
+        return { canDelete: false, message: check.message || `Tipe #${id} tidak dapat dihapus.`, items: [] };
+      }
+      items.push(check.existing);
+    }
+    return { canDelete: true, items };
+  }
+
+  static async deleteTipeBulk(ids: number[], userId: string): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    const check = await this.canDeleteTipeBulk(ids);
+    if (!check.canDelete) {
+      return { success: false, deletedCount: 0, message: check.message || 'Varian tipe terpilih tidak dapat dihapus.' };
+    }
+    for (const existing of check.items) {
+      await TrashService.moveToTrash({
+        jenis_objek: 'tipe',
+        objek_id: String(existing.id),
+        snapshot: { ...existing, name: `${existing.produk_nama || ''} - ${existing.nama_tipe}` },
+        dihapus_oleh: userId,
+        catatan: `Hapus Massal Varian Tipe "${existing.nama_tipe}" (${existing.produk_nama || ''})`
+      });
+      await executeQuery('UPDATE tipe SET aktif = 0 WHERE id = ?', [existing.id]);
+    }
+    return {
+      success: true,
+      deletedCount: check.items.length,
+      message: `${check.items.length} varian tipe berhasil dihapus (disimpan di Kotak Sampah 14 hari).`
+    };
   }
 
   /**
